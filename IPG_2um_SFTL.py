@@ -18,6 +18,7 @@ from glob import glob
 from sys import stdout
 import threading
 from time import sleep
+import matplotlib.pyplot as plt
 ###############################################
 #                 Parameters                  #
 
@@ -38,7 +39,7 @@ pwrmtr_visa_address = u'USB0::0x1313::0x8078::P0005908::INSTR'
 sm_calibration_save_dir = 'C:/Users/Lab/Lab Software/GitHub/experiment_control/calibration_data/sm_calibration'
 grating_calibration_save_dir = 'C:/Users/Lab/Lab Software/GitHub/experiment_control/calibration_data/grating_calibration'
 SHG_calibration_save_dir = 'C:/Users/Lab/Lab Software/GitHub/experiment_control/calibration_data/SHG_calibration'
-
+spectra_save_dir = 'C:/Users/Lab/Lab Software/GitHub/experiment_control/calibration_data/spectra'
 dlm_dstep = 0.1 * u.nm / 13 # change in wavelength per stepper motor step measured by yours truly near 2300nm
 
 # import SHG tuning data provided by covesion and generate interpolation functions
@@ -47,15 +48,18 @@ data_cov = np.genfromtxt(path.normpath(path.join(SHG_calibration_save_dir,covesi
 temp_cov = Q_(data_cov[0,:],u.degC)
 lm_cov = data_cov[1:,:] * u.nm
 LM_cov = np.array([34,34.8,35.5,35.8,35.97]) * u.um # poling periods of MSHG2600-1.0-40 PPLN crystal
+
+## import my own SHG calibration data
+current_poling_region = 1 # should be fixed when we have a stage to move the PPLN crystal between poling regions.
 ###############################################
 
 
 
 ### Open instruments
 #spec = instrument('Bristol') can't do this here or you get tons of error messages
-sm = USMC.USMC(motor_id,travel_per_microstep,step_divisor)
-oc = covesion.OC(visa_address=oc_visa_address)
-pwrmtr = instrument({'visa_address':pwrmtr_visa_address,'module':'powermeters.thorlabs'})
+sm = instrument('USMC')
+oc = instrument('OC')
+#pwrmtr = instrument({'visa_address':pwrmtr_visa_address,'module':'powermeters.thorlabs'})
 
 
 
@@ -114,6 +118,30 @@ def get_wavelength():
     return lm
 
 @ignore_stderr
+def get_spectrum(plot=True,save=True):
+    spec = instrument('Bristol')
+    lm, psd = spec.get_spectrum()
+    spec.close()
+    lm = lm.to(u.um)
+    timestamp_str = datetime.strftime(datetime.now(),'%Y_%m_%d_%H_%M_%S')
+    fname = 'IPG_SFTL_spectrum_' + timestamp_str + '.txt'
+    if save:
+        np.savetxt(path.normpath(path.join(spectra_save_dir,fname)),
+                np.stack((lm.magnitude,psd)))
+    if plot:
+        fig = plt.figure(figsize=(12,12))
+        ax = fig.add_subplot(111)
+        ax.plot(lm,psd,'C3')
+        ax.grid()
+        ax.set_xlabel('$\lambda$ [$\mu$m]')
+        ax.set_ylabel('PSD [dBm/spectral bin]')
+        if save:
+            ax.set_title('data saved to file:\n'+fname)
+        fig.tight_layout()
+        plt.show()
+    return lm,psd
+
+@ignore_stderr
 def calibrate_grating(speed=3000,x_min=0*u.mm,x_max=None,nx=10):
     spec = instrument('Bristol')
     # prepare data arrays
@@ -152,6 +180,7 @@ def init(speed=1000,nx=30,recalibrate=False):
         load_newest_stepper_motor_calibration()
         load_newest_grating_calibration()
 
+
 def load_newest_grating_calibration(verbose=False):
     file_list =  glob(path.normpath(grating_calibration_save_dir)+path.normpath('/IPG_SFTL_grating_calibration*'))
     latest_file = max(file_list,key=path.getctime)
@@ -162,23 +191,88 @@ def load_newest_grating_calibration(verbose=False):
     return x_grating_cal, lm_grating_cal, lm_x_grating_model
 
 
+def _overstep_high(spec,lm_meas,n_iter_max=20):
+    n_iter=0
+    while ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ) and (n_iter < n_iter_max):
+        lm_err = -5 * u.nm
+        curr_pos_steps = sm.get_current_position(unitful=False)
+        relative_move = int((lm_err / dlm_dstep).to(u.dimensionless).magnitude)
+        target_pos_steps = curr_pos_steps + relative_move
+        sm.go_and_wait(target_pos_steps,unitful=False,polling_period=100*u.ms)
+        lm_meas = spec.get_wavelength()
+
+
+def _overstep_low(spec,lm_meas,n_iter_max=20):
+    n_iter=0
+    while ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ) and (n_iter < n_iter_max):
+        lm_err = 5 * u.nm
+        curr_pos_steps = sm.get_current_position(unitful=False)
+        relative_move = int((lm_err / dlm_dstep).to(u.dimensionless).magnitude)
+        target_pos_steps = curr_pos_steps + relative_move
+        sm.go_and_wait(target_pos_steps,unitful=False,polling_period=100*u.ms)
+        lm_meas = spec.get_wavelength()
+
+def get_poling_region(lm):
+    shg_data = load_newest_SHG_calibration()
+    shg_phase_matching_ranges = [(data['lm_phase_match'].min(),data['lm_phase_match'].max()) for data in shg_data]
+    in_range = [lr[0]<lm<lr[1] for lr in shg_phase_matching_ranges]
+    if not any(in_range):
+        return False
+    possible_regions = np.arange(len(in_range))[in_range]
+    if np.sum(np.array(in_range)) > 1:
+        closest_ind = np.argmin(np.abs(current_poling_region - possible_regions))
+        return possible_regions[closest_ind]
+    else:
+        return possible_regions[0]
+
 @ignore_stderr
-def set_wavelength(lm,closed_loop=True,check_lm=False,n_iter_max=100,spec_wait_time=2*u.second):
+def set_wavelength(lm,closed_loop=True,tune_SHG=True,wait_for_SHG=False,check_lm=False,n_iter_max=100,spec_wait_time=2*u.second):
+    shg_data = load_newest_SHG_calibration()
+    if tune_SHG:
+        poling_region = get_poling_region(lm)
+        if poling_region:
+            T_set = Q_(np.asscalar(shg_data[poling_region]['phase_match_model'](lm)),u.degC)
+            print('tuning SHG:')
+            print('\tpoling region: {}, LM={:2.4f}um'.format(current_poling_region,LM_cov[current_poling_region].magnitude))
+            print('\tset temperature: {:4.1f}C'.format(T_set.magnitude))
+            if wait_for_SHG:
+                oc.set_temp_and_wait(T_set,max_err=temp_max_err,n_samples=n_temp_samples,timeout=temp_timeout)
+            else:
+                oc.set_set_temp(T_set)
+        # except:
+        #     print('warning: error in tune_SHG routine')
     x_grating_cal, lm_grating_cal, lm_x_grating_model = load_newest_grating_calibration()
     x_comm = float(lm_x_grating_model(lm)) * u.mm
     sm.go_and_wait(x_comm,polling_period=100*u.ms)
     with bristol_temp() as spec:
         if closed_loop:
             lm_meas = spec.get_wavelength()
+            if ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ):
+                if lm > (2300 * u.nm):
+                    _overstep_high(spec,lm_meas)
+                    lm_meas = spec.get_wavelength()
+                else:
+                    _overstep_low(spec,lm_meas)
+                    lm_meas = spec.get_wavelength()
             lm_err = lm - lm_meas
             n_iter = 0
             while (float(abs(lm_err.to(u.nm).magnitude))>0.05) and (n_iter < n_iter_max):
                 curr_pos_steps = sm.get_current_position(unitful=False)
                 relative_move = int((lm_err / dlm_dstep).to(u.dimensionless).magnitude)
                 target_pos_steps = curr_pos_steps + relative_move
+                if not(sm.limit_switch_1_pos<target_pos_steps<sm.limit_switch_2_pos):
+                    print('Warning: bad target_pos_steps: {:2.1g}, lm_meas:{:7.3f}\n'.format(target_pos_steps,float(lm_meas.magnitude)))
+                    target_pos_steps = 0
                 sm.go_and_wait(target_pos_steps,unitful=False,polling_period=100*u.ms)
                 sleep(spec_wait_time.to(u.second).magnitude)
                 lm_meas = spec.get_wavelength()
+                if ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ):
+                    if lm > (2300 * u.nm):
+                        _overstep_high(spec,lm_meas)
+                        lm_meas = spec.get_wavelength()
+                    else:
+                        _overstep_low(spec,lm_meas)
+                        lm_meas = spec.get_wavelength()
                 lm_err = lm - lm_meas
                 n_iter += 1
                 print_statusline('setting wavelength to {:7.3f}, loop 1, lm_meas: {:7.3f}nm, lm_err: {:6.3f}nm, n_iter: {:}'.format(float(lm.to(u.nm).magnitude),float(lm_meas.to(u.nm).magnitude),float(lm_err.to(u.nm).magnitude),n_iter))
@@ -214,15 +308,32 @@ def _set_wavelength(lm,spec,closed_loop=True,check_lm=False,n_iter_max=100,spec_
     sm.go_and_wait(x_comm,polling_period=100*u.ms)
     if closed_loop:
         lm_meas = spec.get_wavelength()
+        if ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ):
+            if lm > (2300 * u.nm):
+                _overstep_high(spec,lm_meas)
+                lm_meas = spec.get_wavelength()
+            else:
+                _overstep_low(spec,lm_meas)
+                lm_meas = spec.get_wavelength()
         lm_err = lm - lm_meas
         n_iter = 0
         while (float(abs(lm_err.to(u.nm).magnitude))>0.05) and (n_iter < n_iter_max):
             curr_pos_steps = sm.get_current_position(unitful=False)
             relative_move = int((lm_err / dlm_dstep).to(u.dimensionless).magnitude)
             target_pos_steps = curr_pos_steps + relative_move
+            if not(sm.limit_switch_1_pos<target_pos_steps<sm.limit_switch_2_pos):
+                print('Warning: bad target_pos_steps: {:2.1g}, lm_meas:{:7.3f}\n'.format(target_pos_steps,float(lm_meas.magnitude)))
+                target_pos_steps = 0
             sm.go_and_wait(target_pos_steps,unitful=False,polling_period=100*u.ms)
             sleep(spec_wait_time.to(u.second).magnitude)
             lm_meas = spec.get_wavelength()
+            if ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ):
+                if lm > (2300 * u.nm):
+                    _overstep_high(spec,lm_meas)
+                    lm_meas = spec.get_wavelength()
+                else:
+                    _overstep_low(spec,lm_meas)
+                    lm_meas = spec.get_wavelength()
             lm_err = lm - lm_meas
             n_iter += 1
             print_statusline('setting wavelength to {:7.3f}, loop 1, lm_meas: {:7.3f}nm, lm_err: {:6.3f}nm, n_iter: {:}'.format(float(lm.to(u.nm).magnitude),float(lm_meas.to(u.nm).magnitude),float(lm_err.to(u.nm).magnitude),n_iter))
@@ -289,3 +400,56 @@ def calibrate_SHG(n_poling_region,temp_min,temp_max,n_temp,lm_min,lm_max,n_lm,n_
     _save_SHG_data(save_data)
 
     return temp_cmd, lm_cmd, P_SHG
+
+
+def load_newest_SHG_calibration(verbose=False,cutoff_factor=30):
+    dir_list = glob(path.normpath(SHG_calibration_save_dir)+'/*/')
+    SHG_data = list(dir_list)
+    if verbose:
+        print_statusline('{} SHG calibration folders found: '.format(len(dir_list))+str([s.split('\\')[-2] for s in dir_list]))
+    for d_ind, dd in enumerate(dir_list):
+        dir_string = dd.split('\\')[-2]
+        file_list = glob(path.normpath(dd+'IPG_SFTL_SHG_calibration_'+dir_string+'*'))
+        latest_file = max(file_list,key=path.getctime)
+        temp_cmd, lm_cmd, P_SHG = np.load(latest_file)
+        P_SHG_max = P_SHG.max(axis=0)
+        P_SHG_norm = (P_SHG / P_SHG_max)
+        P_SHG_mask = P_SHG_max > P_SHG.max()/cutoff_factor
+        P_SHG_max_ind = np.argmax(P_SHG,axis=0)[P_SHG_mask]
+        lm_phase_match = lm_cmd[P_SHG_mask]
+        T_phase_match = temp_cmd[P_SHG_max_ind]
+        phase_match_model = interp1d(lm_phase_match,T_phase_match)
+        data_dict = {'period':Q_(dir_string.split('_')[1]),
+                    'temp_cmd':temp_cmd,
+                    'lm_cmd':lm_cmd,
+                    'P_SHG':P_SHG,
+                    'P_SHG_max':P_SHG_max,
+                    'P_SHG_norm':P_SHG_norm,
+                    'lm_phase_match':lm_phase_match,
+                    'T_phase_match':T_phase_match,
+                    'phase_match_model':phase_match_model
+                    }
+        SHG_data[d_ind] = data_dict
+        if verbose:
+            print_statusline('from ' + dir_string + ' loading newest file: ' + latest_file.split('\\')[-1])
+    return SHG_data
+
+shg_data = load_newest_SHG_calibration()
+shg_phase_matching_ranges = [(data['lm_phase_match'].min(),data['lm_phase_match'].max()) for data in shg_data]
+
+
+def plot_SHG_data():
+    # temp_cov = Q_(data_cov[0,:],u.degC)
+    # lm_cov = data_cov[1:,:] * u.nm
+    # LM_cov = np.array([34,34.8,35.5,35.8,35.97]) * u.um
+    shg_data = load_newest_SHG_calibration()
+    for LM_ind, LM in enumerate(LM_cov):
+        plt.plot(temp_cov,lm_cov[LM_ind,:],color='C{}'.format(LM_ind),label='{:4.2f}$\mu$m (Covesion)'.format(LM.magnitude))
+        if len(shg_data)>=LM_ind+1:
+            plt.plot(shg_data[LM_ind]['phase_match_model'](shg_data[LM_ind]['lm_phase_match']),shg_data[LM_ind]['lm_phase_match'],'--.',color='C{}'.format(LM_ind),label='{:4.2f}$\mu$m'.format(LM.magnitude))
+    plt.grid()
+    ax = plt.gca()
+    ax.legend()
+    ax.set_xlabel('temperature [C]')
+    ax.set_ylabel('fundamental wavelength [nm]')
+    plt.show()
