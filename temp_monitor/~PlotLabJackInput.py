@@ -1,11 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 """
-Update a simple plot of analog input voltages grabbed from LabJack using LJM.
-Currently these voltages are converted into measured temperatures to monitor
-a temperature controller's set and measured temperature values in real time.
-Measure and display framerate.
-This version is optimized for the 320x240 pixel LCD on my current Raspberry Pi.
+Update a simple plot as rapidly as possible to measure speed.
 """
 
 import socket
@@ -31,8 +27,7 @@ r_inf = R_ohm_25C * np.exp( - beta / T0 )
 HOST, PORT = "localhost", 9999
 data = " ".join(sys.argv[1:])
 
-width_pix = 1280
-height_pix = 960
+
 ##############################################
 
 def inverse_thermistance(R_ohm,R_ohm_25C,beta):
@@ -67,29 +62,10 @@ def get_val(ch,calc_temp=True):
 
 app = QtGui.QApplication([])
 
-# Use pyqtgraph's GraphicsItems
-view = pg.GraphicsView()
-layout = pg.GraphicsLayout()
-view.setCentralItem(layout)
-view.setMaximumWidth(width_pix)
-view.setMaximumHeight(height_pix)
-view.showMaximized()
-
-### use QWidgets
-# w = QtGui.QWidget()
-# layout = QtGui.QGridLayout()
-# w.setLayout(layout)
-# w.setMaximumWidth(width_pix)
-# w.setMaximumHeight(height_pix)
-# w.showMaximized()
-
-
-
-#p = layout.addPlot(col=0,row=0,rowspan=8)
-p = pg.PlotItem()
-#p = pg.PlotWidget()
-p.setWindowTitle('Sample Thermostat Data')
+p = pg.plot()
+p.setWindowTitle('pyqtgraph example: PlotSpeedTest')
 p.setRange(QtCore.QRectF(0, -10, 5000, 20))
+p.setLabel('bottom', 'Index', units='B')
 p.showGrid(x=True,y=True,alpha=0.8)
 #p.setXRange(0,Npts*wait_sec, padding=0)
 p.setLimits(xMin=0,
@@ -101,12 +77,9 @@ p.setLimits(xMin=0,
             minYRange=0.01,
             maxYRange=100)
 p.enableAutoScale()
-xlab = p.setLabel('bottom',text='time',units='s')
-ylab = p.setLabel('left',text='temperature',units='C')
-
-
-
-#vb = p.getViewBox()
+p.setLabel('bottom',text='time',units='s')
+p.setLabel('left',text='temperature',units='C')
+vb = p.getViewBox()
 
 # vb.autoRange(padding=0.1)
 #curve.setFillBrush((0, 0, 100, 100))
@@ -130,26 +103,11 @@ t0 = time()
 ptr = 1
 lastTime = t0
 fps = None
-fps_text = pg.TextItem(text='fps: ',
-                        color=(200,200,200),
-                        anchor=(1,0),
-                        )
-# leg = pg.LegendItem()
-# leg.addItem(curve0,name='meas')
-# leg.addItem(curve1,name='set')
-
-#p.addItem(fps_text)
-fps_text.setPos(0.5,0.5)
-layout.addItem(p,0,0,1,1)
-#layout.addItem(leg,1,0,10,1)
-#layout.layout.setRowStretchFactor(0, 3)
-#layout.layout.setRowStretchFactor(0, 10)
-#layout.layout.setRowStretchFactor(1, 1)
-#layout.addWidget(p,0,0,5,1)
-#layout.addWidget(leg,5,0,1,1)
-
+leg = p.addLegend(size=[80,30],offset=[10,300])
+leg.addItem(curve0,name='meas temp')
+leg.addItem(curve1,name='set temp')
 def update():
-    global fps_text,leg,layout,data0, data1, curve0, curve1, time_array, ptr, p, lastTime, fps
+    global leg,vb,data0, data1, curve0, curve1, time_array, ptr, p, lastTime, fps
     val0 = get_val(0,calc_temp=calc_temp)
     val1 = get_val(1,calc_temp=calc_temp)
     now = time()-t0
@@ -179,10 +137,7 @@ def update():
     else:
         s = np.clip(dt*3., 0, 1)
         fps = fps * (1-s) + (1.0/dt) * s
-    fps_str = '%0.2f fps' % fps
-
-    title_str = r'<font color="red">T<sub>meas</sub></font>, <font color="cyan">T<sub>set</sub></font>, ' + fps_str
-    p.setTitle(title_str,color=(255,255,255))
+    p.setTitle('%0.2f fps' % fps)
     # ta_max_str = 'time_array max: {:3.3f}, '.format(time_array.max())
     # vb_range_str = 'vb_range: {}, '.format(vb.viewRange())
     # vb_rect_str = 'vb_rect: {}'.format(vb.viewRect())

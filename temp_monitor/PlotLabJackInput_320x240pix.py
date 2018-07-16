@@ -20,7 +20,7 @@ from time import sleep
 Npts = 3000
 wait_sec = 0.03
 current_amp = 1e-5
-calc_temp = True
+calc_temp = False #True
 rescale = True
  # parameters for RL10 NTC thermistor, RL1006-53.4K-140-D1, Digikey part KC009N-ND
 beta = 4615 # degK

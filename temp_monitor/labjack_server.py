@@ -13,7 +13,11 @@ def lj_read_unitless(handle=lj_handle,channel=0):
     name = 'AIN' + str(channel)
     return ljm.eReadName(lj_handle, name)
 
-
+def lj_write_unitless(voltage,handle=lj_handle,channel=0):
+    if channel not in [0,1]:
+        raise Exception('Invalid LabJack AO channel')
+    name = 'DAC' + str(channel)
+    ljm.eWriteName(lj_handle, name, voltage)
 
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
     """
@@ -27,17 +31,24 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
     def handle(self):
         # self.request is the TCP socket connected to the client
         self.data = self.request.recv(1024).strip()
-        channel=int(str(self.data, "utf-8")[2])
-        V = lj_read_unitless(handle=lj_handle,channel=channel)
-        #V = lj_read_unitless(handle=lj_handle,)
-        V_ba = bytearray(struct.pack("f", V))
         print("{} wrote:".format(self.client_address[0]))
         print(self.data)
-        # just send back the same data, but upper-cased
-        #self.request.sendall(self.data.upper())
-        self.request.sendall(V_ba)
-        #self.request.sendall(bytes(channel_str+ "\n", "utf-8"))
-        #self.request.sendall(bytes(channel_str, "utf-8"))
+        in_out = str(self.data, "utf-8")[:2]
+        channel = int(str(self.data, "utf-8")[2])
+        if in_out=='AI':
+            V = lj_read_unitless(handle=lj_handle,channel=channel)
+            V_ba = bytearray(struct.pack("f", V))
+            self.request.sendall(V_ba)
+        elif in_out=='AO':
+            V = float(str(self.data, "utf-8")[3:])
+            lj_write_unitless(V,handle=lj_handle,channel=channel)
+            V_ba = bytearray(struct.pack("f", V))
+            self.request.sendall(V_ba)
+        else:
+            self.request.sendall('request not understood')
+
+
+
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
