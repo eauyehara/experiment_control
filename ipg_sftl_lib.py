@@ -9,7 +9,7 @@ from instrumental import instrument, Q_, u
 from instrumental.drivers.motion import USMC
 from instrumental.drivers.spectrometers import bristol
 from instrumental.drivers.tempcontrollers import covesion
-from instrumental.drivers.spectrometers.bristol import ignore_stderr
+#from instrumental.drivers.spectrometers.bristol import ignore_stderr
 from datetime import datetime
 import numpy as np
 from scipy.interpolate import interp1d
@@ -27,7 +27,7 @@ motor_id = 0
 travel_per_microstep = 156 * u.nm # from looking at motor model on Standa website
 step_divisor=8 # reported by motor in uSMC test application. This worked previously
 # Bristol 721
-bristol_port = 4
+bristol_port = 3
 bristol_params={'module':'spectrometers.bristol','classname':'Bristol_721','port':bristol_port}
 # Covesion OC1 PPLN oven temperature controller
 oc_visa_address = u'ASRL4::INSTR'
@@ -111,14 +111,14 @@ def load_newest_stepper_motor_calibration(verbose=False):
     return sm_ls1_pos, sm_ls2_pos
 
 
-@ignore_stderr
+# @ignore_stderr#
 def get_wavelength():
     spec = instrument(**bristol_params)
     lm = spec.get_wavelength()
     spec.close()
     return lm
 
-@ignore_stderr
+# @ignore_stderr#
 def get_spectrum(plot=True,save=True):
     spec = instrument(**bristol_params)
     lm, psd = spec.get_spectrum()
@@ -142,7 +142,7 @@ def get_spectrum(plot=True,save=True):
         plt.show()
     return lm,psd
 
-@ignore_stderr
+# @ignore_stderr#
 def calibrate_grating(speed=3000,x_min=0*u.mm,x_max=None,nx=10):
     spec = instrument(**bristol_params)
     # prepare data arrays
@@ -171,7 +171,7 @@ def calibrate_grating(speed=3000,x_min=0*u.mm,x_max=None,nx=10):
 
     return x_comm, lm, grating_tuning_model
 
-@ignore_stderr
+# @ignore_stderr#
 def init(speed=1000,nx=30,recalibrate=False):
     if recalibrate:
         sm.go_and_wait(0)
@@ -226,8 +226,8 @@ def get_poling_region(lm):
     else:
         return possible_regions[0]
 
-@ignore_stderr
-def set_wavelength(lm,closed_loop=True,tune_SHG=True,wait_for_SHG=False,check_lm=False,n_iter_max=100,spec_wait_time=2*u.second):
+# @ignore_stderr#
+def set_wavelength(lm,closed_loop=True,tune_SHG=False,wait_for_SHG=False,check_lm=False,n_iter_max=100,spec_wait_time=2*u.second):
     shg_data = load_newest_SHG_calibration()
     if tune_SHG:
         poling_region = get_poling_region(lm)
@@ -370,7 +370,7 @@ def _save_SHG_data(save_data,new_timestamp=True,timestamp_str=None):
 # def _set_wavelength(lm,spec):
 
 
-@ignore_stderr
+# @ignore_stderr#
 def calibrate_SHG(n_poling_region,temp_min,temp_max,n_temp,lm_min,lm_max,n_lm,n_avg_P=9000,n_temp_samples=10,temp_timeout=30*u.minute,temp_max_err=Q_(0.05,u.degK),P_meas_time=0.3*u.second,temp_scan_up=True):
     # specific settings to thorlabs PM100D power meter. these won't work if using a differnt one
     pwrmtr._inst.timeout=10000 # set timeout to 10 sec for 3 sec averaging
