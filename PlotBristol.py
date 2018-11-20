@@ -2,10 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 Update a simple plot of peak wavelength measured by Bristol 721 (LSA) or 621 (wavemeter).
-Currently these voltages are converted into measured temperatures to monitor
-a temperature controller's set and measured temperature values in real time.
-Measure and display framerate.
-This version is optimized for the 320x240 pixel LCD on my current Raspberry Pi.
 """
 
 import socket
@@ -16,9 +12,11 @@ import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.ptime import time
 from time import sleep
+from bristol_client import get_lm
 
-Npts = 300
-wait_sec = 0.5
+Npts = 500
+wait_sec = 0.1
+sample_time_sec = 0.45 # estimate of time taken by server to return value
 rescale = True
 
 ### set up TCP communication ################
@@ -29,23 +27,28 @@ width_pix = 1280
 height_pix = 960
 ##############################################
 
+# def get_val():
+#     try:
+#         # open connection to server
+#         # Create a socket (SOCK_STREAM means a TCP socket)
+#         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#         sock.connect((HOST, PORT))
+#         # Request AI0 data from server
+#         sock.sendall(bytes('LM', "utf-8"))
+#         sleep(0.1)
+#         # Receive float voltage from the server
+#         val = struct.unpack('f',sock.recv(1024))[0] # Bristol LSA peak wavelength in nm in this case
+#         # # Request AI1 data from server
+#         # sock.sendall(bytes('AI1', "utf-8"))
+#         # # Receive float voltage from the server
+#         # val1 = struct.unpack('f',sock.recv(1024))[0]
+#     finally:
+#         # close server
+#         sock.close()
+#     return val
+
 def get_val():
-    try:
-        # open connection to server
-        # Create a socket (SOCK_STREAM means a TCP socket)
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect((HOST, PORT))
-        # Request AI0 data from server
-        sock.sendall(bytes('LM', "utf-8"))
-        # Receive float voltage from the server
-        val = struct.unpack('f',sock.recv(1024))[0] # Bristol LSA peak wavelength in nm in this case
-        # # Request AI1 data from server
-        # sock.sendall(bytes('AI1', "utf-8"))
-        # # Receive float voltage from the server
-        # val1 = struct.unpack('f',sock.recv(1024))[0]
-    finally:
-        # close server
-        sock.close()
+    val = get_lm().m
     return val
 
 
@@ -85,10 +88,11 @@ p.setLimits(xMin=0,
             yMin=1200,
             yMax=5000,
             minXRange=10*wait_sec,
-            maxXRange=2*Npts*wait_sec,
+            maxXRange=2*Npts*(wait_sec+sample_time_sec),
             minYRange=0.01,
-            maxYRange=100)
+            maxYRange=3810)
 p.enableAutoScale()
+# should be p.enableAutoRange(axis, enable) but I don't know what 'axis' and 'enable' should be
 xlab = p.setLabel('bottom',text='time',units='s')
 ylab = p.setLabel('left',text='wavelength',units='nm')
 
@@ -112,7 +116,7 @@ init_val0 = get_val()
 data0 = np.array([init_val0])
 #data1 = np.array([init_val1])
 time_array = np.array([0])
-curve0 = p.plot(time_array,data0,pen=(0,2),name='meas temp')
+curve0 = p.plot(time_array,data0,pen=(255,165,0),name='wavelength')
 #curve1 = p.plot(time_array,data1,pen=(1,2),name='set temp')
 t0 = time()
 ptr = 1
@@ -138,20 +142,20 @@ layout.addItem(p,0,0,1,1)
 
 def update():
     global fps_text,leg,layout,data0,curve0,time_array, ptr, p, lastTime, fps
-    val0 = get_val(0,calc_temp=calc_temp)
+    val0 = get_val()
     now = time()-t0
     # update data
     if ptr<=Npts:
         data0 = np.append(data0, np.array(val0))
-        data1 = np.append(data1, np.array(val1))
+        #data1 = np.append(data1, np.array(val1))
         time_array = np.append(time_array, np.array([now]))
     else:
         data0 = np.append(data0[1:], np.array(val0))
-        data1 = np.append(data1[1:], np.array(val1))
+        #data1 = np.append(data1[1:], np.array(val1))
         time_array = np.append(time_array[1:], np.array([now]))
     ptr+=1
     curve0.setData(time_array-time_array[0],data0)
-    curve1.setData(time_array-time_array[0],data1)
+    #curve1.setData(time_array-time_array[0],data1)
 
     # if rescale:
     #     vb.setXRange(time_array.min(),time_array.max(),padding=0.05)
@@ -168,7 +172,7 @@ def update():
         fps = fps * (1-s) + (1.0/dt) * s
     fps_str = '%0.2f fps' % fps
 
-    title_str = r'<font color="red">Bristol Peak Wavelength</font>, ' + fps_str
+    title_str = r'<font color="white">Bristol Peak Wavelength</font>, ' + fps_str
     p.setTitle(title_str,color=(255,255,255))
     # ta_max_str = 'time_array max: {:3.3f}, '.format(time_array.max())
     # vb_range_str = 'vb_range: {}, '.format(vb.viewRange())

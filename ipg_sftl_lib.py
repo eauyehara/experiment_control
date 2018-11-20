@@ -9,6 +9,8 @@ from instrumental import instrument, Q_, u
 from instrumental.drivers.motion import USMC
 from instrumental.drivers.spectrometers import bristol
 from instrumental.drivers.tempcontrollers import covesion
+from instrumental.drivers.motion.tpz001 import TPZ001
+from bristol_client import get_lm
 #from instrumental.drivers.spectrometers.bristol import ignore_stderr
 from datetime import datetime
 import numpy as np
@@ -26,9 +28,19 @@ import matplotlib.pyplot as plt
 motor_id = 0
 travel_per_microstep = 156 * u.nm # from looking at motor model on Standa website
 step_divisor=8 # reported by motor in uSMC test application. This worked previously
-# Bristol 721
-bristol_port = 3
-bristol_params={'module':'spectrometers.bristol','classname':'Bristol_721','port':bristol_port}
+
+### three Piezos for fine tuning accessed via Thorlabs TPZ001 Piezo drivers (via Kinesis)
+
+pzt1_serial = '81842912' # PZT1, 17um 0-100V with TPZ001 controller, for "angular displacement" of tuning mirror, "fine" tuning
+pzt2_serial = '81843994' # PZT2, 17um 0-100V with TPZ001 controller, for "tilt and/or linear displacement" of tuning mirror, "ultrafine" tuning
+pzt3_serial = '81844668' # PZT3, 6um 0-100V with TPZ001 controller, for "linear tuning of cavity length", "ultrafine" tuning
+
+# # Bristol 721
+# bristol_port = 3
+# bristol_params={'module':'spectrometers.bristol','classname':'Bristol_721','port':bristol_port}
+
+
+
 # Covesion OC1 PPLN oven temperature controller
 oc_visa_address = u'ASRL4::INSTR'
 
@@ -56,6 +68,11 @@ current_poling_region = 1 # should be fixed when we have a stage to move the PPL
 
 
 ### Open instruments
+
+pzt1 = TPZ001(serial=pzt1_serial)
+pzt2 = TPZ001(serial=pzt2_serial)
+pzt3 = TPZ001(serial=pzt3_serial)
+
 #spec = instrument(**bristol_params) can't do this here or you get tons of error messages
 sm = instrument(module='motion.USMC',classname='USMC',id=0,version=b'2504',serial=b'0000000000006302')
 #oc = instrument('OC')
@@ -80,14 +97,14 @@ print_statusline = covesion.print_statusline
 #         return f(*args,**kwargs)
 #         spec.close()
 #     return wrapper
-
-class bristol_temp:
-    def __enter__(self):
-        spec = instrument(**bristol_params)
-        self.inst = spec
-        return spec
-    def __exit__(self,type,value,thing):
-        self.inst.close()
+#
+# class bristol_temp:
+#     def __enter__(self):
+#         spec = instrument(**bristol_params)
+#         self.inst = spec
+#         return spec
+#     def __exit__(self,type,value,thing):
+#         self.inst.close()
 
 
 def calibrate_stepper_motor():
@@ -112,39 +129,38 @@ def load_newest_stepper_motor_calibration(verbose=False):
 
 
 # @ignore_stderr#
-def get_wavelength():
-    spec = instrument(**bristol_params)
-    lm = spec.get_wavelength()
-    spec.close()
-    return lm
+# def get_wavelength():
+#     spec = instrument(**bristol_params)
+#     lm = get_lm()
+#     spec.close()
+#     return lm
 
-# @ignore_stderr#
-def get_spectrum(plot=True,save=True):
-    spec = instrument(**bristol_params)
-    lm, psd = spec.get_spectrum()
-    spec.close()
-    lm = lm.to(u.um)
-    timestamp_str = datetime.strftime(datetime.now(),'%Y_%m_%d_%H_%M_%S')
-    fname = 'IPG_SFTL_spectrum_' + timestamp_str + '.txt'
-    if save:
-        np.savetxt(path.normpath(path.join(spectra_save_dir,fname)),
-                np.stack((lm.magnitude,psd)))
-    if plot:
-        fig = plt.figure(figsize=(12,12))
-        ax = fig.add_subplot(111)
-        ax.plot(lm,psd,'C3')
-        ax.grid()
-        ax.set_xlabel('$\lambda$ [$\mu$m]')
-        ax.set_ylabel('PSD [dBm/spectral bin]')
-        if save:
-            ax.set_title('data saved to file:\n'+fname)
-        fig.tight_layout()
-        plt.show()
-    return lm,psd
+# # @ignore_stderr#
+# def get_spectrum(plot=True,save=True):
+#     spec = instrument(**bristol_params)
+#     lm, psd = spec.get_spectrum()
+#     spec.close()
+#     lm = lm.to(u.um)
+#     timestamp_str = datetime.strftime(datetime.now(),'%Y_%m_%d_%H_%M_%S')
+#     fname = 'IPG_SFTL_spectrum_' + timestamp_str + '.txt'
+#     if save:
+#         np.savetxt(path.normpath(path.join(spectra_save_dir,fname)),
+#                 np.stack((lm.magnitude,psd)))
+#     if plot:
+#         fig = plt.figure(figsize=(12,12))
+#         ax = fig.add_subplot(111)
+#         ax.plot(lm,psd,'C3')
+#         ax.grid()
+#         ax.set_xlabel('$\lambda$ [$\mu$m]')
+#         ax.set_ylabel('PSD [dBm/spectral bin]')
+#         if save:
+#             ax.set_title('data saved to file:\n'+fname)
+#         fig.tight_layout()
+#         plt.show()
+#     return lm,psd
 
 # @ignore_stderr#
 def calibrate_grating(speed=3000,x_min=0*u.mm,x_max=None,nx=10):
-    spec = instrument(**bristol_params)
     # prepare data arrays
     if not x_max:
         x_max = (sm.limit_switch_2_pos - sm.limit_switch_1_pos) * sm.travel_per_microstep
@@ -155,10 +171,8 @@ def calibrate_grating(speed=3000,x_min=0*u.mm,x_max=None,nx=10):
     for xind, x in enumerate(x_comm):
         print('Acquiring wavelength {} of {}...'.format(xind+1,len(x_comm)))
         sm.go_and_wait(x,speed=speed)
-        lm[xind] = spec.get_wavelength()
+        lm[xind] = get_lm()
         print('...found to be {:7.3f} nm'.format(lm[xind].to(u.nm).magnitude))
-    # close spectrometer to end errors
-    spec.close()
 
     # generate interpolation function
     grating_tuning_model = interp1d(lm,x_comm)
@@ -192,7 +206,7 @@ def load_newest_grating_calibration(verbose=False):
     return x_grating_cal, lm_grating_cal, lm_x_grating_model
 
 
-def _overstep_high(spec,lm_meas,n_iter_max=20):
+def _overstep_high(lm_meas,n_iter_max=20):
     n_iter=0
     while ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ) and (n_iter < n_iter_max):
         lm_err = -5 * u.nm
@@ -200,10 +214,10 @@ def _overstep_high(spec,lm_meas,n_iter_max=20):
         relative_move = int((lm_err / dlm_dstep).to(u.dimensionless).magnitude)
         target_pos_steps = curr_pos_steps + relative_move
         sm.go_and_wait(target_pos_steps,unitful=False,polling_period=100*u.ms)
-        lm_meas = spec.get_wavelength()
+        lm_meas = get_lm()
 
 
-def _overstep_low(spec,lm_meas,n_iter_max=20):
+def _overstep_low(lm_meas,n_iter_max=20):
     n_iter=0
     while ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ) and (n_iter < n_iter_max):
         lm_err = 5 * u.nm
@@ -211,7 +225,7 @@ def _overstep_low(spec,lm_meas,n_iter_max=20):
         relative_move = int((lm_err / dlm_dstep).to(u.dimensionless).magnitude)
         target_pos_steps = curr_pos_steps + relative_move
         sm.go_and_wait(target_pos_steps,unitful=False,polling_period=100*u.ms)
-        lm_meas = spec.get_wavelength()
+        lm_meas = get_lm()
 
 def get_poling_region(lm):
     shg_data = load_newest_SHG_calibration()
@@ -227,7 +241,7 @@ def get_poling_region(lm):
         return possible_regions[0]
 
 # @ignore_stderr#
-def set_wavelength(lm,closed_loop=True,tune_SHG=False,wait_for_SHG=False,check_lm=False,n_iter_max=100,spec_wait_time=2*u.second):
+def set_wavelength(lm,closed_loop=True,tune_SHG=False,wait_for_SHG=False,check_lm=False,n_iter_max=100,spec_wait_time=0.5*u.second):
     shg_data = load_newest_SHG_calibration()
     if tune_SHG:
         poling_region = get_poling_region(lm)
@@ -245,77 +259,15 @@ def set_wavelength(lm,closed_loop=True,tune_SHG=False,wait_for_SHG=False,check_l
     x_grating_cal, lm_grating_cal, lm_x_grating_model = load_newest_grating_calibration()
     x_comm = float(lm_x_grating_model(lm)) * u.mm
     sm.go_and_wait(x_comm,polling_period=100*u.ms)
-    with bristol_temp() as spec:
-        if closed_loop:
-            lm_meas = spec.get_wavelength()
-            if ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ):
-                if lm > (2300 * u.nm):
-                    _overstep_high(spec,lm_meas)
-                    lm_meas = spec.get_wavelength()
-                else:
-                    _overstep_low(spec,lm_meas)
-                    lm_meas = spec.get_wavelength()
-            lm_err = lm - lm_meas
-            n_iter = 0
-            while (float(abs(lm_err.to(u.nm).magnitude))>0.05) and (n_iter < n_iter_max):
-                curr_pos_steps = sm.get_current_position(unitful=False)
-                relative_move = int((lm_err / dlm_dstep).to(u.dimensionless).magnitude)
-                target_pos_steps = curr_pos_steps + relative_move
-                if not(sm.limit_switch_1_pos<target_pos_steps<sm.limit_switch_2_pos):
-                    print('Warning: bad target_pos_steps: {:2.1g}, lm_meas:{:7.3f}\n'.format(target_pos_steps,float(lm_meas.magnitude)))
-                    target_pos_steps = 0
-                sm.go_and_wait(target_pos_steps,unitful=False,polling_period=100*u.ms)
-                sleep(spec_wait_time.to(u.second).magnitude)
-                lm_meas = spec.get_wavelength()
-                if ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ):
-                    if lm > (2300 * u.nm):
-                        _overstep_high(spec,lm_meas)
-                        lm_meas = spec.get_wavelength()
-                    else:
-                        _overstep_low(spec,lm_meas)
-                        lm_meas = spec.get_wavelength()
-                lm_err = lm - lm_meas
-                n_iter += 1
-                print_statusline('setting wavelength to {:7.3f}, loop 1, lm_meas: {:7.3f}nm, lm_err: {:6.3f}nm, n_iter: {:}'.format(float(lm.to(u.nm).magnitude),float(lm_meas.to(u.nm).magnitude),float(lm_err.to(u.nm).magnitude),n_iter))
-            while (float(abs(lm_err.to(u.nm).magnitude))>0.03) and (n_iter < n_iter_max):
-                if float(lm_err.to(u.nm).magnitude) > 0:
-                    sm.step_foreward()
-                    sleep(spec_wait_time.to(u.second).magnitude)
-                    lm_meas = spec.get_wavelength()
-                    lm_err = lm - lm_meas
-                    n_iter += 1
-                    print_statusline('setting wavelength to {:7.3f}, loop 2, step forward, lm_meas: {:7.3f}nm, lm_err: {:6.3f}nm, n_iter: {:}'.format(float(lm.to(u.nm).magnitude),float(lm_meas.to(u.nm).magnitude),float(lm_err.to(u.nm).magnitude),n_iter))
-                else:
-                    sm.step_backward()
-                    sleep(spec_wait_time.to(u.second).magnitude)
-                    lm_meas = spec.get_wavelength()
-                    lm_err = lm - lm_meas
-                    n_iter += 1
-                    print_statusline('loop 2, step backward, lm_meas: {:7.3f}nm, lm_err: {:6.3f}nm, n_iter: {:}'.format(float(lm_meas.to(u.nm).magnitude),float(lm_err.to(u.nm).magnitude),n_iter))
-            print_statusline('measured wavelength: {:7.3f}nm, target wavelength {:7.3f}nm reached (or gave up) in {:} steps'.format(float(lm_meas.to(u.nm).magnitude),float(lm.to(u.nm).magnitude),n_iter))
-        if check_lm:
-            lm_check = spec.get_wavelength()
-            print(''.format(lm_check.to(u.nm).magnitude))
-
-### define a utility version of set_wavelength that takes in a spec (bristol spectormeter)
-### object rather than create its own with a 'with' statement. This way this
-### utility function can work inside another function (loop maybe) and not
-### create and destroy many spectrometer instances, which I've found makes
-### windows poop its pants.
-
-def _set_wavelength(lm,spec,closed_loop=True,check_lm=False,n_iter_max=100,spec_wait_time=2*u.second):
-    x_grating_cal, lm_grating_cal, lm_x_grating_model = load_newest_grating_calibration()
-    x_comm = float(lm_x_grating_model(lm)) * u.mm
-    sm.go_and_wait(x_comm,polling_period=100*u.ms)
     if closed_loop:
-        lm_meas = spec.get_wavelength()
+        lm_meas = get_lm()
         if ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ):
             if lm > (2300 * u.nm):
-                _overstep_high(spec,lm_meas)
-                lm_meas = spec.get_wavelength()
+                _overstep_high(lm_meas)
+                lm_meas = get_lm()
             else:
-                _overstep_low(spec,lm_meas)
-                lm_meas = spec.get_wavelength()
+                _overstep_low(lm_meas)
+                lm_meas = get_lm()
         lm_err = lm - lm_meas
         n_iter = 0
         while (float(abs(lm_err.to(u.nm).magnitude))>0.05) and (n_iter < n_iter_max):
@@ -327,14 +279,14 @@ def _set_wavelength(lm,spec,closed_loop=True,check_lm=False,n_iter_max=100,spec_
                 target_pos_steps = 0
             sm.go_and_wait(target_pos_steps,unitful=False,polling_period=100*u.ms)
             sleep(spec_wait_time.to(u.second).magnitude)
-            lm_meas = spec.get_wavelength()
+            lm_meas = get_lm()
             if ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ):
                 if lm > (2300 * u.nm):
-                    _overstep_high(spec,lm_meas)
-                    lm_meas = spec.get_wavelength()
+                    _overstep_high(lm_meas)
+                    lm_meas = get_lm()
                 else:
-                    _overstep_low(spec,lm_meas)
-                    lm_meas = spec.get_wavelength()
+                    _overstep_low(lm_meas)
+                    lm_meas = get_lm()
             lm_err = lm - lm_meas
             n_iter += 1
             print_statusline('setting wavelength to {:7.3f}, loop 1, lm_meas: {:7.3f}nm, lm_err: {:6.3f}nm, n_iter: {:}'.format(float(lm.to(u.nm).magnitude),float(lm_meas.to(u.nm).magnitude),float(lm_err.to(u.nm).magnitude),n_iter))
@@ -342,20 +294,81 @@ def _set_wavelength(lm,spec,closed_loop=True,check_lm=False,n_iter_max=100,spec_
             if float(lm_err.to(u.nm).magnitude) > 0:
                 sm.step_foreward()
                 sleep(spec_wait_time.to(u.second).magnitude)
-                lm_meas = spec.get_wavelength()
+                lm_meas = get_lm()
                 lm_err = lm - lm_meas
                 n_iter += 1
                 print_statusline('setting wavelength to {:7.3f}, loop 2, step forward, lm_meas: {:7.3f}nm, lm_err: {:6.3f}nm, n_iter: {:}'.format(float(lm.to(u.nm).magnitude),float(lm_meas.to(u.nm).magnitude),float(lm_err.to(u.nm).magnitude),n_iter))
             else:
                 sm.step_backward()
                 sleep(spec_wait_time.to(u.second).magnitude)
-                lm_meas = spec.get_wavelength()
+                lm_meas = get_lm()
+                lm_err = lm - lm_meas
+                n_iter += 1
+                print_statusline('loop 2, step backward, lm_meas: {:7.3f}nm, lm_err: {:6.3f}nm, n_iter: {:}'.format(float(lm_meas.to(u.nm).magnitude),float(lm_err.to(u.nm).magnitude),n_iter))
+            print_statusline('measured wavelength: {:7.3f}nm, target wavelength {:7.3f}nm reached (or gave up) in {:} steps'.format(float(lm_meas.to(u.nm).magnitude),float(lm.to(u.nm).magnitude),n_iter))
+        if check_lm:
+            lm_check = get_lm()
+            print(''.format(lm_check.to(u.nm).magnitude))
+
+### define a utility version of set_wavelength that takes in a spec (bristol spectormeter)
+### object rather than create its own with a 'with' statement. This way this
+### utility function can work inside another function (loop maybe) and not
+### create and destroy many spectrometer instances, which I've found makes
+### windows poop its pants.
+
+def _set_wavelength(lm,closed_loop=True,check_lm=False,n_iter_max=100,spec_wait_time=2*u.second):
+    x_grating_cal, lm_grating_cal, lm_x_grating_model = load_newest_grating_calibration()
+    x_comm = float(lm_x_grating_model(lm)) * u.mm
+    sm.go_and_wait(x_comm,polling_period=100*u.ms)
+    if closed_loop:
+        lm_meas = get_lm()
+        if ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ):
+            if lm > (2300 * u.nm):
+                _overstep_high(lm_meas)
+                lm_meas = get_lm()
+            else:
+                _overstep_low(lm_meas)
+                lm_meas = get_lm()
+        lm_err = lm - lm_meas
+        n_iter = 0
+        while (float(abs(lm_err.to(u.nm).magnitude))>0.05) and (n_iter < n_iter_max):
+            curr_pos_steps = sm.get_current_position(unitful=False)
+            relative_move = int((lm_err / dlm_dstep).to(u.dimensionless).magnitude)
+            target_pos_steps = curr_pos_steps + relative_move
+            if not(sm.limit_switch_1_pos<target_pos_steps<sm.limit_switch_2_pos):
+                print('Warning: bad target_pos_steps: {:2.1g}, lm_meas:{:7.3f}\n'.format(target_pos_steps,float(lm_meas.magnitude)))
+                target_pos_steps = 0
+            sm.go_and_wait(target_pos_steps,unitful=False,polling_period=100*u.ms)
+            sleep(spec_wait_time.to(u.second).magnitude)
+            lm_meas = get_lm()
+            if ( (lm_meas>(2600*u.nm)) or (lm_meas<(2000*u.nm)) ):
+                if lm > (2300 * u.nm):
+                    _overstep_high(lm_meas)
+                    lm_meas = get_lm()
+                else:
+                    _overstep_low(lm_meas)
+                    lm_meas = get_lm()
+            lm_err = lm - lm_meas
+            n_iter += 1
+            print_statusline('setting wavelength to {:7.3f}, loop 1, lm_meas: {:7.3f}nm, lm_err: {:6.3f}nm, n_iter: {:}'.format(float(lm.to(u.nm).magnitude),float(lm_meas.to(u.nm).magnitude),float(lm_err.to(u.nm).magnitude),n_iter))
+        while (float(abs(lm_err.to(u.nm).magnitude))>0.03) and (n_iter < n_iter_max):
+            if float(lm_err.to(u.nm).magnitude) > 0:
+                sm.step_foreward()
+                sleep(spec_wait_time.to(u.second).magnitude)
+                lm_meas = get_lm()
+                lm_err = lm - lm_meas
+                n_iter += 1
+                print_statusline('setting wavelength to {:7.3f}, loop 2, step forward, lm_meas: {:7.3f}nm, lm_err: {:6.3f}nm, n_iter: {:}'.format(float(lm.to(u.nm).magnitude),float(lm_meas.to(u.nm).magnitude),float(lm_err.to(u.nm).magnitude),n_iter))
+            else:
+                sm.step_backward()
+                sleep(spec_wait_time.to(u.second).magnitude)
+                lm_meas = get_lm()
                 lm_err = lm - lm_meas
                 n_iter += 1
                 print_statusline('loop 2, step backward, lm_meas: {:7.3f}nm, lm_err: {:6.3f}nm, n_iter: {:}'.format(float(lm_meas.to(u.nm).magnitude),float(lm_err.to(u.nm).magnitude),n_iter))
         print_statusline('measured wavelength: {:7.3f}nm, target wavelength {:7.3f}nm reached (or gave up) in {:} steps'.format(float(lm_meas.to(u.nm).magnitude),float(lm.to(u.nm).magnitude),n_iter))
     if check_lm:
-        lm_check = spec.get_wavelength()
+        lm_check = get_lm()
         print(''.format(lm_check.to(u.nm).magnitude))
 
 
@@ -386,17 +399,16 @@ def calibrate_SHG(n_poling_region,temp_min,temp_max,n_temp,lm_min,lm_max,n_lm,n_
     #lm_meas = np.empty((n_temp,n_lm)) * u.nm
     P_SHG = np.empty((n_temp,n_lm)) * u.watt
     temp_timestamp_str = datetime.strftime(datetime.now(),'%Y_%m_%d_%H_%M_%S')
-    with bristol_temp() as spec:
-        for tind, tt in enumerate(temp_cmd):
-            oc.set_temp_and_wait(tt,max_err=temp_max_err,n_samples=n_temp_samples,timeout=temp_timeout)
-            for lind, ll in enumerate(lm_cmd):
-                _set_wavelength(ll,spec)
-                P_SHG[tind,lind] = pwrmtr.get_power()
-                progress = (tind * n_lm + lind) * ( 100.0 / ( n_lm * n_temp ) )
-                print_statusline('temp: {:6.3f}C, lm: {:7.3f}nm, P_SHG: {:5.2f}mW, progress: {:3.1f}%'.format(float(tt.to(u.degC).magnitude),float(ll.to(u.nm).magnitude),float(P_SHG[tind,lind].to(u.mW).magnitude),progress))
-                # save data
-                save_data = np.array([temp_cmd, lm_cmd, P_SHG])
-                _save_SHG_data(save_data,new_timestamp=False,timestamp_str=temp_timestamp_str)
+    for tind, tt in enumerate(temp_cmd):
+        oc.set_temp_and_wait(tt,max_err=temp_max_err,n_samples=n_temp_samples,timeout=temp_timeout)
+        for lind, ll in enumerate(lm_cmd):
+            _set_wavelength(ll)
+            P_SHG[tind,lind] = pwrmtr.get_power()
+            progress = (tind * n_lm + lind) * ( 100.0 / ( n_lm * n_temp ) )
+            print_statusline('temp: {:6.3f}C, lm: {:7.3f}nm, P_SHG: {:5.2f}mW, progress: {:3.1f}%'.format(float(tt.to(u.degC).magnitude),float(ll.to(u.nm).magnitude),float(P_SHG[tind,lind].to(u.mW).magnitude),progress))
+            # save data
+            save_data = np.array([temp_cmd, lm_cmd, P_SHG])
+            _save_SHG_data(save_data,new_timestamp=False,timestamp_str=temp_timestamp_str)
 
     _save_SHG_data(save_data)
 
