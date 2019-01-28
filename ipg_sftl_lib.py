@@ -66,7 +66,6 @@ current_poling_region = 1 # should be fixed when we have a stage to move the PPL
 ###############################################
 
 
-
 ### Open instruments
 
 pzt1 = TPZ001(serial=pzt1_serial)
@@ -79,7 +78,7 @@ sm = instrument(module='motion.USMC',classname='USMC',id=0,version=b'2504',seria
 oc = instrument(module='tempcontrollers.covesion',classname='OC',visa_address='ASRL4::INSTR')
 #pwrmtr = instrument({'visa_address':pwrmtr_visa_address,'module':'powermeters.thorlabs'})
 
-
+pump = instrument(module='lasers.ipg',classname='ELR',visa_address='ASRL7::INSTR')
 
 ### function definitions
 
@@ -106,6 +105,39 @@ print_statusline = covesion.print_statusline
 #     def __exit__(self,type,value,thing):
 #         self.inst.close()
 
+
+def power_up(delay=2*u.minute,P_init=60.0,P_final=100.0,incr=5.0):
+    if pump.get_output_power()=='Off':
+        P_seq = np.arange(P_init+incr,P_final,incr)
+        print_statusline(f'setting pump power to {P_init:3.3f} and enabling emission...')
+        pump.set_Iset(P_init)
+        sleep(0.3)
+        pump.start_emission()
+        sleep(delay.to(u.second).m)
+        for Pind,PP in enumerate(P_seq):
+            print_statusline(f'setting pump power to {PP:3.3f}...')
+            pump.set_Iset(PP)
+            sleep(delay.to(u.second).m)
+        print_statusline(f'setting pump power to {P_final:3.3f} and concluding power up sequence...')
+        pump.set_Iset(P_final)
+    else:
+        raise Exception('IPG power up sequence attempted from non-Off state')
+
+def power_down(delay=2*u.minute,P_final=60.0,incr=5.0):
+    Iset = pump.get_Iset()
+    if 60.0<=Iset<=100.0:
+        P_seq = np.arange(Iset-incr,P_final,-incr)
+        for Pind,PP in enumerate(P_seq):
+            print_statusline(f'setting pump power to {PP:3.3f}...')
+            pump.set_Iset(PP)
+            sleep(delay.to(u.second).m)
+        print_statusline(f'setting pump power to {P_final:3.3f}...')
+        pump.set_Iset(P_final)
+        sleep(delay.to(u.second).m)
+        print_statusline(f'stopping emission and concluding power down sequence...')
+        pump.stop_emission()
+    else:
+        raise Exception('IPG power down sequence attempted from outside allowed Iset range (60-100)')
 
 def calibrate_stepper_motor():
     # grab encoder values of limit switch positions from standa stepper motor controller IPG SFTL grating
@@ -240,20 +272,36 @@ def get_poling_region(lm):
     else:
         return possible_regions[0]
 
-# @ignore_stderr#
-def set_wavelength(lm,closed_loop=True,tune_SHG=False,wait_for_SHG=False,check_lm=False,n_iter_max=100,spec_wait_time=0.5*u.second):
+def tune_SHG(lm,wait=False,n_temp_samples=10,temp_timeout=30*u.minute,temp_max_err=Q_(0.05,u.degK)):
     shg_data = load_newest_SHG_calibration()
-    if tune_SHG:
-        poling_region = get_poling_region(lm)
-        if poling_region:
-            T_set = Q_(np.asscalar(shg_data[poling_region]['phase_match_model'](lm)),u.degC)
-            print('tuning SHG:')
-            print('\tpoling region: {}, LM={:2.4f}um'.format(current_poling_region,LM_cov[current_poling_region].magnitude))
-            print('\tset temperature: {:4.1f}C'.format(T_set.magnitude))
-            if wait_for_SHG:
-                oc.set_temp_and_wait(T_set,max_err=temp_max_err,n_samples=n_temp_samples,timeout=temp_timeout)
-            else:
-                oc.set_set_temp(T_set)
+    poling_region = get_poling_region(lm)
+    if poling_region:
+        T_set = Q_(np.asscalar(shg_data[poling_region]['phase_match_model'](lm)),u.degC)
+        print('tuning SHG:')
+        print('\tpoling region: {}, LM={:2.4f}um'.format(current_poling_region,LM_cov[current_poling_region].magnitude))
+        print('\tset temperature: {:4.1f}C'.format(T_set.magnitude))
+        if wait:
+            oc.set_temp_and_wait(T_set,max_err=temp_max_err,n_samples=n_temp_samples,timeout=temp_timeout)
+        else:
+            oc.set_set_temp(T_set)
+
+
+# @ignore_stderr#
+def set_wavelength(lm,closed_loop=True,tuning_SHG=False,wait_for_SHG=False,check_lm=False,n_iter_max=400,spec_wait_time=0.5*u.second,
+                    n_temp_samples=10,temp_timeout=30*u.minute,temp_max_err=Q_(0.05,u.degK)):
+    shg_data = load_newest_SHG_calibration()
+    if tuning_SHG:
+        tune_SHG(lm,wait=wait_for_SHG,temp_max_err=temp_max_err,temp_timeout=temp_timeout,n_temp_samples=n_temp_samples)
+        # poling_region = get_poling_region(lm)
+        # if poling_region:
+        #     T_set = Q_(np.asscalar(shg_data[poling_region]['phase_match_model'](lm)),u.degC)
+        #     print('tuning SHG:')
+        #     print('\tpoling region: {}, LM={:2.4f}um'.format(current_poling_region,LM_cov[current_poling_region].magnitude))
+        #     print('\tset temperature: {:4.1f}C'.format(T_set.magnitude))
+        #     if wait_for_SHG:
+        #         oc.set_temp_and_wait(T_set,max_err=temp_max_err,n_samples=n_temp_samples,timeout=temp_timeout)
+        #     else:
+        #         oc.set_set_temp(T_set)
         # except:
         #     print('warning: error in tune_SHG routine')
     x_grating_cal, lm_grating_cal, lm_x_grating_model = load_newest_grating_calibration()
