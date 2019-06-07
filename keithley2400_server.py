@@ -147,49 +147,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
             time.sleep(0.01)
             self.request.sendall(bytes('OK', "utf-8"))
-        elif in_out=='IV': # Run IV curve
-            print('IV curve')
-            # keithley.write(':OUTP ON')
-            #
-            #
-            # measurements = zeros((bias_steps,2))
-            #
-            # row=0
-            # # Enter measurement loop
-            # bias_index = 0
-            # for bias_current in bias_voltages:
-            #
-            #     keithley.write(':SOUR:VOLT:LEV:AMPL %.3f' % bias_current)
-            #     print('Setting bias to {:g} V'.format(bias_current))
-            #
-            #     time.sleep(0.01)
-            #
-            #     measurements[bias_index,0] = bias_current
-            #
-            #     keithley.write(':INIT')
-            #
-            #     time.sleep(0.1)
-            #
-            #     # Test
-            #     #current_meas_array = keithley.ask_for_values(":FETC?")
-            #     #current_meas = current_meas_array[1]
-            #
-            #     current_meas_array = keithley.query_ascii_values(':FETC?')
-            #     current_meas = current_meas_array[1]
-            #
-            #
-            #     print('current {:g} uA'.format(current_meas*1e6))
-            #     measurements[bias_index,1] = current_meas
-            #
-            #     bias_index = bias_index+1
-            #
-            #
-            # keithley.write(':OUTP OFF')
-
-
-            # sp_nm = spec.get_spectrum().m
-            # sp_ba = bytearray(struct.pack("f", sp_nm))
-            # self.request.sendall(sp_ba)
+        
         else:
             self.request.sendall('request not understood')
 

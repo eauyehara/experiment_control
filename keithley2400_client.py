@@ -42,7 +42,7 @@ def get_i(wait=default_wait):
         n_tries +=1
     return current[-1]
 
-def set_v(wait=default_wait, voltage=0.0):
+def set_v(voltage=0.0, wait=default_wait):
     status = 'NO'
     n_tries = 0
     print('Setting voltage to {}'.format(voltage))
@@ -66,7 +66,7 @@ def set_v(wait=default_wait, voltage=0.0):
         n_tries +=1
     return status
 
-def set_out(wait=default_wait, output='OFF'):
+def set_out(output='OFF', wait=default_wait):
     status = 'NO'
     n_tries = 0
     print('Setting output {}'.format(output))
@@ -89,3 +89,22 @@ def set_out(wait=default_wait, output='OFF'):
             sock.close()
         n_tries +=1
     return status
+
+def get_iv(iv_params, wait=default_wait):
+    print('IV curve')
+
+    set_out(output='ON')
+
+    bias_voltages = np.linspace(start=iv_params[0], stop=iv_params[1], num=iv_params[2])
+    measured_currents = np.array([])
+
+    row=0
+    # Enter measurement loop
+    bias_index = 0
+    for bias_current in bias_voltages:
+        set_v(voltage=bias_current)
+        measured_currents = np.append(measured_currents, get_i())
+
+        sleep(0.5)
+
+    return measured_currents
