@@ -54,3 +54,26 @@ $ conda install -c poehlmann python-seabreeze
 ### 3. Connect usb to spectrometer and test with Dodd's source
 
 $ python ./experiment_control/live_ocean_optics_HR2000_spectrometer_gui.py
+
+
+## Setup for PyVisa and Keithley 2400 SourceMeter
+
+### 1. Install PyVisa
+Follow instructions at https://pyvisa.readthedocs.io/en/master/getting.html
+
+### 2. Install NI-VISA backend(drivers etc.)
+
+Download and install NI-VISA
+http://www.ni.com/en-us/support/downloads/drivers/download.ni-visa.html#305862
+
+Install NI-488.2 for GPIB support
+http://www.ni.com/en-us/support/downloads/drivers/download.ni-488-2.html#306165
+
+for Mac OSX
+Allow National Instruments software access to system in System Preferences > Security & Privacy
+
+Check to see if the driver is properly installed
+In [1]: import visa
+In [2]: rm = visa.ResourceManager()
+In [3]: rm.list_resources()
+Out[3]: ('ASRL1::INSTR', 'GPIB0::15::INSTR')
