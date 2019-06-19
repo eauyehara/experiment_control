@@ -18,9 +18,13 @@ from instrumental import u
 
 devices = sb.list_devices()
 oo = sb.Spectrometer(devices[0])
-oo.integration_time_micros(100000)
+oo.integration_time_micros(500000)
 
 InbandThreshold = 2000
+
+# Text position
+textX=500
+textY=100
 
 if len(sys.argv) > 1:
 	figure_size = [int(s) for s in sys.argv[1].split(',')]
@@ -42,13 +46,14 @@ font = {'family': 'serif',
         'size': 20,
         }
 delta_lm = 15
-text = plt.text(500, 100, 'Measure', fontdict=font)
+text = plt.text(textX, textY, 'Measure', fontdict=font)
 
 while True:
 	spec = oo.spectrum()
 	spec_wavelength = spec[0, :]
 	spec_val = spec[1, :]
 	InbandThreshold = np.max(spec_val)/2.0
+	CenterWavelength = spec_wavelength[np.argmax(spec_val)]
 	sleep(0.02)
 
 	ln.remove()
@@ -61,20 +66,24 @@ while True:
 
 	    	#text.set_text('pump @ {:4.5g} \n Stokes @ {:4.5g} \n shift: {:4.4g}'.format(lm_pump,lm_stokes,shift))
 		text.set_text('peak @ {:4.5g} nm'.format(lm_peak))
-		text.set_x(lm_peak-delta_lm/2.+1)
+		textX = lm_peak-delta_lm/2.+1
+
 
 		ax.set_xlim([lm_peak-delta_lm/2.,lm_peak+delta_lm/2.])
 	elif len(sys.argv) > 3:
 		ax.set_xlim(lambdaRange[0], lambdaRange[1])
+		textX = lambdaRange[0]
 		if len(spec_val[np.where(spec_val > InbandThreshold)])>0 :
 
 			BWmin = np.min(spec_wavelength[np.where(spec_val > InbandThreshold)])
 			BWmax = np.max(spec_wavelength[np.where(spec_val > InbandThreshold)])
-			text.set_text('FWHM is {:g} nm ~ {:g} nm'.format(BWmin, BWmax))
+			text.set_text('Max Wavelength is {:g} nm and \nFWHM is {:g} nm ~ {:g} nm'.format(CenterWavelength, BWmin, BWmax))
+
 		else:
 			text.set_text('No BW detected')
 	else :
     		ax.set_xlim([np.min(spec[0,:]), np.max(spec[0,:])])
 
 	ln, = ax.plot(spec[0,:],spec[1,:],'b')
+	text.set_x(textX)
 	plt.pause(0.05)
