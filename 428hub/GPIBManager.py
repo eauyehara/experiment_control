@@ -735,6 +735,7 @@ class GPIBManager( threading.Thread ):
         numBias = self.parent.numMeasV
 
         measurements = zeros((numBias,2),float)
+        light_measurements = zeros((numBias,2),float)
         # column 0 = wavelength, column 1 = transmission loss, column 2 = return loss
 
         saveDirectory = os.path.dirname(self.userFilePath)
@@ -758,31 +759,58 @@ class GPIBManager( threading.Thread ):
         previousBias = self.parent.pdBias;
 
         self.SParamSetLongIntegrationTime()
+        
+        #biasSet = [-0.8, -0.7877551 , -0.7755102 , -0.76326531, -0.75102041, -0.73877551, -0.72653061, -0.71428571, -0.70204082, -0.68979592, -0.67755102, -0.66530612, -0.65306122, -0.64081633, -0.62857143, -0.61632653, -0.60408163, -0.59183673, -0.57959184, -0.56734694, -0.55510204, -0.54285714, -0.53061224, -0.51836735, -0.50612245, -0.49387755, -0.48163265, -0.46938776, -0.45714286, -0.44489796, -0.43265306, -0.42040816, -0.40816327, -0.39591837, -0.38367347, -0.37142857, -0.35918367, -0.34693878, -0.33469388, -0.32244898, -0.31020408, -0.29795918, -0.28571429, -0.27346939, -0.26122449, -0.24897959, -0.23673469, -0.2244898 , -0.2122449 , -0.2, -0.15, -1.00000000e-01, -5.00000000e-02, 0,  0.05,  0.1,  0.15, 0.2,  0.25,  0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8]
+        #measurements = zeros((len(biasSet),2),float)
+
+        self.LaserDrvOutput(0)
+        time.sleep(3.0)
+        # Dark current measurements
+        row = 0
+        for bias_current in linspace(startBias,stopBias,numBias):
+        #for bias_current in biasSet:
+
+            measurements[row,0] = bias_current
+
+            self.SParamSetBias(bias_current)
+            #self.KeithleySetBias(bias_current)
+            dummy = self.SParamGetPhotocurrent()
+
+            time.sleep(0.0001)
+
+            current_meas = self.SParamGetPhotocurrent()
+            #current_meas = self.KeithleyGetPhotocurrent()
+            measurements[row,1] = current_meas
+
+            print("Measured current for %.2fV = %.2e" % (bias_current, current_meas))
+
+            row = row + 1
+
+        # Light measurments
+        print("Turning on laser for light measurements")
 
         self.LaserDrvOutput(1)
-        # row = 0
+        time.sleep(3.0)
+
+        row = 0
+        for bias_current in linspace(startBias,stopBias,numBias):
         
-        # #biasSet = [-0.8, -0.7877551 , -0.7755102 , -0.76326531, -0.75102041, -0.73877551, -0.72653061, -0.71428571, -0.70204082, -0.68979592, -0.67755102, -0.66530612, -0.65306122, -0.64081633, -0.62857143, -0.61632653, -0.60408163, -0.59183673, -0.57959184, -0.56734694, -0.55510204, -0.54285714, -0.53061224, -0.51836735, -0.50612245, -0.49387755, -0.48163265, -0.46938776, -0.45714286, -0.44489796, -0.43265306, -0.42040816, -0.40816327, -0.39591837, -0.38367347, -0.37142857, -0.35918367, -0.34693878, -0.33469388, -0.32244898, -0.31020408, -0.29795918, -0.28571429, -0.27346939, -0.26122449, -0.24897959, -0.23673469, -0.2244898 , -0.2122449 , -0.2, -0.15, -1.00000000e-01, -5.00000000e-02, 0,  0.05,  0.1,  0.15, 0.2,  0.25,  0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8]
-        # #measurements = zeros((len(biasSet),2),float)
-        
-        # for bias_current in linspace(startBias,stopBias,numBias):
-        # #for bias_current in biasSet:
+            light_measurements[row,0] = bias_current
 
-        #     measurements[row,0] = bias_current
+            self.SParamSetBias(bias_current)
+            #self.KeithleySetBias(bias_current)
+            dummy = self.SParamGetPhotocurrent()
 
-        #     self.SParamSetBias(bias_current)
-        #     #self.KeithleySetBias(bias_current)
-        #     dummy = self.SParamGetPhotocurrent()
+            time.sleep(0.0001)
 
-        #     time.sleep(0.0001)
+            current_meas = self.SParamGetPhotocurrent()
+            #current_meas = self.KeithleyGetPhotocurrent()
+            light_measurements[row,1] = current_meas
 
-        #     current_meas = self.SParamGetPhotocurrent()
-        #     #current_meas = self.KeithleyGetPhotocurrent()
-        #     measurements[row,1] = current_meas
+            print("Measured current for %.2fV = %.2e" % (bias_current, current_meas))
 
-        #     print("Measured current for %.2fV = %.2e" % (bias_current, current_meas))
-
-        #     row = row + 1
+            row = row + 1
+        self.LaserDrvOutput(0)
 
         #Beep when done
         frequency = 2000  # Set Frequency To 2500 Hertz
@@ -792,34 +820,48 @@ class GPIBManager( threading.Thread ):
         # # Save as .mat file
         # io.savemat(outfilePath, {'iv': measurements})
 
-        # # Save a csv file
-        # filename = "%s.csv" % (measDescription)
+        # Save a csv file
+        filename = "%s-dark.csv" % (measDescription)
 
-        # print(measurements.shape[0])
-        # outfilePath = os.path.join(saveDirectory,filename)
-        # # with open(outfilePath, 'w', newline='') as csvfile:
-        # with open(outfilePath, 'w') as csvfile: # new line not supported in python 2.7
-        #     # csvwriter = csv.writer(csvfile, delimiter=' ',
-        #     #                         quotechar=',', quoting=csv.QUOTE_MINIMAL)
-        #     csvwriter = csv.writer(csvfile, dialect='excel')
-        #     csvwriter.writerow(['Voltage V', 'Current A'])
+        outfilePath = os.path.join(saveDirectory,filename)
+        # with open(outfilePath, 'w', newline='') as csvfile:
+        with open(outfilePath, 'w') as csvfile: # new line not supported in python 2.7
+            # csvwriter = csv.writer(csvfile, delimiter=' ',
+            #                         quotechar=',', quoting=csv.QUOTE_MINIMAL)
+            csvwriter = csv.writer(csvfile, dialect='excel')
+            csvwriter.writerow(['Voltage V', 'Current A'])
 
-        #     for i in range(measurements.shape[0]):
-        #         csvwriter.writerow([str(measurements[i,0]), str(measurements[i,1])])
+            for i in range(measurements.shape[0]):
+                csvwriter.writerow([str(measurements[i,0]), str(measurements[i,1])])
 
+        filename = "%s-light.csv" % (measDescription)
+
+        outfilePath = os.path.join(saveDirectory,filename)
+        # with open(outfilePath, 'w', newline='') as csvfile:
+        with open(outfilePath, 'w') as csvfile: # new line not supported in python 2.7
+            # csvwriter = csv.writer(csvfile, delimiter=' ',
+            #                         quotechar=',', quoting=csv.QUOTE_MINIMAL)
+            csvwriter = csv.writer(csvfile, dialect='excel')
+            csvwriter.writerow(['Voltage V', 'Current A'])
+
+            for i in range(measurements.shape[0]):
+                csvwriter.writerow([str(light_measurements[i,0]), str(light_measurements[i,1])])
         self.SParamSetShortIntegrationTime()
 
         self.SParamSetBias(previousBias)
+        
         #self.KeithleySetBias(previousBias)
         
-        # if plot:
-        #     plt.figure()
-        #     plt.subplot(211)
-        #     plt.plot(measurements[:,0], measurements[:,1])
-        #     plt.subplot(212)
-        #     plt.semilogy(measurements[:,0], np.abs(measurements[:,1]))
-        #     # plt.ion()
-        #     plt.show()
+        if plot:
+            plt.figure()
+            plt.subplot(211)
+            plt.plot(measurements[:,0], measurements[:,1], light_measurements[:,0], light_measurements[:,1])
+            plt.legend(['Dark', 'Light'])
+            plt.subplot(212)
+            plt.semilogy(measurements[:,0], np.abs(measurements[:,1]), light_measurements[:,0], np.abs(light_measurements[:,1]))
+            plt.legend(['Dark', 'Light'])
+            # plt.ion()
+            plt.show()
 
     def PerformPIMeasurement(self):
         
@@ -2688,8 +2730,11 @@ class GPIBManager( threading.Thread ):
         self.SParamSetBias(self.parent.pdBias)
 
     def LaserDrvOutput(self, enable):
-        print("LASer:OUTput%d"%enable)
-        self.laserdrv.write("LASer:OUTput%d"%enable)
+        print("LASer:OUTput %d"%enable)
+        self.laserdrv.write("LASer:OUTput %d"%enable)
+
+    def LaserDrvLocal(self):
+        self.laserdrv.write("LOCAL")
 
 
     def KeithleySetBias(self, bias_voltage):
