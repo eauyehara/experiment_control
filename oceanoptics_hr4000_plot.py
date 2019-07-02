@@ -1,7 +1,8 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 """
-Update a simple spectrum from Ocean Optics HR2000 spectrometer
+Ocean Optics HR4000 spectrometer plot GUI
+Supports csv export of IV curves
 """
 
 import socket
@@ -12,10 +13,13 @@ import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.ptime import time
 from time import sleep
-from bristol_client import get_lm
+import csv
+from os import path
+from datetime import datetime
+from oceanoptics_hr4000_client import *
 
 Npts = 500
-wait_sec = 0.1
+wait_sec = 2
 sample_time_sec = 0.45 # estimate of time taken by server to return value
 rescale = True
 
@@ -27,165 +31,130 @@ width_pix = 1280
 height_pix = 960
 ##############################################
 
-# def get_val():
-#     try:
-#         # open connection to server
-#         # Create a socket (SOCK_STREAM means a TCP socket)
-#         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#         sock.connect((HOST, PORT))
-#         # Request AI0 data from server
-#         sock.sendall(bytes('LM', "utf-8"))
-#         sleep(0.1)
-#         # Receive float voltage from the server
-#         val = struct.unpack('f',sock.recv(1024))[0] # Bristol LSA peak wavelength in nm in this case
-#         # # Request AI1 data from server
-#         # sock.sendall(bytes('AI1', "utf-8"))
-#         # # Receive float voltage from the server
-#         # val1 = struct.unpack('f',sock.recv(1024))[0]
-#     finally:
-#         # close server
-#         sock.close()
-#     return val
+data_dir = path.normpath('./')
 
+
+import seabreeze.spectrometers as sb
+# HR4000 parameters
+hr4000_params={'IntegrationTime_micros':100000}
+
+# Setup spectrometer
+devices = sb.list_devices()
+spec = sb.Spectrometer(devices[0])
+spec.integration_time_micros(hr4000_params['IntegrationTime_micros'])
+
+
+# Global variables
+spectra_data = np.array([])
+
+# Functions from client script
 def get_val():
-    val = get_lm().m
+    val = get_sp()
     return val
-
-
-    #received = str(sock.recv(1024), "utf-8")
-
 
 
 app = QtGui.QApplication([])
 
-# Use pyqtgraph's GraphicsItems
-view = pg.GraphicsView()
-layout = pg.GraphicsLayout()
-view.setCentralItem(layout)
-view.setMaximumWidth(width_pix)
-view.setMaximumHeight(height_pix)
-view.showMaximized()
+## Define a top-level widget to hold everything
+w = QtGui.QWidget()
 
-### use QWidgets
-# w = QtGui.QWidget()
-# layout = QtGui.QGridLayout()
-# w.setLayout(layout)
-# w.setMaximumWidth(width_pix)
-# w.setMaximumHeight(height_pix)
-# w.showMaximized()
+## Create some widgets to be placed inside
+btn_save = QtGui.QPushButton('Save Spectra')
+
+edit_intTime = QtGui.QLineEdit('{:f}'.format(hr4000_params['IntegrationTime_micros']))
+btn_setparam = QtGui.QPushButton('Set Spectrometer Params')
+edit_deviceName = QtGui.QLineEdit('TC0')
+btn_setdirec = QtGui.QPushButton('Set Data Directory')
 
 
 
-#p = layout.addPlot(col=0,row=0,rowspan=8)
-p = pg.PlotItem()
-#p = pg.PlotWidget()
-p.setWindowTitle('Bristol Wavelength Data')
-p.setRange(QtCore.QRectF(0, -10, 5000, 20))
-p.showGrid(x=True,y=True,alpha=0.8)
-#p.setXRange(0,Npts*wait_sec, padding=0)
-p.setLimits(xMin=0,
-            xMax=2*Npts*wait_sec,
-            yMin=1200,
-            yMax=5000,
-            minXRange=10*wait_sec,
-            maxXRange=2*Npts*(wait_sec+sample_time_sec),
-            minYRange=0.01,
-            maxYRange=3810)
-p.enableAutoScale()
-# should be p.enableAutoRange(axis, enable) but I don't know what 'axis' and 'enable' should be
-xlab = p.setLabel('bottom',text='time',units='s')
-ylab = p.setLabel('left',text='wavelength',units='nm')
+p = pg.PlotWidget()
+xlabel = p.setLabel('bottom',text='Wavelength',units='nm')
+ylabel = p.setLabel('left',text='Counts',units='Arb. Unit')
+
+## Create a grid layout to manage the widgets size and position
+layout = QtGui.QGridLayout()
+w.setLayout(layout)
+
+## Add widgets to the layout in their proper positions
+layout.addWidget(QtGui.QLabel('Device Name'), 0, 0)
+layout.addWidget(edit_deviceName, 0, 1) # save spectra button
+layout.addWidget(btn_save, 1, 0) # save spectra button
+
+layout.addWidget(QtGui.QLabel('Integration Time [usec]'), 2,0)
+layout.addWidget(edit_intTime, 2, 1)
+layout.addWidget(btn_setparam, 3, 0) # Set parameters button
+layout.addWidget(btn_setdirec, 4, 0) # Set parameters button
+
+layout.addWidget(p, 0, 2, 8, 8) # Plot on right spans 8x8
+
+# Button event handler functions
+def save_spectra():
+    print('Saving spectra')
+
+    global spectra_data, data_dir
+
+    timer.stop()
+
+    timestamp_str = datetime.strftime(datetime.now(),'%Y_%m_%d_%H_%M_%S')
+
+    fname = edit_deviceName.text()+'-'+timestamp_str+'.csv'
+
+    fpath = path.normpath(path.join(data_dir,fname))
+
+    with open(fpath, 'w', newline='') as csvfile:
+        csvwriter = csv.writer(csvfile, dialect='excel')
+        csvwriter.writerow(['Wavelength nm', 'Count'])
+
+        for i in range(spectra_data.shape[0]):
+            csvwriter.writerow([str(spectra_data[i,0]), str(spectra_data[i,1])])
+
+    timer.start(max([2e-3*hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+
+btn_save.clicked.connect(save_spectra)
+
+def set_measurement_params():
+    global hr4000_params
+
+    timer.stop()
+    hr4000_params['IntegrationTime_micros'] = float(edit_intTime.text())
+    spec.integration_time_micros(hr4000_params['IntegrationTime_micros'])
+    timer.start(max([2e-3*hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+
+btn_setparam.clicked.connect(set_measurement_params)
+
+def set_directory():
+    global data_dir
+
+    timer.stop()
+    data_dir = QtGui.QFileDialog.getExistingDirectory()
+
+    timer.start(max([2e-3*hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+btn_setdirec.clicked.connect(set_directory)
 
 
+# Timer function
+def refresh_live_spectra():
+    global spectra_data
 
-#vb = p.getViewBox()
+    # print('Refreshing plot')
+    spectra_data = np.transpose( spec.spectrum() )
 
-# vb.autoRange(padding=0.1)
-#curve.setFillBrush((0, 0, 100, 100))
-#curve.setFillLevel(0)
+    p.plot(spectra_data, clear=True)
 
-#lr = pg.LinearRegionItem([100, 4900])
-#p.addItem(lr)
-
-init_val0 = get_val()
-
-
-# data0 = np.ones(Npts)*init_val0
-# data1 = np.ones(Npts)*init_val1
-# time_array = np.linspace(0,wait_sec/10.0,Npts)
-data0 = np.array([init_val0])
-#data1 = np.array([init_val1])
-time_array = np.array([0])
-curve0 = p.plot(time_array,data0,pen=(255,165,0),name='wavelength')
-#curve1 = p.plot(time_array,data1,pen=(1,2),name='set temp')
-t0 = time()
-ptr = 1
-lastTime = t0
-fps = None
-fps_text = pg.TextItem(text='fps: ',
-                        color=(200,200,200),
-                        anchor=(1,0),
-                        )
-# leg = pg.LegendItem()
-# leg.addItem(curve0,name='meas')
-# leg.addItem(curve1,name='set')
-
-#p.addItem(fps_text)
-fps_text.setPos(0.5,0.5)
-layout.addItem(p,0,0,1,1)
-#layout.addItem(leg,1,0,10,1)
-#layout.layout.setRowStretchFactor(0, 3)
-#layout.layout.setRowStretchFactor(0, 10)
-#layout.layout.setRowStretchFactor(1, 1)
-#layout.addWidget(p,0,0,5,1)
-#layout.addWidget(leg,5,0,1,1)
-
-def update():
-    global fps_text,leg,layout,data0,curve0,time_array, ptr, p, lastTime, fps
-    val0 = get_val()
-    now = time()-t0
-    # update data
-    if ptr<=Npts:
-        data0 = np.append(data0, np.array(val0))
-        #data1 = np.append(data1, np.array(val1))
-        time_array = np.append(time_array, np.array([now]))
-    else:
-        data0 = np.append(data0[1:], np.array(val0))
-        #data1 = np.append(data1[1:], np.array(val1))
-        time_array = np.append(time_array[1:], np.array([now]))
-    ptr+=1
-    curve0.setData(time_array-time_array[0],data0)
-    #curve1.setData(time_array-time_array[0],data1)
-
-    # if rescale:
-    #     vb.setXRange(time_array.min(),time_array.max(),padding=0.05)
-    #     p.setXRange(time_array.min(),time_array.max(),padding=0.05)
-    #
-    #     p.setYRange(min([data0.min(),data1.min()]), max([data0.max(),data1.max()]), padding=0.1)
-
-    dt = now - lastTime
-    lastTime = now
-    if fps is None:
-        fps = 1.0/dt
-    else:
-        s = np.clip(dt*3., 0, 1)
-        fps = fps * (1-s) + (1.0/dt) * s
-    fps_str = '%0.2f fps' % fps
-
-    title_str = r'<font color="white">Bristol Peak Wavelength</font>, ' + fps_str
-    p.setTitle(title_str,color=(255,255,255))
-    # ta_max_str = 'time_array max: {:3.3f}, '.format(time_array.max())
-    # vb_range_str = 'vb_range: {}, '.format(vb.viewRange())
-    # vb_rect_str = 'vb_rect: {}'.format(vb.viewRect())
-    # p.setTitle(ta_max_str+vb_range_str+vb_rect_str)
-    app.processEvents()  ## force complete redraw for every plot
-    sleep(wait_sec)
 timer = QtCore.QTimer()
-timer.timeout.connect(update)
-timer.start(0)
+timer.timeout.connect(refresh_live_spectra)
+timer.start(1.5e-3*hr4000_params['IntegrationTime_micros']) # in msec
 
-## Start Qt event loop unless running in interactive mode.
-if __name__ == '__main__':
-    import sys
-    if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
-        QtGui.QApplication.instance().exec_()
+
+def exitHandler():
+    print('Exiting script')
+    timer.stop()
+
+app.aboutToQuit.connect(exitHandler)
+
+## Display the widget as a new window
+w.show()
+
+## Start the Qt event loop
+app.exec_()
