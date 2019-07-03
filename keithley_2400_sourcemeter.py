@@ -25,6 +25,7 @@ print('Import successful')
 #bvb = append(bv3,bv4)
 
 #bias_voltages = append(bva,bvb)
+# linspace(start, stop, number of points)
 bias_voltages = linspace(1, -10, 11)
 
 start_voltage = min(bias_voltages)
@@ -35,7 +36,7 @@ bias_steps = len(bias_voltages)
 device_description = "pSi_PD_fixed_7_1220_tap70uW"
 
 timeTuple = time.localtime()
-DirectoryName = ".\\"
+DirectoryName = 'C:\\Users\\POE\\Desktop\\'
 Resp_OutFileName = "iv_%s_%d-%d-%d_on_%d#%d#%d--%d#%d#%d.mat" % (
                             device_description,
                             start_voltage,
@@ -128,11 +129,11 @@ plt.plot(measurements[:,0], log10(abs(measurements[:,1])), 'b-')
 #plt.xlim([0, 20])
 plt.xlabel("Bias Voltage [V]")
 plt.ylabel("Diode Current [uA]")
-
+plt.savefig(Figure_OutFileName, dpi=300)
 plt.show()
-#plt.savefig(Figure_OutFileName, dpi=300)
+
 #plt.close(0)
 
 
 # Save to .mat file
-#io.savemat(Resp_OutFileName, {'IV_data': measurements})
+io.savemat(Resp_OutFileName, {'IV_data': measurements})
