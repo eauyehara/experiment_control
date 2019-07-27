@@ -26,7 +26,12 @@ $  python ./Instrumental/setup.py install
  
 ## Setup for Ocean Optics Spectrometer
 ### 1. Install seabreeze open source drivers
+#### For Windows
+Download installer from 
+https://sourceforge.net/projects/seabreeze/files/SeaBreeze/installers/
+and run
 
+#### For MacOS
 Download from 
 
 https://sourceforge.net/projects/seabreeze/
@@ -50,10 +55,13 @@ $  test/seabreeze_test_posix
 
 $ conda install -c poehlmann python-seabreeze
 
+### 3. Install pyqtgraph
+conda install pyqtgraph
 
-### 3. Connect usb to spectrometer and test with Dodd's source
+http://www.pyqtgraph.org/documentation/installation.html
 
-$ python ./experiment_control/live_ocean_optics_HR2000_spectrometer_gui.py
+### 3. Connect usb to spectrometer and test 
+$ python ./experiment_control/ocean_optics_HR4000_plot.py
 
 
 ## Setup for PyVisa and Keithley 2400 SourceMeter
