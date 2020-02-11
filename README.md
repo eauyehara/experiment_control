@@ -6,6 +6,7 @@
 python-seabreeze does not support Python 3.7 and above
 
 $ conda create -n py36 python=3.6
+
 $ conda activate py36
 
 ### 1. Clone Mabuchi lab sources
