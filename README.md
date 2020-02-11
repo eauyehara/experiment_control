@@ -2,11 +2,17 @@
 
 ## Common setup
 
+### 0. Create Python 3.6 environment
+python-seabreeze does not support Python 3.7 and above
+
+$ conda create -n py36 python=3.6
+$ conda activate py36
+
 ### 1. Clone Mabuchi lab sources
 
 $ git clone https://github.com/mabuchilab/Instrumental.git
 
-$ git https://github.com/mabuchilab/NiceLib.git
+$ git clone https://github.com/mabuchilab/NiceLib.git
 
 $ git clone https://github.com/doddgray/experiment_control.git
 
@@ -52,8 +58,11 @@ Un plug and replug usb and Run the following to test if Seabreeze drivers are in
 $  test/seabreeze_test_posix 
 
 ### 2. Install python-seabreeze
-
+For Python 3.6 distributions and below
 $ conda install -c poehlmann python-seabreeze
+
+For Python 3.8 and beyond
+$ conda install -c poehlmann seabreeze
 
 ### 3. Install pyqtgraph
 conda install pyqtgraph
