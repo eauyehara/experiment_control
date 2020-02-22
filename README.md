@@ -37,6 +37,7 @@ $  python ./Instrumental/setup.py install
 Download installer from 
 https://sourceforge.net/projects/seabreeze/files/SeaBreeze/installers/
 and run
+If a zip file is downloaded, plug in the spectrometer and use the update driver and browse for driver files from the extracted files.
 
 #### For MacOS
 Download from 
