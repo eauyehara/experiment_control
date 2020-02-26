@@ -31,7 +31,7 @@ time_array = COUNTER.query('READ?')
 time_array = list(np.float_(time_array.split(","))) # Converts the output string to a float list
 print(time_array)
 
-print(type(time_array[0]))
+#print(type(time_array[0]))
 
 #np.savetxt('out.csv', time_array, delimiter=',')
 
