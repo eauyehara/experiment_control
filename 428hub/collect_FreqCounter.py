@@ -1,0 +1,42 @@
+import pyvisa
+import numpy as np
+import csv
+
+USB_adress = 'USB0::0x0957::0x1807::MY50009613::INSTR'
+
+# Find an open the instrument
+rm = pyvisa.ResourceManager()
+COUNTER = rm.open_resource(USB_adress)
+
+
+
+num_counts = 10 # Number of interarrival times to be measured
+slope = 1 # Positive(1)/ Negative(0) slope trigger
+threshold = 0 # V 
+
+
+
+COUNTER.write('*RST') #Reset to default settings
+COUNTER.write('CONF:SPER') #Configuration for a single period measurements
+COUNTER.write('INP1:COUP DC') #DC coupled
+COUNTER.write('INP1:IMP 50') #50 ohm imput impedance
+COUNTER.write('INP1:LEV {}'.format(threshold)) #0V threshold
+COUNTER.write('INP1:SLOP POS') #Positive slope trigger
+COUNTER.timeout = 60000 # Timeout of 60000 msec
+COUNTER.chunk_size = 23 * num_counts # Size of the input buffer
+
+COUNTER.write('SAMP:COUN {}'.format(num_counts)) # Collect num_counts counts
+
+time_array = COUNTER.query('READ?')
+time_array = list(np.float_(time_array.split(","))) # Converts the output string to a float list
+print(time_array)
+
+print(type(time_array[0]))
+
+#np.savetxt('out.csv', time_array, delimiter=',')
+
+#print(type(time_array))
+#a = np.asarray(time_array)
+#np.savetxt("foo.csv", time_array, delimiter=",")
+
+print('Done!')
