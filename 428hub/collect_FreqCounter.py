@@ -25,15 +25,23 @@ COUNTER.write('INP1:SLOP POS') #Positive slope trigger
 COUNTER.timeout = 60000 # Timeout of 60000 msec
 COUNTER.chunk_size = 23 * num_counts # Size of the input buffer
 
+
 COUNTER.write('SAMP:COUN {}'.format(num_counts)) # Collect num_counts counts
+time_list = COUNTER.query('READ?')
 
-time_array = COUNTER.query('READ?')
-time_array = list(np.float_(time_array.split(","))) # Converts the output string to a float list
-print(time_array)
 
-#print(type(time_array[0]))
+time_list = list(np.float_(time_list.split(","))) # Converts the output string to a float list
 
-#np.savetxt('out.csv', time_array, delimiter=',')
+
+# Save the results into a csv file
+with open("{}_interarrival_times.csv".format(num_counts), "w") as csvfile:
+        csvwriter = csv.writer(csvfile)
+        for time in time_list:
+            csvwriter.writerow([time])
+
+#with open('output_path.csv', "wb") as file:
+    #writer = csv.writer(file)
+    #writer.writerow([time for time in time_array])
 
 #print(type(time_array))
 #a = np.asarray(time_array)
