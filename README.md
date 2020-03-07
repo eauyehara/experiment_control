@@ -17,15 +17,17 @@ $ git clone https://github.com/mabuchilab/NiceLib.git
 
 $ git clone https://github.com/doddgray/experiment_control.git
 
-### 2. Install Pyvisa
+### 2. Install Dependencies
 
 $ pip install pyvisa
+or
+$ conda install -c conda-forge pyvisa 
 
-### 3. Install future
+$ conda install future
 
-$  conda install future
+$ conda install cffi
 
-### 4. Run setup on each of Mabuchi lab sources
+### 3. Run setup on each of Mabuchi lab sources
 
 $  python ./NiceLib/setup.py install
 
