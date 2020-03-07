@@ -9,6 +9,8 @@ $ conda create -n py36 python=3.6
 
 $ conda activate py36
 
+$ conda install -c anaconda ipython   # this is to make sure that iPython runs from this new environment
+
 ### 1. Clone Mabuchi lab sources
 
 $ git clone https://github.com/mabuchilab/Instrumental.git
@@ -20,7 +22,9 @@ $ git clone https://github.com/doddgray/experiment_control.git
 ### 2. Install Dependencies
 
 $ pip install pyvisa
+
 or
+
 $ conda install -c conda-forge pyvisa 
 
 $ conda install future
