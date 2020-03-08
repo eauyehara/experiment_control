@@ -22,6 +22,7 @@ from time import sleep
 import csv
 from os import path
 from datetime import datetime
+from instrumental import Q_
 
 
 Npts = 500
@@ -46,16 +47,20 @@ rescale = True
 
 # GUI
 class Window(QtGui.QMainWindow):
+    # Initialize class variables
+    timer_factor = 1.2e-3
 
     def __init__(self):
-        # Initialize class variables
-        timer_factor = 1.2e-3
+
         # Initialize instance variables
         self.spectra_data = np.array([])
-        self.target_wl = 550.0
-        self.current_wl = 0.0
+        self.current_wl = Q_(0.0, 'nm')
         self.data_dir = path.normpath('./')
+
+        self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
+        self.smu_channel = 1
+        self.smu_bias = 0
 
         self.initialize_gui()
 
@@ -63,11 +68,11 @@ class Window(QtGui.QMainWindow):
 
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.refresh_live_spectra)
-        self.timer.start(timer_factor*self.hr4000_params['IntegrationTime_micros']) # in msec
+        self.timer.start(Window.timer_factor*self.hr4000_params['IntegrationTime_micros']) # in msec
 
     def initialize_gui(self):
         super(Window, self).__init__()
-        self.setGeometry(100, 100, 1280, 960)
+        self.setGeometry(100, 100, 1000, 600)
         self.setWindowTitle("POE Super Continuum Source Filter Control!")
         # self.setWindowIcon(QtGui.QIcon('pythonlogo.png'))
 
@@ -92,20 +97,36 @@ class Window(QtGui.QMainWindow):
         self.btn_save.clicked.connect(self.save_spectra)
 
         self.edit_intTime = QtGui.QLineEdit('{:d}'.format(self.hr4000_params['IntegrationTime_micros']))
+        self.edit_intTime.editingFinished.connect(self.set_spec_params)
         self.btn_setparam = QtGui.QPushButton('Set Spectrometer Params')
-        self.btn_setparam.clicked.connect(self.set_measurement_params)
+        self.btn_setparam.clicked.connect(self.set_spec_params)
 
         self.edit_deviceName = QtGui.QLineEdit('TC0')
         self.btn_setdirec = QtGui.QPushButton('Set Data Directory')
         self.btn_setdirec.clicked.connect(self.set_directory)
 
-        self.edit_wavelength = QtGui.QLineEdit('{:.4g}'.format(self.target_wl))
+        self.edit_wavelength = QtGui.QLineEdit('{0.magnitude}'.format(self.target_wl))
         self.btn_wavelength = QtGui.QPushButton('Set Wavelength')
-        self.btn_wavelength.clicked.connect(lambda : self.set_wavelength(wavelength=float(self.edit_wavelength.text())))
+        self.edit_wavelength.editingFinished.connect(lambda : self.set_wavelength(wavelength=Q_(float(self.edit_wavelength.text()), 'nm')))
+        self.btn_wavelength.clicked.connect(lambda : self.set_wavelength(wavelength=Q_(float(self.edit_wavelength.text()), 'nm')))
 
         self.label_wavelength = QtGui.QLabel('Peak Wavelength: nm')
-        self.label_wavelength.setStyleSheet("font: bold 20pt Arial")
+        self.label_wavelength.setStyleSheet("font: bold 14pt Arial")
 
+        # SMU UI elements
+        self.edit_channel = QtGui.QLineEdit('{}'.format(self.smu_channel))
+        self.edit_channel.editingFinished.connect(self.set_smu_params)
+        self.edit_bias = QtGui.QLineEdit('{:.4g}'.format(self.smu_bias))
+        self.edit_bias.editingFinished.connect(self.set_smu_params)
+
+        self.label_photocurrent = QtGui.QLabel('Photocurrent: A')
+        self.label_photocurrent.setStyleSheet("font: bold 14pt Arial")
+
+        self.label_illumpower = QtGui.QLabel('Illumination Power: ')
+        self.label_illumpower.setStyleSheet("font: bold 14pt Arial")
+
+
+        # Plot of spectra
         self.p = pg.PlotWidget()
         self.xlabel = self.p.setLabel('bottom',text='Wavelength',units='nm')
         self.ylabel = self.p.setLabel('left',text='Counts',units='Arb. Unit')
@@ -116,24 +137,33 @@ class Window(QtGui.QMainWindow):
         self.w.setLayout(self.layout)
 
         ## Add widgets to the layout in their proper positions
-        self.layout.addWidget(QtGui.QLabel('Device Name'), 0, 0)
-        self.layout.addWidget(self.edit_deviceName, 0, 1)
-        self.layout.addWidget(self.btn_setdirec, 0, 2) # Set directory button
-        self.layout.addWidget(self.btn_save, 0, 3) # save spectra button
+        self.layout.addWidget(QtGui.QLabel('Device Name'), 0, 0, 1,1)
+        self.layout.addWidget(self.edit_deviceName, 0, 1, 1,1)
+        self.layout.addWidget(self.btn_setdirec, 0, 2, 1,1) # Set directory button
+        self.layout.addWidget(self.btn_save, 0, 3, 1,1) # save spectra button
 
-        self.layout.addWidget(QtGui.QLabel('Integration Time [usec]'), 1,0)
-        self.layout.addWidget(self.edit_intTime, 1, 1)
-        self.layout.addWidget(self.btn_setparam, 1, 2) # Set parameters button
+        self.layout.addWidget(QtGui.QLabel('Integration Time [usec]'), 1,0, 1,1)
+        self.layout.addWidget(self.edit_intTime, 1, 1,  1,1)
+        self.layout.addWidget(self.btn_setparam, 1, 2,  1,1) # Set parameters button
 
+        self.layout.addWidget(QtGui.QLabel('Target Wavelength [nm]'), 2,0, 1,1)
+        self.layout.addWidget(self.edit_wavelength, 2, 1,  1,1)
+        self.layout.addWidget(self.btn_wavelength, 2, 2,  1,1) # Set wavelength button
+        self.layout.addWidget(self.label_wavelength, 3, 0,  1,3)
 
-        self.layout.addWidget(QtGui.QLabel('Target Wavelength [nm]'), 2,0)
-        self.layout.addWidget(self.edit_wavelength, 2, 1)
-        self.layout.addWidget(self.btn_wavelength, 2, 2) # Set wavelength button
+        self.layout.addWidget(QtGui.QLabel('SMU channel [1~4]'), 4,0,  1,1)
+        self.layout.addWidget(self.edit_channel, 4, 1,  1,1)
+        self.layout.addWidget(QtGui.QLabel('SMU voltage [V]'), 4,2,  1,1)
+        self.layout.addWidget(self.edit_bias, 4, 3,  1,1)
+        self.layout.addWidget(self.label_photocurrent, 5, 0, 1, 3)
+        self.layout.addWidget(self.label_illumpower, 6, 0, 1, 3)
 
-        self.layout.addWidget(self.label_wavelength, 3, 1, 1, 4)
+        self.layout.addWidget(self.p, 0, 4, 6, 10) # Plot on right spans 8x8
 
-        self.layout.addWidget(self.p, 0, 4, 8, 8) # Plot on right spans 8x8
-
+        # Equalizes column stretch factor
+        for i in range(3):
+            self.layout.setColumnStretch(i, 1)
+        self.layout.setColumnStretch(4, 10)
         self.show()
 
     def initialize_instruments(self):
@@ -142,13 +172,14 @@ class Window(QtGui.QMainWindow):
         import seabreeze.spectrometers as sb
         self.hr4000_params={'IntegrationTime_micros':200000}
 
-        devices = sb.list_devices()
-        if len(devices)>0:
+        try:
+            devices = sb.list_devices()
             self.spec = sb.Spectrometer(devices[0])
-            self.spec.integration_time_micros(self.hr4000_params['IntegrationTime_micros'])
-        else:
+        except:
             print('HR4000 Spectrometer not connected')
             self.spec = None
+        else:
+            self.spec.integration_time_micros(self.hr4000_params['IntegrationTime_micros'])
 
         # Initialize Motor controller
         try:
@@ -158,6 +189,9 @@ class Window(QtGui.QMainWindow):
         except:
             print('Klinger Motor controller not connected')
             self.mc = None
+        else:
+            # Set motor at high speed
+            self.mc.set_steprate(R=254, S=1, F=29)
 
         # Initialize Power meter
         try:
@@ -167,15 +201,21 @@ class Window(QtGui.QMainWindow):
         except:
             print('OMM-6810B Power meter not connected')
             self.pm = None
-        #
-        # # Initialize Source meter
-        # try:
-        #     from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
-        #
-        #     self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
-        # except:
-        #     print('HP 4156C Parameter Analyzer not connected')
-        #     self.smu = None
+        else:
+            self.pm.wavelength = self.target_wl
+            self.pm.set_no_filter()
+
+        # Initialize Source meter
+        try:
+            from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
+
+            self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
+        except:
+            print('HP 4156C Parameter Analyzer not connected')
+            self.smu = None
+        else:
+            self.smu.set_integration_time('short')
+
 
     # Event handlers
     def save_spectra(self):
@@ -205,44 +245,67 @@ class Window(QtGui.QMainWindow):
 
         self.statusBar().showMessage('Saved spectra to {}'.format(fpath), 5000)
         # restart timer
-        self.timer.start(max([timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+        self.timer.start(max([Window.timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
 
-    def set_measurement_params(self):
+    def set_spec_params(self):
         self.timer.stop()
 
         self.hr4000_params['IntegrationTime_micros'] = float(self.edit_intTime.text())
         # spec.integration_time_micros(hr4000_params['IntegrationTime_micros'])
-        self.timer.start(max([timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+        self.timer.start(max([Window.timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
 
         self.statusBar().showMessage('Set spectrometer parameters', 5000)
 
+    def set_smu_params(self):
+        try:
+            self.smu_channel = int(self.edit_channel.text())
+        except:
+            self.statusBar().showMessage('Invalid input for SMU channel', 3000)
+            self.smu_channel = 1
+            self.edit_channel.setText('1')
+
+        try:
+            self.smu_bias = float(self.edit_bias.text())
+        except:
+            self.statusBar().showMessage('Invalid input for SMU voltage', 3000)
+            self.smu_bias = 0.0
+            self.edit_channel.setText('0.0')
+
+        if self.smu is not None:
+            self.smu.set_channel(channel=self.smu_channel)
+            self.smu.set_voltage(voltage=self.smu_bias)
+            self.statusBar().showMessage('Setting SMU channel {} to {:.4g} V'.format(self.smu_channel, self.smu_bias), 3000)
 
     def set_directory(self):
         self.timer.stop()
         self.data_dir = QtGui.QFileDialog.getExistingDirectory()
 
-        self.timer.start(max([timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+        self.timer.start(max([Window.timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
 
         self.statusBar().showMessage('Set data directory to {}'.format(self.data_dir), 5000)
 
     def set_wavelength(self, wavelength):
-        # self.timer.stop()
-        # data_dir = QtGui.QFileDialog.getExistingDirectory()
-        #
-        # self.timer.start(max([timer_factor*hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+        if self.pm is not None:
+            self.pm.wavelength = wavelength
 
-        self.statusBar().showMessage('Setting wavelength to {}'.format(wavelength), 5000)
+        self.statusBar().showMessage('Setting wavelength to {:.4~P}'.format(wavelength), 5000)
 
     def refresh_live_spectra(self):
-        if self.spec != None:
+        if self.spec is not None:
             # print('Refreshing plot')
             self.spectra_data = np.transpose( self.spec.spectrum() )
             self.p.plot(self.spectra_data, clear=True)
 
             # refresh peak wavelength
             # print(self.spectra_data.shape)
-            self.current_wl = self.spectra_data[np.argmax(self.spectra_data[:,1]), 0]
-            self.label_wavelength.setText("Peak wavelength {:.4g} nm".format(self.current_wl))
+            self.current_wl = Q_(self.spectra_data[np.argmax(self.spectra_data[:,1]), 0], 'nm')
+            self.label_wavelength.setText("Peak wavelength {:.4g~}".format(self.current_wl))
+
+        if self.smu is not None:
+            self.label_photocurrent.setText('Photocurrent: {:.4e}'.format(self.smu.measure_current()))
+
+        if self.pm is not None:
+            self.label_illumpower.setText('Illumination Power: {:.4e~}'.format(self.pm.power()))
 
     def close_application(self):
         sys.exit()
