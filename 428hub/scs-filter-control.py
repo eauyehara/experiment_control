@@ -5,8 +5,9 @@ YSL Supercontinuum Source Filter controller
 Required Instruments:
 1. Ocean Optics HR4000 spectrometer
 2. Klinger Scientific CC1.1 Motor controller
-3. Source meter (Todo)
-4. Power meter (Todo)
+3. Power meter (ILX Lightwave OMM-6810B)
+4. Source meter (HP 4156C)
+
 """
 
 import socket
@@ -36,10 +37,6 @@ rescale = True
 # height_pix = 960
 # ##############################################
 
-# Initialize instruments
-import seabreeze.spectrometers as sb
-
-# Global variables
 
 
 # # Functions from client script
@@ -136,6 +133,7 @@ class Window(QtGui.QMainWindow):
         self.show()
 
     def initialize_instruments(self):
+        import seabreeze.spectrometers as sb
         # Initialize HR4000 Spectrometer
         # HR4000 parameters
         self.hr4000_params={'IntegrationTime_micros':200000}
@@ -148,6 +146,21 @@ class Window(QtGui.QMainWindow):
             print('HR4000 Spectrometer not connected')
             self.spec = None
 
+        try:
+            from instrumental.drivers.powermeters.ilx_lightwave import OMM_6810B
+
+            self.pm = OMM_6810B(visa_address='GPIB0::2::INSTR')
+        except:
+            print('OMM-6810B Power meter not connected')
+            self.pm = None
+
+        try:
+            from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
+
+            self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
+        except:
+            print('HP 4156C Parameter Analyzer not connected')
+            self.smu = None
     # Event handlers
     def save_spectra(self):
         self.timer.stop()
