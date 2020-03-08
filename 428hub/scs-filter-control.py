@@ -38,19 +38,9 @@ rescale = True
 
 # Initialize instruments
 import seabreeze.spectrometers as sb
-# HR4000 parameters
-hr4000_params={'IntegrationTime_micros':200000}
-
-# # Setup spectrometer
-# devices = sb.list_devices()
-# spec = sb.Spectrometer(devices[0])
-# spec.integration_time_micros(hr4000_params['IntegrationTime_micros'])
-
 
 # Global variables
-spectra_data = np.array([])
-data_dir = path.normpath('./')
-timer_factor = 1.2e-3
+
 
 # # Functions from client script
 # def get_val():
@@ -61,10 +51,26 @@ timer_factor = 1.2e-3
 class Window(QtGui.QMainWindow):
 
     def __init__(self):
-        global timer_factor, hr4000_params
+        global timer_factor
 
+        # Initialize class variables
+        timer_factor = 1.2e-3
+        # Initialize instance variables
+        self.spectra_data = np.array([])
+        self.data_dir = path.normpath('./')
+        self.hr4000_params={'IntegrationTime_micros':100000}
+
+        self.initialize_gui()
+
+        self.initialize_instruments()
+
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.refresh_live_spectra)
+        self.timer.start(timer_factor*self.hr4000_params['IntegrationTime_micros']) # in msec
+
+    def initialize_gui(self):
         super(Window, self).__init__()
-        self.setGeometry(50, 50, 1280, 960)
+        self.setGeometry(100, 100, 1280, 960)
         self.setWindowTitle("POE Super Continuum Source Filter Control!")
         # self.setWindowIcon(QtGui.QIcon('pythonlogo.png'))
 
@@ -79,16 +85,16 @@ class Window(QtGui.QMainWindow):
         fileMenu = mainMenu.addMenu('&File')
         fileMenu.addAction(extractAction)
 
-        print('Basic window generated')
+        # print('Basic window generated')
         self.w = QtGui.QWidget()
         self.setCentralWidget(self.w)
 
         ## Create some widgets to be placed inside
-        print('Adding buttons')
+        # print('Adding buttons')
         self.btn_save = QtGui.QPushButton('Save Spectra')
         self.btn_save.clicked.connect(self.save_spectra)
 
-        self.edit_intTime = QtGui.QLineEdit('{:f}'.format(hr4000_params['IntegrationTime_micros']))
+        self.edit_intTime = QtGui.QLineEdit('{:f}'.format(self.hr4000_params['IntegrationTime_micros']))
         self.btn_setparam = QtGui.QPushButton('Set Spectrometer Params')
         self.btn_setparam.clicked.connect(self.set_measurement_params)
 
@@ -104,9 +110,8 @@ class Window(QtGui.QMainWindow):
         self.xlabel = self.p.setLabel('bottom',text='Wavelength',units='nm')
         self.ylabel = self.p.setLabel('left',text='Counts',units='Arb. Unit')
 
-
         ## Create a grid layout to manage the widgets size and position
-        print('Setting grid layout')
+        # print('Setting grid layout')
         self.layout = QtGui.QGridLayout()
         self.w.setLayout(self.layout)
 
@@ -130,67 +135,68 @@ class Window(QtGui.QMainWindow):
 
         self.show()
 
-        self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.refresh_live_spectra)
-        self.timer.start(timer_factor*hr4000_params['IntegrationTime_micros']) # in msec
+    def initialize_instruments(self):
+        # Initialize HR4000 Spectrometer
+        # HR4000 parameters
+        self.hr4000_params={'IntegrationTime_micros':200000}
 
+        devices = sb.list_devices()
+        if len(devices)>0:
+            self.spec = sb.Spectrometer(devices[0])
+            self.spec.integration_time_micros(self.hr4000_params['IntegrationTime_micros'])
+        else:
+            print('HR4000 Spectrometer not connected')
+            self.spec = None
 
     # Event handlers
     def save_spectra(self):
-        global spectra_data, data_dir
-
         self.timer.stop()
         timestamp_str = datetime.strftime(datetime.now(),'%Y_%m_%d_%H_%M_%S')
 
         # Save csv
         fname = self.edit_deviceName.text()+'-'+timestamp_str+'.csv'
-        fpath = path.normpath(path.join(data_dir,fname))
+        fpath = path.normpath(path.join(self.data_dir,fname))
 
         with open(fpath, 'w', newline='') as csvfile:
             csvwriter = csv.writer(csvfile, dialect='excel')
-            csvwriter.writerow(['Wavelength nm', 'Count', 'Integration time', str(hr4000_params['IntegrationTime_micros'])])
+            csvwriter.writerow(['Wavelength nm', 'Count', 'Integration time', str(self.hr4000_params['IntegrationTime_micros'])])
 
-            for i in range(spectra_data.shape[0]):
-                csvwriter.writerow([str(spectra_data[i,0]), str(spectra_data[i,1])])
+            for i in range(self.spectra_data.shape[0]):
+                csvwriter.writerow([str(self.spectra_data[i,0]), str(self.spectra_data[i,1])])
 
         # Save png
         fname = self.edit_deviceName.text()+'-'+timestamp_str+'.png'
-        fpath = path.normpath(path.join(data_dir,fname))
+        fpath = path.normpath(path.join(self.data_dir,fname))
 
         # QtGui.QApplication.processEvents()
         # create an exporter instance, as an argument give it
         # the item you wish to export
         exporter = pg.exporters.ImageExporter(self.p.scene())
-        exporter.export(fname)
+        exporter.export(fpath)
 
         self.statusBar().showMessage('Saved spectra to {}'.format(fpath), 5000)
         # restart timer
-        self.timer.start(max([timer_factor*hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+        self.timer.start(max([timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
 
     def set_measurement_params(self):
-        global hr4000_params
-
         self.timer.stop()
-        hr4000_params['IntegrationTime_micros'] = float(self.edit_intTime.text())
+
+        self.hr4000_params['IntegrationTime_micros'] = float(self.edit_intTime.text())
         # spec.integration_time_micros(hr4000_params['IntegrationTime_micros'])
-        self.timer.start(max([timer_factor*hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+        self.timer.start(max([timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
 
         self.statusBar().showMessage('Set spectrometer parameters', 5000)
 
 
     def set_directory(self):
-        global data_dir, timer_factor, hr4000_params
-
         self.timer.stop()
-        data_dir = QtGui.QFileDialog.getExistingDirectory()
+        self.data_dir = QtGui.QFileDialog.getExistingDirectory()
 
-        self.timer.start(max([timer_factor*hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+        self.timer.start(max([timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
 
-        self.statusBar().showMessage('Set data directory to {}'.format(data_dir), 5000)
+        self.statusBar().showMessage('Set data directory to {}'.format(self.data_dir), 5000)
 
     def set_wavelength(self, wavelength):
-        # global data_dir, timer_factor, hr4000_params
-
         # self.timer.stop()
         # data_dir = QtGui.QFileDialog.getExistingDirectory()
         #
@@ -198,15 +204,12 @@ class Window(QtGui.QMainWindow):
 
         self.statusBar().showMessage('Setting wavelength to {}'.format(wavelength), 5000)
 
-
-    # Timer function
     def refresh_live_spectra(self):
-        global spectra_data #, spec
+        if self.spec != None:
+            # print('Refreshing plot')
+            self.spectra_data = np.transpose( self.spec.spectrum() )
 
-        # print('Refreshing plot')
-        # spectra_data = np.transpose( spec.spectrum() )
-
-        self.p.plot(spectra_data, clear=True)
+        self.p.plot(self.spectra_data, clear=True)
 
     def close_application(self):
         sys.exit()
@@ -218,127 +221,3 @@ def run():
 
 # run application
 run()
-
-#
-# ## Define a top-level widget to hold everything
-# w = QtGui.QWidget()
-#
-# ## Create some widgets to be placed inside
-# btn_save = QtGui.QPushButton('Save Spectra')
-#
-# edit_intTime = QtGui.QLineEdit('{:f}'.format(hr4000_params['IntegrationTime_micros']))
-# btn_setparam = QtGui.QPushButton('Set Spectrometer Params')
-# edit_deviceName = QtGui.QLineEdit('TC0')
-# btn_setdirec = QtGui.QPushButton('Set Data Directory')
-#
-# statusbar = QtGui.QStatusBar()
-#
-# p = pg.PlotWidget()
-# xlabel = p.setLabel('bottom',text='Wavelength',units='nm')
-# ylabel = p.setLabel('left',text='Counts',units='Arb. Unit')
-#
-#
-#
-#
-# ## Create a grid layout to manage the widgets size and position
-# layout = QtGui.QGridLayout()
-# w.setLayout(layout)
-#
-# ## Add widgets to the layout in their proper positions
-# layout.addWidget(QtGui.QLabel('Device Name'), 0, 0)
-# layout.addWidget(edit_deviceName, 0, 1) # save spectra button
-# layout.addWidget(btn_save, 1, 0) # save spectra button
-#
-# layout.addWidget(QtGui.QLabel('Integration Time [usec]'), 2,0)
-# layout.addWidget(edit_intTime, 2, 1)
-# layout.addWidget(btn_setparam, 3, 0) # Set parameters button
-# layout.addWidget(btn_setdirec, 4, 0) # Set parameters button
-#
-# layout.addWidget(statusbar, 8,0, 1,10)
-#
-# layout.addWidget(p, 0, 2, 8, 8) # Plot on right spans 8x8
-#
-# # Button event handler functions
-# def save_spectra():
-#     global spectra_data, data_dir
-#
-#     timer.stop()
-#     timestamp_str = datetime.strftime(datetime.now(),'%Y_%m_%d_%H_%M_%S')
-#
-#     # Save csv
-#     fname = edit_deviceName.text()+'-'+timestamp_str+'.csv'
-#     fpath = path.normpath(path.join(data_dir,fname))
-#
-#     with open(fpath, 'w', newline='') as csvfile:
-#         csvwriter = csv.writer(csvfile, dialect='excel')
-#         csvwriter.writerow(['Wavelength nm', 'Count', 'Integration time', str(hr4000_params['IntegrationTime_micros'])])
-#
-#         for i in range(spectra_data.shape[0]):
-#             csvwriter.writerow([str(spectra_data[i,0]), str(spectra_data[i,1])])
-#
-#     # Save png
-#     fname = edit_deviceName.text()+'-'+timestamp_str+'.png'
-#     fpath = path.normpath(path.join(data_dir,fname))
-#
-#     # QtGui.QApplication.processEvents()
-#     # create an exporter instance, as an argument give it
-#     # the item you wish to export
-#     exporter = pg.exporters.ImageExporter(p.scene())
-#     exporter.export(fname)
-#
-#     statusbar.showMessage('Saved spectra to {}'.format(fpath), 5000)
-#     # restart timer
-#     timer.start(max([timer_factor*hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
-#
-# btn_save.clicked.connect(save_spectra)
-#
-# def set_measurement_params():
-#     global hr4000_params
-#
-#     timer.stop()
-#     hr4000_params['IntegrationTime_micros'] = float(edit_intTime.text())
-#     spec.integration_time_micros(hr4000_params['IntegrationTime_micros'])
-#     timer.start(max([timer_factor*hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
-#
-#     statusbar.showMessage('Set spectrometer parameters', 5000)
-#
-# btn_setparam.clicked.connect(set_measurement_params)
-#
-# def set_directory():
-#     global data_dir
-#
-#     timer.stop()
-#     data_dir = QtGui.QFileDialog.getExistingDirectory()
-#
-#     timer.start(max([timer_factor*hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
-#
-#     statusbar.showMessage('Set data director to {}'.format(data_dir), 5000)
-# btn_setdirec.clicked.connect(set_directory)
-#
-#
-# # Timer function
-# def refresh_live_spectra():
-#     global spectra_data
-#
-#     # print('Refreshing plot')
-#     spectra_data = np.transpose( spec.spectrum() )
-#
-#     p.plot(spectra_data, clear=True)
-#
-# timer_factor = 1.2e-3
-# timer = QtCore.QTimer()
-# timer.timeout.connect(refresh_live_spectra)
-# timer.start(timer_factor*hr4000_params['IntegrationTime_micros']) # in msec
-#
-#
-# def exitHandler():
-#     print('Exiting script')
-#     timer.stop()
-#
-# app.aboutToQuit.connect(exitHandler)
-#
-# ## Display the widget as a new window
-# w.show()
-#
-# ## Start the Qt event loop
-# app.exec_()
