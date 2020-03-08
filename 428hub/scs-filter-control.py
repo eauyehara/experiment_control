@@ -60,7 +60,7 @@ class Window(QtGui.QMainWindow):
         self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
         self.smu_channel = 1
-        self.smu_bias = 0
+        self.smu_bias = Q_(0.0, 'V')
 
         self.initialize_gui()
 
@@ -116,7 +116,7 @@ class Window(QtGui.QMainWindow):
         # SMU UI elements
         self.edit_channel = QtGui.QLineEdit('{}'.format(self.smu_channel))
         self.edit_channel.editingFinished.connect(self.set_smu_params)
-        self.edit_bias = QtGui.QLineEdit('{:.4g}'.format(self.smu_bias))
+        self.edit_bias = QtGui.QLineEdit('{:.4g}'.format(self.smu_bias.magnitude))
         self.edit_bias.editingFinished.connect(self.set_smu_params)
 
         self.label_photocurrent = QtGui.QLabel('Photocurrent: A')
@@ -265,16 +265,16 @@ class Window(QtGui.QMainWindow):
             self.edit_channel.setText('1')
 
         try:
-            self.smu_bias = float(self.edit_bias.text())
+            self.smu_bias = Q_(float(self.edit_bias.text()), 'V')
         except:
             self.statusBar().showMessage('Invalid input for SMU voltage', 3000)
-            self.smu_bias = 0.0
+            self.smu_bias = Q_(0.0, 'V')
             self.edit_channel.setText('0.0')
 
         if self.smu is not None:
             self.smu.set_channel(channel=self.smu_channel)
             self.smu.set_voltage(voltage=self.smu_bias)
-            self.statusBar().showMessage('Setting SMU channel {} to {:.4g} V'.format(self.smu_channel, self.smu_bias), 3000)
+            self.statusBar().showMessage('Setting SMU channel {} to {:.4g~}'.format(self.smu_channel, self.smu_bias), 3000)
 
     def set_directory(self):
         self.timer.stop()
@@ -302,7 +302,7 @@ class Window(QtGui.QMainWindow):
             self.label_wavelength.setText("Peak wavelength {:.4g~}".format(self.current_wl))
 
         if self.smu is not None:
-            self.label_photocurrent.setText('Photocurrent: {:.4e}'.format(self.smu.measure_current()))
+            self.label_photocurrent.setText('Photocurrent: {:.4e~}'.format(self.smu.measure_current()))
 
         if self.pm is not None:
             self.label_illumpower.setText('Illumination Power: {:.4e~}'.format(self.pm.power()))
