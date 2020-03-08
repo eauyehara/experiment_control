@@ -48,12 +48,12 @@ rescale = True
 class Window(QtGui.QMainWindow):
 
     def __init__(self):
-        global timer_factor
-
         # Initialize class variables
         timer_factor = 1.2e-3
         # Initialize instance variables
         self.spectra_data = np.array([])
+        self.target_wl = 550.0
+        self.current_wl = 0.0
         self.data_dir = path.normpath('./')
         self.hr4000_params={'IntegrationTime_micros':100000}
 
@@ -91,7 +91,7 @@ class Window(QtGui.QMainWindow):
         self.btn_save = QtGui.QPushButton('Save Spectra')
         self.btn_save.clicked.connect(self.save_spectra)
 
-        self.edit_intTime = QtGui.QLineEdit('{:f}'.format(self.hr4000_params['IntegrationTime_micros']))
+        self.edit_intTime = QtGui.QLineEdit('{:d}'.format(self.hr4000_params['IntegrationTime_micros']))
         self.btn_setparam = QtGui.QPushButton('Set Spectrometer Params')
         self.btn_setparam.clicked.connect(self.set_measurement_params)
 
@@ -99,9 +99,12 @@ class Window(QtGui.QMainWindow):
         self.btn_setdirec = QtGui.QPushButton('Set Data Directory')
         self.btn_setdirec.clicked.connect(self.set_directory)
 
-        self.edit_wavelength = QtGui.QLineEdit('550')
+        self.edit_wavelength = QtGui.QLineEdit('{:.4g}'.format(self.target_wl))
         self.btn_wavelength = QtGui.QPushButton('Set Wavelength')
         self.btn_wavelength.clicked.connect(lambda : self.set_wavelength(wavelength=float(self.edit_wavelength.text())))
+
+        self.label_wavelength = QtGui.QLabel('Peak Wavelength: nm')
+        self.label_wavelength.setStyleSheet("font: bold 20pt Arial")
 
         self.p = pg.PlotWidget()
         self.xlabel = self.p.setLabel('bottom',text='Wavelength',units='nm')
@@ -114,28 +117,29 @@ class Window(QtGui.QMainWindow):
 
         ## Add widgets to the layout in their proper positions
         self.layout.addWidget(QtGui.QLabel('Device Name'), 0, 0)
-        self.layout.addWidget(self.edit_deviceName, 0, 1) # save spectra button
-        self.layout.addWidget(self.btn_save, 1, 0) # save spectra button
+        self.layout.addWidget(self.edit_deviceName, 0, 1)
+        self.layout.addWidget(self.btn_setdirec, 0, 2) # Set directory button
+        self.layout.addWidget(self.btn_save, 0, 3) # save spectra button
 
-        self.layout.addWidget(QtGui.QLabel('Integration Time [usec]'), 2,0)
-        self.layout.addWidget(self.edit_intTime, 2, 1)
-        self.layout.addWidget(self.btn_setparam, 3, 0) # Set parameters button
-        self.layout.addWidget(self.btn_setdirec, 4, 0) # Set directory button
+        self.layout.addWidget(QtGui.QLabel('Integration Time [usec]'), 1,0)
+        self.layout.addWidget(self.edit_intTime, 1, 1)
+        self.layout.addWidget(self.btn_setparam, 1, 2) # Set parameters button
 
-        self.layout.addWidget(QtGui.QLabel('Target Wavelength [nm]'), 5,0)
-        self.layout.addWidget(self.edit_wavelength, 5, 1)
-        self.layout.addWidget(self.btn_wavelength, 6, 0) # Set wavelength button
 
-        self.layout.addWidget(self.p, 0, 2, 8, 8) # Plot on right spans 8x8
+        self.layout.addWidget(QtGui.QLabel('Target Wavelength [nm]'), 2,0)
+        self.layout.addWidget(self.edit_wavelength, 2, 1)
+        self.layout.addWidget(self.btn_wavelength, 2, 2) # Set wavelength button
 
-        # self.layout.addWidget(statusbar, 8,0, 1,10)
+        self.layout.addWidget(self.label_wavelength, 3, 1, 1, 4)
+
+        self.layout.addWidget(self.p, 0, 4, 8, 8) # Plot on right spans 8x8
 
         self.show()
 
     def initialize_instruments(self):
-        import seabreeze.spectrometers as sb
+
         # Initialize HR4000 Spectrometer
-        # HR4000 parameters
+        import seabreeze.spectrometers as sb
         self.hr4000_params={'IntegrationTime_micros':200000}
 
         devices = sb.list_devices()
@@ -146,6 +150,16 @@ class Window(QtGui.QMainWindow):
             print('HR4000 Spectrometer not connected')
             self.spec = None
 
+        # Initialize Motor controller
+        try:
+            from instrumental.drivers.motion.klinger import KlingerMotorController
+
+            self.mc = KlingerMotorController(visa_address='GPIB0::8::INSTR')
+        except:
+            print('Klinger Motor controller not connected')
+            self.mc = None
+
+        # Initialize Power meter
         try:
             from instrumental.drivers.powermeters.ilx_lightwave import OMM_6810B
 
@@ -153,14 +167,16 @@ class Window(QtGui.QMainWindow):
         except:
             print('OMM-6810B Power meter not connected')
             self.pm = None
+        #
+        # # Initialize Source meter
+        # try:
+        #     from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
+        #
+        #     self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
+        # except:
+        #     print('HP 4156C Parameter Analyzer not connected')
+        #     self.smu = None
 
-        try:
-            from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
-
-            self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
-        except:
-            print('HP 4156C Parameter Analyzer not connected')
-            self.smu = None
     # Event handlers
     def save_spectra(self):
         self.timer.stop()
@@ -221,8 +237,12 @@ class Window(QtGui.QMainWindow):
         if self.spec != None:
             # print('Refreshing plot')
             self.spectra_data = np.transpose( self.spec.spectrum() )
+            self.p.plot(self.spectra_data, clear=True)
 
-        self.p.plot(self.spectra_data, clear=True)
+            # refresh peak wavelength
+            # print(self.spectra_data.shape)
+            self.current_wl = self.spectra_data[np.argmax(self.spectra_data[:,1]), 0]
+            self.label_wavelength.setText("Peak wavelength {:.4g} nm".format(self.current_wl))
 
     def close_application(self):
         sys.exit()
