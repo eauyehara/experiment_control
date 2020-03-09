@@ -56,6 +56,7 @@ class Window(QtGui.QMainWindow):
         self.spectra_data = np.array([])
         self.current_wl = Q_(0.0, 'nm')
         self.data_dir = path.normpath('./')
+        self.feedback_state = 0
 
         self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
@@ -163,6 +164,10 @@ class Window(QtGui.QMainWindow):
             self.edit_motor.editingFinished.connect(lambda: self.mc.go_steps(N=int(self.edit_motor.text())))
             self.layout.addWidget(self.edit_motor, row, 1, 1,1)
 
+            self.check_feedback = QtGui.QCheckBox('Feedback')
+            self.check_feedback.stateChanged.connect(self.toggle_feedback)
+            self.layout.addWidget(self.check_feedback, row, 2, 1,1)
+
             row = row+1
 
         self.label_wavelength = QtGui.QLabel('Peak Wavelength:')
@@ -216,10 +221,11 @@ class Window(QtGui.QMainWindow):
 
     def initialize_instruments(self):
         # Initialize HR4000 Spectrometer
-        import seabreeze.spectrometers as sb
-        self.hr4000_params={'IntegrationTime_micros':200000}
-
         try:
+            import seabreeze.spectrometers as sb
+
+            self.hr4000_params={'IntegrationTime_micros':200000}
+
             devices = sb.list_devices()
             self.spec = sb.Spectrometer(devices[0])
         except:
@@ -264,7 +270,7 @@ class Window(QtGui.QMainWindow):
             self.smu.set_integration_time('short')
 
 
-    # Event handlers
+    # UI Event handlers
     def save_spectra(self):
         self.timer.stop()
         timestamp_str = datetime.strftime(datetime.now(),'%Y_%m_%d_%H_%M_%S')
@@ -337,6 +343,10 @@ class Window(QtGui.QMainWindow):
 
         self.statusBar().showMessage('Setting wavelength to {:.4g~}'.format(wavelength.to_compact()), 5000)
 
+    def toggle_feedback(self, state):
+        self.feedback_state = int(state)        
+
+    # Timer event handler
     def refresh_live_spectra(self):
         if self.spec is not None:
             # print('Refreshing plot')
@@ -353,6 +363,15 @@ class Window(QtGui.QMainWindow):
 
         if self.pm is not None:
             self.label_illumpower.setText('Illumination Power: {:.4g~}'.format(self.pm.power().to_compact()))
+
+        if self.mc is not None:
+            if self.feedback_state > 0:
+                Kp = 20
+
+                error = self.target_wl-self.current_wl
+                drive = int(Kp*error.magnitude)
+                if drive != 0:
+                    self.mc.go_steps(N=drive)
 
     # Menu handlers
     def exp_illum(self):
