@@ -30,7 +30,6 @@ def open_FreqCounter():
 	return COUNTER
 
 COUNTER = open_FreqCounter()
-print('done')
 num_meas = [1e03, 1e04, 1e05, 1e06]
 ex_time = np.zeros(len(num_meas))
 

@@ -8,8 +8,8 @@ import math
 USB_adress = 'USB0::0x0957::0x1807::MY50009613::INSTR'
 
 slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
-threshold = -30e-03 # V
-meas_time = 1 # measuring time
+threshold = -20e-03 # V
+meas_time = 10 # measuring time
 
 # Find, open and configure the FreqCounter
 def open_FreqCounter():
@@ -29,25 +29,12 @@ def open_FreqCounter():
 	return COUNTER
 
 COUNTER = open_FreqCounter()
-print('done')
 
 print('Measure the number of counts in {} sec'.format(meas_time))
-	start = time.time()
-	COUNTER.write('INIT')
-	COUNTER.write('*WAI')
-	time_list = COUNTER.query('FETC?')
-	elapsed = time.time() - start
-	data = list(np.float_(time_list.split(","))) # Converts the output string to a float list
-
-	with open("results-{}.csv".format(num_meas[i]), "w", newline="") as file:
-	    writer = csv.writer(file)
-	    writer.writerow(["Number of measures: {}".format(num_meas[i])])
-	    writer.writerow(["Elapsed time: {} sec".format(elapsed)])
-	    writer.writerows(map(lambda x: [x], data))
-
-plt.figure()
-plt.hist(data, bins = 10)
-plt.show()
+COUNTER.write('INIT')
+COUNTER.write('*WAI')
+measures = COUNTER.query('FETC?')
+print(measures)
 
 '''
 time_trigger = data
