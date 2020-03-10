@@ -244,7 +244,7 @@ class Window(QtGui.QMainWindow):
             self.mc = None
         else:
             # Set motor at high speed
-            self.mc.set_steprate(R=254, S=1, F=29)
+            self.mc.set_steprate(R=245, S=1, F=20)
 
         # Initialize Power meter
         try:
@@ -344,7 +344,7 @@ class Window(QtGui.QMainWindow):
         self.statusBar().showMessage('Setting wavelength to {:.4g~}'.format(wavelength.to_compact()), 5000)
 
     def toggle_feedback(self, state):
-        self.feedback_state = int(state)        
+        self.feedback_state = int(state)
 
     # Timer event handler
     def refresh_live_spectra(self):
@@ -366,6 +366,7 @@ class Window(QtGui.QMainWindow):
 
         if self.mc is not None:
             if self.feedback_state > 0:
+                print("adusting feedback")
                 Kp = 20
 
                 error = self.target_wl-self.current_wl
