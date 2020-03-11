@@ -57,7 +57,9 @@ class Window(QtGui.QMainWindow):
         self.current_wl = Q_(0.0, 'nm')
         self.data_dir = path.normpath('./')
         self.feedback_state = 0
-        self.Kp =-20
+        self.Kp =-20.0
+        self.Ki = 0.0
+        self.Kd = 0.0
 
         self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
@@ -123,15 +125,16 @@ class Window(QtGui.QMainWindow):
         self.edit_deviceName = QtGui.QLineEdit('TC0')
         self.layout.addWidget(self.edit_deviceName, 0, 1, 1,1)
 
-        self.btn_setdirec = QtGui.QPushButton('Set Data Directory')
-        self.btn_setdirec.clicked.connect(self.set_directory)
-        self.layout.addWidget(self.btn_setdirec, 0, 2, 1,1) # Set directory button
-
         self.btn_save = QtGui.QPushButton('Save Spectra')
         self.btn_save.clicked.connect(self.save_spectra)
-        self.layout.addWidget(self.btn_save, 0, 3, 1,1) # save spectra button
+        self.layout.addWidget(self.btn_save, 0, 2, 1,1) # save spectra button
 
-        row = 1
+        self.btn_setdirec = QtGui.QPushButton('Set Data Directory')
+        self.btn_setdirec.clicked.connect(self.set_directory)
+        self.layout.addWidget(self.btn_setdirec, 1, 2, 1,1) # Set directory button
+
+
+        row = 2
         if self.spec is not None:
             self.layout.addWidget(QtGui.QLabel('Integration Time [usec]'), row,0, 1,1)
 
@@ -159,15 +162,31 @@ class Window(QtGui.QMainWindow):
 
         # Motor UI elements
         if self.mc is not None:
-            self.layout.addWidget(QtGui.QLabel('Kp [<0]'), row,0,  1,1)
-
+            self.layout.addWidget(QtGui.QLabel('   Kp [<0]'), row,0,  1,1)
             self.edit_kp = QtGui.QLineEdit('{}'.format(self.Kp))
-            self.edit_kp.editingFinished.connect(lambda: self.set_feedback_params(Kp=float(self.edit_kp.text())))
             self.layout.addWidget(self.edit_kp, row, 1, 1,1)
+
+            row = row+1
+
+            self.layout.addWidget(QtGui.QLabel('   Ki []'), row,0,  1,1)
+            self.edit_ki = QtGui.QLineEdit('{}'.format(self.Ki))
+            self.layout.addWidget(self.edit_ki, row, 1, 1,1)
+
+            row = row+1
+
+            self.layout.addWidget(QtGui.QLabel('   Kd []'), row,0,  1,1)
+            self.edit_kd = QtGui.QLineEdit('{}'.format(self.Kd))
+            self.layout.addWidget(self.edit_kd, row, 1, 1,1)
+
+            row = row+1
+
+            self.btn_feedback = QtGui.QPushButton('Set Feedback Gains')
+            self.btn_feedback.clicked.connect(self.set_feedback_params)
+            self.layout.addWidget(self.btn_feedback, row, 0, 1,1)
 
             self.check_feedback = QtGui.QCheckBox('Feedback')
             self.check_feedback.stateChanged.connect(self.toggle_feedback)
-            self.layout.addWidget(self.check_feedback, row, 2, 1,1)
+            self.layout.addWidget(self.check_feedback, row, 1, 1,1)
 
             row = row+1
 
@@ -183,18 +202,20 @@ class Window(QtGui.QMainWindow):
 
             row = row+1
 
-
         self.label_wavelength = QtGui.QLabel('Peak Wavelength:')
         self.label_wavelength.setStyleSheet("font: bold 14pt Arial")
-        self.layout.addWidget(self.label_wavelength, row, 0,  1,3)
+        self.layout.addWidget(self.label_wavelength, row, 0,  1,2)
 
         row = row+1
 
         # Power meter related UI elements
         if self.pm is not None:
             self.label_illumpower = QtGui.QLabel('Illumination Power: ')
-            self.label_illumpower.setStyleSheet("font: bold 14pt Arial")
-            self.layout.addWidget(self.label_illumpower, row, 0, 1, 3)
+            self.label_illumpower.setStyleSheet("font: bold 12pt Arial")
+            self.layout.addWidget(self.label_illumpower, row, 0, 1, 2)
+
+            self.check_pm = QtGui.QCheckBox('Read Power Meter')
+            self.check_pm.setCheckState(2) # on
 
             row = row+1
 
@@ -218,6 +239,8 @@ class Window(QtGui.QMainWindow):
             self.label_photocurrent.setStyleSheet("font: bold 14pt Arial")
             self.layout.addWidget(self.label_photocurrent, row, 0, 1, 3)
 
+            self.check_smu = QtGui.QCheckBox('Read Source Meter')
+            self.check_smu.setCheckState(2) # on
             row = row+1
 
         # Plot of spectra
@@ -364,8 +387,10 @@ class Window(QtGui.QMainWindow):
         else:
             self.statusBar().showMessage('Feedback Off', 1000)
 
-    def set_feedback_params(self, Kp):
-        self.Kp=Kp
+    def set_feedback_params(self):
+        self.Kp=float(self.edit_kp.text())
+        self.Ki=float(self.edit_ki.text())
+        self.Kd=float(self.edit_kd.text())
 
         self.statusBar().showMessage('Set feedback gains', 1000)
 
@@ -381,11 +406,12 @@ class Window(QtGui.QMainWindow):
             self.current_wl = Q_(self.spectra_data[np.argmax(self.spectra_data[:,1]), 0], 'nm')
             self.label_wavelength.setText("Peak wavelength {:.4g~}".format(self.current_wl.to_compact()))
 
-        if self.smu is not None:
-            self.label_photocurrent.setText('Photocurrent: {:.4g~}'.format(self.smu.measure_current().to_compact()))
 
-        if self.pm is not None:
+        if self.pm is not None and self.check_pm.checkState() > 0:
             self.label_illumpower.setText('Illumination Power: {:.4g~}'.format(self.pm.power().to_compact()))
+
+        if self.smu is not None and self.check_smu.checkState() > 0:
+            self.label_photocurrent.setText('Photocurrent: {:.4g~}'.format(self.smu.measure_current().to_compact()))
 
         if self.mc is not None:
             if self.feedback_state > 0:
