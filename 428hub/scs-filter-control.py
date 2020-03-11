@@ -204,18 +204,20 @@ class Window(QtGui.QMainWindow):
 
         self.label_wavelength = QtGui.QLabel('Peak Wavelength:')
         self.label_wavelength.setStyleSheet("font: bold 14pt Arial")
-        self.layout.addWidget(self.label_wavelength, row, 0,  1,2)
+        self.layout.addWidget(self.label_wavelength, row, 0,  1,4)
 
         row = row+1
 
         # Power meter related UI elements
         if self.pm is not None:
             self.label_illumpower = QtGui.QLabel('Illumination Power: ')
-            self.label_illumpower.setStyleSheet("font: bold 12pt Arial")
-            self.layout.addWidget(self.label_illumpower, row, 0, 1, 2)
+            self.label_illumpower.setStyleSheet("font: bold 14pt Arial; color: gray")
+            self.layout.addWidget(self.label_illumpower, row, 0, 1, 3)
 
             self.check_pm = QtGui.QCheckBox('Read Power Meter')
-            self.check_pm.setCheckState(2) # on
+            self.check_pm.stateChanged.connect(self.toggle_pm_output)
+            self.check_pm.setCheckState(0) # off
+            self.layout.addWidget(self.check_pm, row, 3, 1, 1)
 
             row = row+1
 
@@ -236,11 +238,14 @@ class Window(QtGui.QMainWindow):
             row = row+1
 
             self.label_photocurrent = QtGui.QLabel('Photocurrent:')
-            self.label_photocurrent.setStyleSheet("font: bold 14pt Arial")
+            self.label_photocurrent.setStyleSheet("font: bold 14pt Arial; color: gray")
             self.layout.addWidget(self.label_photocurrent, row, 0, 1, 3)
 
             self.check_smu = QtGui.QCheckBox('Read Source Meter')
-            self.check_smu.setCheckState(2) # on
+            self.check_smu.stateChanged.connect(self.toggle_smu_output)
+            self.check_smu.setCheckState(0) # off
+            self.layout.addWidget(self.check_smu, row, 3, 1, 1)
+
             row = row+1
 
         # Plot of spectra
@@ -281,7 +286,8 @@ class Window(QtGui.QMainWindow):
             self.mc = None
         else:
             # Set motor at high speed
-            self.mc.set_steprate(R=245, S=1, F=20)
+            # self.mc.set_steprate(R=245, S=1, F=20)
+            self.mc.set_steprate(R=250, S=1, F=20) #stalls
 
         # Initialize Power meter
         try:
@@ -388,6 +394,7 @@ class Window(QtGui.QMainWindow):
             # disable parameter Setting
             self.btn_setparam.setEnabled(False)
             self.btn_wavelength.setEnabled(False)
+            self.btn_feedback.setEnabled(False)
 
             self.statusBar().showMessage('Feedback On', 1000)
             # Initialize PID parameters
@@ -398,6 +405,19 @@ class Window(QtGui.QMainWindow):
             self.statusBar().showMessage('Feedback Off', 1000)
             self.btn_setparam.setEnabled(True)
             self.btn_wavelength.setEnabled(True)
+            self.btn_feedback.setEnabled(True)
+
+    def toggle_pm_output(self):
+        if self.check_pm.checkState() == 0:
+            self.label_illumpower.setStyleSheet("font: bold 14pt Arial; color: gray")
+        else:
+            self.label_illumpower.setStyleSheet("font: bold 14pt Arial")
+
+    def toggle_smu_output(self):
+        if self.check_smu.checkState() == 0:
+            self.label_photocurrent.setStyleSheet("font: bold 14pt Arial; color: gray")
+        else:
+            self.label_photocurrent.setStyleSheet("font: bold 14pt Arial")
 
     def set_feedback_params(self):
         self.Kp=float(self.edit_kp.text())
@@ -416,14 +436,15 @@ class Window(QtGui.QMainWindow):
             # refresh peak wavelength
             # print(self.spectra_data.shape)
             self.current_wl = Q_(self.spectra_data[np.argmax(self.spectra_data[:,1]), 0], 'nm')
-            self.label_wavelength.setText("Peak wavelength {:.4g~}".format(self.current_wl.to_compact()))
+            self.label_wavelength.setText("Peak wavelength {:4.4g~}".format(self.current_wl.to_compact()))
+            # self.label_wavelength.setText("Peak wavelength {}".format(self.current_wl.to_compact()))
 
 
         if self.pm is not None and self.check_pm.checkState() > 0:
-            self.label_illumpower.setText('Illumination Power: {:.4g~}'.format(self.pm.power().to_compact()))
+            self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(self.pm.power().to_compact()))
 
         if self.smu is not None and self.check_smu.checkState() > 0:
-            self.label_photocurrent.setText('Photocurrent: {:.4g~}'.format(self.smu.measure_current().to_compact()))
+            self.label_photocurrent.setText('Photocurrent: {:9<4.4g~}'.format(self.smu.measure_current().to_compact()))
 
         if self.mc is not None:
             if self.feedback_state > 0:
