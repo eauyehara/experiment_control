@@ -57,6 +57,7 @@ class Window(QtGui.QMainWindow):
         self.current_wl = Q_(0.0, 'nm')
         self.data_dir = path.normpath('./')
         self.feedback_state = 0
+        self.Kp =-20
 
         self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
@@ -158,17 +159,30 @@ class Window(QtGui.QMainWindow):
 
         # Motor UI elements
         if self.mc is not None:
-            self.layout.addWidget(QtGui.QLabel('Motor steps [-60,000~60,000]'), row,0,  1,1)
+            self.layout.addWidget(QtGui.QLabel('Kp [<0]'), row,0,  1,1)
 
-            self.edit_motor = QtGui.QLineEdit('0')
-            self.edit_motor.editingFinished.connect(lambda: self.mc.go_steps(N=int(self.edit_motor.text())))
-            self.layout.addWidget(self.edit_motor, row, 1, 1,1)
+            self.edit_kp = QtGui.QLineEdit('{}'.format(self.Kp))
+            self.edit_kp.editingFinished.connect(lambda: self.set_feedback_params(Kp=float(self.edit_kp.text())))
+            self.layout.addWidget(self.edit_kp, row, 1, 1,1)
 
             self.check_feedback = QtGui.QCheckBox('Feedback')
             self.check_feedback.stateChanged.connect(self.toggle_feedback)
             self.layout.addWidget(self.check_feedback, row, 2, 1,1)
 
             row = row+1
+
+            self.layout.addWidget(QtGui.QLabel('Motor steps [-60,000~60,000]'), row,0,  1,1)
+
+            self.edit_motor = QtGui.QLineEdit('0')
+            # self.edit_motor.editingFinished.connect(lambda: self.mc.go_steps(N=int(self.edit_motor.text())))
+            self.layout.addWidget(self.edit_motor, row, 1, 1,1)
+
+            self.btn_motor = QtGui.QPushButton('Move motor')
+            self.btn_motor.clicked.connect(lambda: self.mc.go_steps(N=int(self.edit_motor.text())))
+            self.layout.addWidget(self.btn_motor, row, 2, 1,1)
+
+            row = row+1
+
 
         self.label_wavelength = QtGui.QLabel('Peak Wavelength:')
         self.label_wavelength.setStyleSheet("font: bold 14pt Arial")
@@ -345,6 +359,15 @@ class Window(QtGui.QMainWindow):
 
     def toggle_feedback(self, state):
         self.feedback_state = int(state)
+        if state >0:
+            self.statusBar().showMessage('Feedback On', 1000)
+        else:
+            self.statusBar().showMessage('Feedback Off', 1000)
+
+    def set_feedback_params(self, Kp):
+        self.Kp=Kp
+
+        self.statusBar().showMessage('Set feedback gains', 1000)
 
     # Timer event handler
     def refresh_live_spectra(self):
@@ -366,13 +389,14 @@ class Window(QtGui.QMainWindow):
 
         if self.mc is not None:
             if self.feedback_state > 0:
-                print("adusting feedback")
-                Kp = 20
-
+                # Kp = -20
                 error = self.target_wl-self.current_wl
-                drive = int(Kp*error.magnitude)
+                drive = np.clip(int(self.Kp*error.magnitude), -5000, 5000)
+
+                print("adusting feedback drive steps: {}".format(drive))
                 if drive != 0:
                     self.mc.go_steps(N=drive)
+                    sleep(abs(drive)/1000)
 
     # Menu handlers
     def exp_illum(self):
