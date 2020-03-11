@@ -57,7 +57,7 @@ class Window(QtGui.QMainWindow):
         self.current_wl = Q_(0.0, 'nm')
         self.data_dir = path.normpath('./')
         self.feedback_state = 0
-        self.Kp =-20.0
+        self.Kp =-50.0
         self.Ki = 0.0
         self.Kd = 0.0
 
@@ -378,14 +378,26 @@ class Window(QtGui.QMainWindow):
         if self.pm is not None:
             self.pm.wavelength = wavelength
 
+        self.target_wl = wavelength
+
         self.statusBar().showMessage('Setting wavelength to {:.4g~}'.format(wavelength.to_compact()), 5000)
 
     def toggle_feedback(self, state):
         self.feedback_state = int(state)
         if state >0:
+            # disable parameter Setting
+            self.btn_setparam.setEnabled(False)
+            self.btn_wavelength.setEnabled(False)
+
             self.statusBar().showMessage('Feedback On', 1000)
+            # Initialize PID parameters
+            self.errDot = 0.0
+            self.errAccum = 0.0
+            self.dt = self.timer.interval()*1e-3 # seconds
         else:
             self.statusBar().showMessage('Feedback Off', 1000)
+            self.btn_setparam.setEnabled(True)
+            self.btn_wavelength.setEnabled(True)
 
     def set_feedback_params(self):
         self.Kp=float(self.edit_kp.text())
@@ -415,14 +427,14 @@ class Window(QtGui.QMainWindow):
 
         if self.mc is not None:
             if self.feedback_state > 0:
-                # Kp = -20
                 error = self.target_wl-self.current_wl
-                drive = np.clip(int(self.Kp*error.magnitude), -5000, 5000)
+                errP = self.Kp*error.magnitude
+                drive = np.clip(int(errP), -5000, 5000)
 
                 print("adusting feedback drive steps: {}".format(drive))
                 if drive != 0:
                     self.mc.go_steps(N=drive)
-                    sleep(abs(drive)/1000)
+                    sleep(abs(drive)/500)
 
     # Menu handlers
     def exp_illum(self):
