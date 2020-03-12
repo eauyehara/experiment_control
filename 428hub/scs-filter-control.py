@@ -57,9 +57,9 @@ class Window(QtGui.QMainWindow):
         self.current_wl = Q_(0.0, 'nm')
         self.data_dir = path.normpath('./')
         self.feedback_state = 0
-        self.Kp =-50.0
-        self.Ki = 0.0
-        self.Kd = 0.0
+        self.Kp =500.0
+        self.Ki = 10.0
+        self.Kd = 10.0
 
         self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
@@ -151,7 +151,7 @@ class Window(QtGui.QMainWindow):
         self.layout.addWidget(QtGui.QLabel('Target Wavelength [nm]'), row,0, 1,1)
 
         self.edit_wavelength = QtGui.QLineEdit('{0.magnitude}'.format(self.target_wl))
-        self.edit_wavelength.editingFinished.connect(lambda : self.set_wavelength(wavelength=Q_(float(self.edit_wavelength.text()), 'nm')))
+        # self.edit_wavelength.editingFinished.connect(lambda : self.set_wavelength(wavelength=Q_(float(self.edit_wavelength.text()), 'nm')))
         self.layout.addWidget(self.edit_wavelength, row, 1,  1,1)
 
         self.btn_wavelength = QtGui.QPushButton('Set Wavelength')
@@ -162,7 +162,7 @@ class Window(QtGui.QMainWindow):
 
         # Motor UI elements
         if self.mc is not None:
-            self.layout.addWidget(QtGui.QLabel('   Kp [<0]'), row,0,  1,1)
+            self.layout.addWidget(QtGui.QLabel('   Kp []'), row,0,  1,1)
             self.edit_kp = QtGui.QLineEdit('{}'.format(self.Kp))
             self.layout.addWidget(self.edit_kp, row, 1, 1,1)
 
@@ -221,6 +221,7 @@ class Window(QtGui.QMainWindow):
 
             row = row+1
 
+
         # SMU UI elements
         if self.smu is not None:
             self.layout.addWidget(QtGui.QLabel('SMU channel [1~4]'), row,0,  1,1)
@@ -247,6 +248,31 @@ class Window(QtGui.QMainWindow):
             self.layout.addWidget(self.check_smu, row, 3, 1, 1)
 
             row = row+1
+
+        self.wavelength_start = Q_(530.0, 'nm')
+        self.layout.addWidget(QtGui.QLabel('Start [nm]:'), row,0,  1,1)
+        self.edit_wavelength_start = QtGui.QLineEdit('{}'.format(self.wavelength_start.magnitude))
+        self.edit_wavelength_start.editingFinished.connect(self.set_sweep_params)
+        self.layout.addWidget(self.edit_wavelength_start, row,1,  1,1)
+
+        row = row+1
+
+        self.wavelength_stop = Q_(570.0, 'nm')
+        self.layout.addWidget(QtGui.QLabel('End [nm]:'), row,0,  1,1)
+        self.edit_wavelength_stop = QtGui.QLineEdit('{}'.format(self.wavelength_stop.magnitude))
+        self.edit_wavelength_stop.editingFinished.connect(self.set_sweep_params)
+        self.layout.addWidget(self.edit_wavelength_stop, row,1,  1,1)
+
+        row = row+1
+
+        self.wavelength_step = Q_(10.0, 'nm')
+        self.layout.addWidget(QtGui.QLabel('Step [nm]:'), row,0,  1,1)
+        self.edit_wavelength_step = QtGui.QLineEdit('{}'.format(self.wavelength_step.magnitude))
+        self.edit_wavelength_step.editingFinished.connect(self.set_sweep_params)
+        self.layout.addWidget(self.edit_wavelength_step, row,1,  1,1)
+
+        row = row + 1
+
 
         # Plot of spectra
         self.p = pg.PlotWidget()
@@ -388,6 +414,15 @@ class Window(QtGui.QMainWindow):
 
         self.statusBar().showMessage('Setting wavelength to {:.4g~}'.format(wavelength.to_compact()), 5000)
 
+        self.goto_wavelength(wavelength = self.target_wl)
+
+    def set_sweep_params(self):
+        self.wavelength_start = Q_(self.edit_wavelength_start.text(), 'nm')
+        self.wavelength_stop = Q_(self.edit_wavelength_stop.text(), 'nm')
+        self.wavelength_step = Q_(self.edit_wavelength_step.text(), 'nm')
+
+        self.statusBar().showMessage('Setting wavelength sweep', 1000)
+
     def toggle_feedback(self, state):
         self.feedback_state = int(state)
         if state >0:
@@ -449,7 +484,7 @@ class Window(QtGui.QMainWindow):
         if self.mc is not None:
             if self.feedback_state > 0:
                 error = self.target_wl-self.current_wl
-                errP = self.Kp*error.magnitude
+                errP = -self.Kp*error.magnitude
                 drive = np.clip(int(errP), -5000, 5000)
 
                 print("adusting feedback drive steps: {}".format(drive))
@@ -460,7 +495,12 @@ class Window(QtGui.QMainWindow):
     # Menu handlers
     def exp_illum(self):
         print('Measuring Illumination')
-        pass
+
+        wl = self.wavelength_start
+
+        while wl <= self.wavelength_stop:
+            print('{}'.format(wl.to_compact()))
+            wl = wl + self.wavelength_step
 
     def exp_photocurrent(self):
         print('Measuring photocurrent')
@@ -468,6 +508,60 @@ class Window(QtGui.QMainWindow):
 
     def close_application(self):
         sys.exit()
+
+    # Helper Functions
+    def goto_wavelength(self, wavelength):
+        # Check necessary instruments
+        if self.spec is not None and self.mc is not None:
+            print('going to {}'.format(wavelength))
+
+            timeout = 10.0 # s
+            tick = 0.0
+            tock = 0.0
+
+            # Get current wavelength
+            self.spectra_data = np.transpose( self.spec.spectrum() )
+            self.p.plot(self.spectra_data, clear=True)
+
+            current_wl = Q_(self.spectra_data[np.argmax(self.spectra_data[:,1]), 0], 'nm')
+            self.label_wavelength.setText("Peak wavelength {:4.4g~}".format(self.current_wl.to_compact()))
+
+            prevError = 0.0
+            errorAccum = Q_(0.0, 'nm')
+            errorDot = Q_(0.0, 'nm')
+            error = wavelength-current_wl
+
+            while tick < timeout and np.abs(error)>Q_(0.3, 'nm'):
+                errP = self.Kp*error.magnitude
+                errI = self.Ki*(errorAccum).magnitude
+                errD = self.Kd*(errorDot).magnitude
+                drive = -np.clip(int(errP+errI+errD), -5000, 5000)
+
+                print("moving motor {} steps".format(drive))
+                if drive != 0:
+                    self.mc.go_steps(N=drive)
+
+                    tock = np.abs(drive)/1000
+                else:
+                    tock = 0.2
+
+                tick = tick + tock
+                print('tick {}'.format(tick))
+                sleep(tock)
+
+                # Get new wavelength and estimate error
+                self.spectra_data = np.transpose( self.spec.spectrum() )
+                self.p.plot(self.spectra_data, clear=True)
+
+                current_wl = Q_(self.spectra_data[np.argmax(self.spectra_data[:,1]), 0], 'nm')
+                self.label_wavelength.setText("Peak wavelength {:4.4g~}".format(self.current_wl.to_compact()))
+
+                prevError = error
+                error = wavelength-current_wl
+
+                errorAccum = errorAccum + (error + prevError)/2.0*tock
+                errorDot = (error-prevError)/tock
+                print('error {}'.format(error))
 
 def run():
     app = QtGui.QApplication(sys.argv)
