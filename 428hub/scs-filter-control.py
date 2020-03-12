@@ -10,20 +10,23 @@ Required Instruments:
 
 """
 
-import socket
+# import socket
+# import struct
+
 import sys
-import struct
 from pyqtgraph.Qt import QtGui, QtCore
+from os import path
+import csv
+
 import numpy as np
+from instrumental import Q_
+
 import pyqtgraph as pg
 import pyqtgraph.exporters
 from pyqtgraph.ptime import time
-from time import sleep
-import csv
-from os import path
-from datetime import datetime
-from instrumental import Q_
 
+from time import sleep
+from datetime import datetime
 
 Npts = 500
 wait_sec = 2
@@ -93,20 +96,23 @@ class Window(QtGui.QMainWindow):
         extractAction.triggered.connect(self.close_application)
         fileMenu.addAction(extractAction)
 
-        ## Experiments menu
-        experimentMenu = mainMenu.addMenu('&Experiments')
+        ## Experiments menu, experiment availability aware
+        if self.spec is not None:
+            experimentMenu = mainMenu.addMenu('&Experiments')
 
-        measIllumAction = QtGui.QAction("Measure &Illumination", self)
-        measIllumAction.setShortcut("Ctrl+I")
-        measIllumAction.setStatusTip('Place over power meter to measure illumination')
-        measIllumAction.triggered.connect(self.exp_illum)
-        experimentMenu.addAction(measIllumAction)
+            if self.pm is not None:
+                measIllumAction = QtGui.QAction("Measure &Illumination", self)
+                measIllumAction.setShortcut("Ctrl+I")
+                measIllumAction.setStatusTip('Place over power meter to measure illumination')
+                measIllumAction.triggered.connect(self.exp_illum)
+                experimentMenu.addAction(measIllumAction)
 
-        measPhotocurrentAction = QtGui.QAction("Measure &Photocurrent", self)
-        measPhotocurrentAction.setShortcut("Ctrl+P")
-        measPhotocurrentAction.setStatusTip('Place over device to measure Photocurrent')
-        measPhotocurrentAction.triggered.connect(self.exp_photocurrent)
-        experimentMenu.addAction(measPhotocurrentAction)
+            if self.smu is not None:
+                measPhotocurrentAction = QtGui.QAction("Measure &Photocurrent", self)
+                measPhotocurrentAction.setShortcut("Ctrl+P")
+                measPhotocurrentAction.setStatusTip('Place over device to measure Photocurrent')
+                measPhotocurrentAction.triggered.connect(self.exp_photocurrent)
+                experimentMenu.addAction(measPhotocurrentAction)
 
         # Generate status bar
         self.statusBar()
@@ -249,16 +255,16 @@ class Window(QtGui.QMainWindow):
 
             row = row+1
 
-        self.wavelength_start = Q_(530.0, 'nm')
-        self.layout.addWidget(QtGui.QLabel('Start [nm]:'), row,0,  1,1)
+        self.wavelength_start = Q_(550.0, 'nm')
+        self.layout.addWidget(QtGui.QLabel('   Start [nm]:'), row,0,  1,1)
         self.edit_wavelength_start = QtGui.QLineEdit('{}'.format(self.wavelength_start.magnitude))
         self.edit_wavelength_start.editingFinished.connect(self.set_sweep_params)
         self.layout.addWidget(self.edit_wavelength_start, row,1,  1,1)
 
         row = row+1
 
-        self.wavelength_stop = Q_(570.0, 'nm')
-        self.layout.addWidget(QtGui.QLabel('End [nm]:'), row,0,  1,1)
+        self.wavelength_stop = Q_(560.0, 'nm')
+        self.layout.addWidget(QtGui.QLabel('   End [nm]:'), row,0,  1,1)
         self.edit_wavelength_stop = QtGui.QLineEdit('{}'.format(self.wavelength_stop.magnitude))
         self.edit_wavelength_stop.editingFinished.connect(self.set_sweep_params)
         self.layout.addWidget(self.edit_wavelength_stop, row,1,  1,1)
@@ -266,13 +272,20 @@ class Window(QtGui.QMainWindow):
         row = row+1
 
         self.wavelength_step = Q_(10.0, 'nm')
-        self.layout.addWidget(QtGui.QLabel('Step [nm]:'), row,0,  1,1)
+        self.layout.addWidget(QtGui.QLabel('   Step [nm]:'), row,0,  1,1)
         self.edit_wavelength_step = QtGui.QLineEdit('{}'.format(self.wavelength_step.magnitude))
         self.edit_wavelength_step.editingFinished.connect(self.set_sweep_params)
         self.layout.addWidget(self.edit_wavelength_step, row,1,  1,1)
 
         row = row + 1
 
+        self.exp_N = 5
+        self.layout.addWidget(QtGui.QLabel('   # of Samples'), row,0,  1,1)
+        self.edit_exp_N = QtGui.QLineEdit('{}'.format(self.exp_N))
+        self.edit_exp_N.editingFinished.connect(self.set_sweep_params)
+        self.layout.addWidget(self.edit_exp_N, row,1,  1,1)
+
+        row = row + 1
 
         # Plot of spectra
         self.p = pg.PlotWidget()
@@ -421,6 +434,8 @@ class Window(QtGui.QMainWindow):
         self.wavelength_stop = Q_(self.edit_wavelength_stop.text(), 'nm')
         self.wavelength_step = Q_(self.edit_wavelength_step.text(), 'nm')
 
+        self.exp_N = int(self.edit_exp_N.text())
+
         self.statusBar().showMessage('Setting wavelength sweep', 1000)
 
     def toggle_feedback(self, state):
@@ -494,13 +509,42 @@ class Window(QtGui.QMainWindow):
 
     # Menu handlers
     def exp_illum(self):
-        print('Measuring Illumination')
+        from instrumental.drivers.util import visa_timeout_context
 
-        wl = self.wavelength_start
+        with visa_timeout_context(self.pm._rsrc, 1000):
+            print('Measuring Illumination')
+            saveDirectory, measDescription, fullpath = self.get_filename()
+            print([saveDirectory, measDescription])
 
-        while wl <= self.wavelength_stop:
-            print('{}'.format(wl.to_compact()))
-            wl = wl + self.wavelength_step
+            # prepare power meter
+            self.pm.set_slow_filter()
+
+            #  Load measurement parameters
+            wl = self.wavelength_start
+
+            data_x = []
+            data_y = []
+            while wl <= self.wavelength_stop:
+                print('Measuring {}'.format(wl.to_compact()))
+
+                # meas_wl = self.goto_wavelength(wl)
+                meas_wl = wl
+
+                self.pm.wavelength = meas_wl
+                data_x.append(meas_wl)
+
+                data_row = []
+                for n in range(self.exp_N):
+                    data_row.append(self.pm.power())
+                    print('   Sample {}: {} at {}'.format(n, data_row[-1], meas_wl))
+                data_y.append(data_row)
+
+                wl = wl + self.wavelength_step
+
+            self.save_to_csv(saveDirectory, measDescription, ['Wavelength [nm]', 'Power [W]'], data_x, data_y)
+
+            # return power Meter
+            self.pm.set_no_filter()
 
     def exp_photocurrent(self):
         print('Measuring photocurrent')
@@ -510,12 +554,34 @@ class Window(QtGui.QMainWindow):
         sys.exit()
 
     # Helper Functions
+    def get_filename(self):
+        fpath = QtGui.QFileDialog.getSaveFileName(self, 'Save Data to')
+
+        saveDirectory = path.dirname(fpath[0])
+        measDescription = path.basename(fpath[0])
+
+        return saveDirectory, measDescription, fpath[0]
+
+    def save_to_csv(self, saveDirectory, measDescription, fields, data_x, data_y):
+
+        # fields = ['Wavelength', 'count']
+        fname = measDescription+'.csv'
+        fpath = path.normpath(path.join(saveDirectory,fname))
+        print(fpath)
+
+        with open(fpath, 'w', newline='') as csvfile:
+            csvwriter = csv.writer(csvfile, dialect='excel')
+            csvwriter.writerow(fields)
+
+            for row in range(len(data_x)):
+                csvwriter.writerow([data_x[row]]+[format(data_y[row][col].magnitude) for col in range(len(data_y))])
+
     def goto_wavelength(self, wavelength):
         # Check necessary instruments
         if self.spec is not None and self.mc is not None:
             print('going to {}'.format(wavelength))
 
-            timeout = 10.0 # s
+            timeout = 3.0 # s
             tick = 0.0
             tock = 0.0
 
@@ -562,6 +628,8 @@ class Window(QtGui.QMainWindow):
                 errorAccum = errorAccum + (error + prevError)/2.0*tock
                 errorDot = (error-prevError)/tock
                 print('error {}'.format(error))
+
+            return current_wl
 
 def run():
     app = QtGui.QApplication(sys.argv)
