@@ -27,6 +27,7 @@ from pyqtgraph.ptime import time
 
 from time import sleep
 from datetime import datetime
+import time
 
 Npts = 500
 wait_sec = 2
@@ -57,12 +58,16 @@ class Window(QtGui.QMainWindow):
 
         # Initialize instance variables
         self.spectra_data = np.array([])
+        self.power_data = []
+        self.power_data_timestamps = []
+        self.power_data_timezero = time.time()
         self.current_wl = Q_(0.0, 'nm')
         self.data_dir = path.normpath('./')
         self.feedback_state = 0
-        self.Kp =500.0
-        self.Ki = 10.0
-        self.Kd = 10.0
+        self.Kp =100.0
+        self.Ki = 0.0 # 10.0
+        self.Kd = 0.0 #10.0
+        self.feedback_timeout = 20.0
 
         self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
@@ -288,10 +293,17 @@ class Window(QtGui.QMainWindow):
         row = row + 1
 
         # Plot of spectra
-        self.p = pg.PlotWidget()
-        self.xlabel = self.p.setLabel('bottom',text='Wavelength',units='nm')
-        self.ylabel = self.p.setLabel('left',text='Counts',units='Arb. Unit')
-        self.layout.addWidget(self.p, 0, 4, row, row+2)
+        self.p_spec = pg.PlotWidget()
+        self.xlabel = self.p_spec.setLabel('bottom',text='Wavelength',units='nm')
+        self.ylabel = self.p_spec.setLabel('left',text='Counts',units='Arb. Unit')
+        self.layout.addWidget(self.p_spec, 0, 4, int(row/2), int(row/2)+2)
+
+        # Plot of power fluctuations
+        self.p_power = pg.PlotWidget()
+        self.p_power.setLabel('bottom',text='Time',units='sec')
+        self.p_power.setLabel('left',text='Power',units='W')
+        self.layout.addWidget(self.p_power, int(row/2)+2, 4, int(row/2), int(row/2)+2)
+
 
         # Equalizes column stretch factor
         for i in range(self.layout.columnCount()):
@@ -375,7 +387,7 @@ class Window(QtGui.QMainWindow):
         # QtGui.QApplication.processEvents()
         # create an exporter instance, as an argument give it
         # the item you wish to export
-        exporter = pg.exporters.ImageExporter(self.p.scene())
+        exporter = pg.exporters.ImageExporter(self.p_spec.scene())
         exporter.export(fpath)
 
         self.statusBar().showMessage('Saved spectra to {}'.format(fpath), 5000)
@@ -427,12 +439,12 @@ class Window(QtGui.QMainWindow):
 
         self.statusBar().showMessage('Setting wavelength to {:.4g~}'.format(wavelength.to_compact()), 5000)
 
-        self.goto_wavelength(wavelength = self.target_wl)
+        # self.goto_wavelength(wavelength = self.target_wl)
 
     def set_sweep_params(self):
-        self.wavelength_start = Q_(self.edit_wavelength_start.text(), 'nm')
-        self.wavelength_stop = Q_(self.edit_wavelength_stop.text(), 'nm')
-        self.wavelength_step = Q_(self.edit_wavelength_step.text(), 'nm')
+        self.wavelength_start = Q_(float(self.edit_wavelength_start.text()), 'nm')
+        self.wavelength_stop = Q_(float(self.edit_wavelength_stop.text()), 'nm')
+        self.wavelength_step = Q_(float(self.edit_wavelength_step.text()), 'nm')
 
         self.exp_N = int(self.edit_exp_N.text())
 
@@ -460,6 +472,9 @@ class Window(QtGui.QMainWindow):
     def toggle_pm_output(self):
         if self.check_pm.checkState() == 0:
             self.label_illumpower.setStyleSheet("font: bold 14pt Arial; color: gray")
+            self.power_data = []
+            self.power_data_timestamps = []
+            self.power_data_timezero = time.time()
         else:
             self.label_illumpower.setStyleSheet("font: bold 14pt Arial")
 
@@ -481,7 +496,7 @@ class Window(QtGui.QMainWindow):
         if self.spec is not None:
             # print('Refreshing plot')
             self.spectra_data = np.transpose( self.spec.spectrum() )
-            self.p.plot(self.spectra_data, clear=True)
+            self.p_spec.plot(self.spectra_data, clear=True)
 
             # refresh peak wavelength
             # print(self.spectra_data.shape)
@@ -491,7 +506,12 @@ class Window(QtGui.QMainWindow):
 
 
         if self.pm is not None and self.check_pm.checkState() > 0:
-            self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(self.pm.power().to_compact()))
+            meas_power = self.pm.power()
+            self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(meas_power.to_compact()))
+
+            self.power_data_timestamps.append(time.time()-self.power_data_timezero)
+            self.power_data.append(meas_power.magnitude)
+            self.p_power.plot(self.power_data_timestamps, self.power_data, clear=True)
 
         if self.smu is not None and self.check_smu.checkState() > 0:
             self.label_photocurrent.setText('Photocurrent: {:9<4.4g~}'.format(self.smu.measure_current().to_compact()))
@@ -527,8 +547,8 @@ class Window(QtGui.QMainWindow):
             while wl <= self.wavelength_stop:
                 print('Measuring {}'.format(wl.to_compact()))
 
-                # meas_wl = self.goto_wavelength(wl)
-                meas_wl = wl
+                meas_wl = self.goto_wavelength(wl)
+                # meas_wl = wl
 
                 self.pm.wavelength = meas_wl
                 data_x.append(meas_wl.magnitude)
@@ -573,8 +593,8 @@ class Window(QtGui.QMainWindow):
             while wl <= self.wavelength_stop:
                 print('Measuring {}'.format(wl.to_compact()))
 
-                # meas_wl = self.goto_wavelength(wl)
-                meas_wl = wl
+                meas_wl = self.goto_wavelength(wl)
+                # meas_wl = wl
 
                 # self.pm.wavelength = meas_wl
                 data_x.append(meas_wl.magnitude)
@@ -630,18 +650,18 @@ class Window(QtGui.QMainWindow):
         if self.spec is not None and self.mc is not None:
             print('going to {}'.format(wavelength))
 
-            timeout = 3.0 # s
+            timeout = self.feedback_timeout # s
             tick = 0.0
             tock = 0.0
 
             # Get current wavelength
             self.spectra_data = np.transpose( self.spec.spectrum() )
-            self.p.plot(self.spectra_data, clear=True)
+            self.p_spec.plot(self.spectra_data, clear=True)
 
             current_wl = Q_(self.spectra_data[np.argmax(self.spectra_data[:,1]), 0], 'nm')
             self.label_wavelength.setText("Peak wavelength {:4.4g~}".format(self.current_wl.to_compact()))
 
-            prevError = 0.0
+            prevError = Q_(0.0, 'nm')
             errorAccum = Q_(0.0, 'nm')
             errorDot = Q_(0.0, 'nm')
             error = wavelength-current_wl
@@ -666,7 +686,7 @@ class Window(QtGui.QMainWindow):
 
                 # Get new wavelength and estimate error
                 self.spectra_data = np.transpose( self.spec.spectrum() )
-                self.p.plot(self.spectra_data, clear=True)
+                self.p_spec.plot(self.spectra_data, clear=True)
 
                 current_wl = Q_(self.spectra_data[np.argmax(self.spectra_data[:,1]), 0], 'nm')
                 self.label_wavelength.setText("Peak wavelength {:4.4g~}".format(self.current_wl.to_compact()))
