@@ -514,7 +514,7 @@ class Window(QtGui.QMainWindow):
         with visa_timeout_context(self.pm._rsrc, 1000):
             print('Measuring Illumination')
             saveDirectory, measDescription, fullpath = self.get_filename()
-            print([saveDirectory, measDescription])
+            # print([saveDirectory, measDescription])
 
             # prepare power meter
             self.pm.set_slow_filter()
@@ -531,24 +531,73 @@ class Window(QtGui.QMainWindow):
                 meas_wl = wl
 
                 self.pm.wavelength = meas_wl
-                data_x.append(meas_wl)
+                data_x.append(meas_wl.magnitude)
 
                 data_row = []
                 for n in range(self.exp_N):
                     data_row.append(self.pm.power())
                     print('   Sample {}: {} at {}'.format(n, data_row[-1], meas_wl))
-                data_y.append(data_row)
+                # Append average and stdev
+                data_mean = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row]))
+                data_std = np.std(np.array([measure.to_base_units().magnitude for measure in data_row]))
+                data_row.extend([Q_(data_mean, 'W'), Q_(data_std, 'W')])
 
+                # Bring average and stdev to the front
+                data_row = [data_row[i-2] for i in range(len(data_row))]
+                data_y.append(data_row)
                 wl = wl + self.wavelength_step
 
-            self.save_to_csv(saveDirectory, measDescription, ['Wavelength [nm]', 'Power [W]'], data_x, data_y)
+            fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Power {} [W]'.format(n) for n in range(self.exp_N)]
+            self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
-            # return power Meter
+            # return power meter to fast sampling
             self.pm.set_no_filter()
 
     def exp_photocurrent(self):
-        print('Measuring photocurrent')
-        pass
+        from instrumental.drivers.util import visa_timeout_context
+
+        with visa_timeout_context(self.smu._rsrc, 5000):
+            print('Measuring photocurrent')
+            saveDirectory, measDescription, fullpath = self.get_filename()
+            # print([saveDirectory, measDescription])
+
+            # prepare source meter
+            self.set_smu_params()
+            self.smu.set_integration_time('long')
+
+            #  Load measurement parameters
+            wl = self.wavelength_start
+
+            data_x = []
+            data_y = []
+            while wl <= self.wavelength_stop:
+                print('Measuring {}'.format(wl.to_compact()))
+
+                # meas_wl = self.goto_wavelength(wl)
+                meas_wl = wl
+
+                # self.pm.wavelength = meas_wl
+                data_x.append(meas_wl.magnitude)
+
+                data_row = []
+                for n in range(self.exp_N):
+                    data_row.append(self.smu.measure_current())
+                    print('   Sample {}: {} at {}'.format(n, data_row[-1], meas_wl))
+                # Append average and stdev
+                data_mean = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row]))
+                data_std = np.std(np.array([measure.to_base_units().magnitude for measure in data_row]))
+                data_row.extend([Q_(data_mean, 'A'), Q_(data_std, 'A')])
+
+                data_row = [data_row[i-2] for i in range(len(data_row))]
+
+                data_y.append(data_row)
+                wl = wl + self.wavelength_step
+
+            fields = ['Wavelength [nm]'] + ['Avg. Power [A]', 'Std Dev [A]'] + ['Photocurrent {} [A]'.format(n) for n in range(self.exp_N)]
+            self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
+
+            # return source meter to fast sampling
+            self.smu.set_integration_time('short')
 
     def close_application(self):
         sys.exit()
@@ -574,7 +623,7 @@ class Window(QtGui.QMainWindow):
             csvwriter.writerow(fields)
 
             for row in range(len(data_x)):
-                csvwriter.writerow([data_x[row]]+[format(data_y[row][col].magnitude) for col in range(len(data_y))])
+                csvwriter.writerow([data_x[row]]+[format(data_y[row][col].magnitude) for col in range(len(data_y[row]))])
 
     def goto_wavelength(self, wavelength):
         # Check necessary instruments
