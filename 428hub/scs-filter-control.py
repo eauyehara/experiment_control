@@ -7,7 +7,6 @@ Required Instruments:
 2. Klinger Scientific CC1.1 Motor controller
 3. Power meter (ILX Lightwave OMM-6810B)
 4. Source meter (HP 4156C)
-
 """
 
 # import socket
@@ -214,7 +213,7 @@ class Window(QtGui.QMainWindow):
             row = row+1
 
         self.label_wavelength = QtGui.QLabel('Peak Wavelength:')
-        self.label_wavelength.setStyleSheet("font: bold 14pt Arial")
+        self.label_wavelength.setStyleSheet("font: bold 12pt Arial")
         self.layout.addWidget(self.label_wavelength, row, 0,  1,4)
 
         row = row+1
@@ -222,13 +221,17 @@ class Window(QtGui.QMainWindow):
         # Power meter related UI elements
         if self.pm is not None:
             self.label_illumpower = QtGui.QLabel('Illumination Power: ')
-            self.label_illumpower.setStyleSheet("font: bold 14pt Arial; color: gray")
-            self.layout.addWidget(self.label_illumpower, row, 0, 1, 3)
+            self.label_illumpower.setStyleSheet("font: bold 12pt Arial; color: gray")
+            self.layout.addWidget(self.label_illumpower, row, 0, 1, 2)
 
             self.check_pm = QtGui.QCheckBox('Read Power Meter')
             self.check_pm.stateChanged.connect(self.toggle_pm_output)
             self.check_pm.setCheckState(0) # off
-            self.layout.addWidget(self.check_pm, row, 3, 1, 1)
+            self.layout.addWidget(self.check_pm, row, 2, 1, 1)
+
+            self.btn_save = QtGui.QPushButton('Save Power trace')
+            self.btn_save.clicked.connect(self.save_power_trace)
+            self.layout.addWidget(self.btn_save, row, 3, 1,1) # save spectra button
 
             row = row+1
 
@@ -250,7 +253,7 @@ class Window(QtGui.QMainWindow):
             row = row+1
 
             self.label_photocurrent = QtGui.QLabel('Photocurrent:')
-            self.label_photocurrent.setStyleSheet("font: bold 14pt Arial; color: gray")
+            self.label_photocurrent.setStyleSheet("font: bold 12pt Arial; color: gray")
             self.layout.addWidget(self.label_photocurrent, row, 0, 1, 3)
 
             self.check_smu = QtGui.QCheckBox('Read Source Meter')
@@ -296,7 +299,7 @@ class Window(QtGui.QMainWindow):
         self.p_spec = pg.PlotWidget()
         self.xlabel = self.p_spec.setLabel('bottom',text='Wavelength',units='nm')
         self.ylabel = self.p_spec.setLabel('left',text='Counts',units='Arb. Unit')
-        self.layout.addWidget(self.p_spec, 0, 4, int(row/2), int(row/2)+2)
+        self.layout.addWidget(self.p_spec, 0, 4, int(row/2)+2, int(row/2)+2)
 
         # Plot of power fluctuations
         self.p_power = pg.PlotWidget()
@@ -394,6 +397,23 @@ class Window(QtGui.QMainWindow):
         # restart timer
         self.timer.start(max([Window.timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
 
+    def save_power_trace(self):
+        self.timer.stop()
+        timestamp_str = datetime.strftime(datetime.now(),'%Y_%m_%d_%H_%M_%S')
+
+        saveDirectory, measDescription, fullpath = self.get_filename()
+        self.save_to_csv(saveDirectory, measDescription, ['Time', 'Power [W]'], self.power_data_timestamps, self.power_data)
+
+        # Save png
+        fpath = fullpath+'.png'
+
+        exporter = pg.exporters.ImageExporter(self.p_power.scene())
+        exporter.export(fpath)
+
+        self.statusBar().showMessage('Saved power trace to {}'.format(fpath), 5000)
+        # restart timer
+        self.timer.start(max([Window.timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+
     def set_spec_params(self):
         self.timer.stop()
 
@@ -471,18 +491,18 @@ class Window(QtGui.QMainWindow):
 
     def toggle_pm_output(self):
         if self.check_pm.checkState() == 0:
-            self.label_illumpower.setStyleSheet("font: bold 14pt Arial; color: gray")
+            self.label_illumpower.setStyleSheet("font: bold 12pt Arial; color: gray")
+        else:
+            self.label_illumpower.setStyleSheet("font: bold 12pt Arial")
             self.power_data = []
             self.power_data_timestamps = []
             self.power_data_timezero = time.time()
-        else:
-            self.label_illumpower.setStyleSheet("font: bold 14pt Arial")
 
     def toggle_smu_output(self):
         if self.check_smu.checkState() == 0:
-            self.label_photocurrent.setStyleSheet("font: bold 14pt Arial; color: gray")
+            self.label_photocurrent.setStyleSheet("font: bold 12pt Arial; color: gray")
         else:
-            self.label_photocurrent.setStyleSheet("font: bold 14pt Arial")
+            self.label_photocurrent.setStyleSheet("font: bold 12pt Arial")
 
     def set_feedback_params(self):
         self.Kp=float(self.edit_kp.text())
@@ -510,8 +530,8 @@ class Window(QtGui.QMainWindow):
             self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(meas_power.to_compact()))
 
             self.power_data_timestamps.append(time.time()-self.power_data_timezero)
-            self.power_data.append(meas_power.magnitude)
-            self.p_power.plot(self.power_data_timestamps, self.power_data, clear=True)
+            self.power_data.append(meas_power)
+            self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.power_data], clear=True)
 
         if self.smu is not None and self.check_smu.checkState() > 0:
             self.label_photocurrent.setText('Photocurrent: {:9<4.4g~}'.format(self.smu.measure_current().to_compact()))
@@ -568,6 +588,7 @@ class Window(QtGui.QMainWindow):
                 wl = wl + self.wavelength_step
 
             fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Power {} [W]'.format(n) for n in range(self.exp_N)]
+
             self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
             # return power meter to fast sampling
@@ -636,14 +657,21 @@ class Window(QtGui.QMainWindow):
         # fields = ['Wavelength', 'count']
         fname = measDescription+'.csv'
         fpath = path.normpath(path.join(saveDirectory,fname))
-        print(fpath)
+        # print(fpath)
 
         with open(fpath, 'w', newline='') as csvfile:
             csvwriter = csv.writer(csvfile, dialect='excel')
+            
             csvwriter.writerow(fields)
 
             for row in range(len(data_x)):
-                csvwriter.writerow([data_x[row]]+[format(data_y[row][col].magnitude) for col in range(len(data_y[row]))])
+                try :
+                    # print('print ok')
+                    csvwriter.writerow([data_x[row]]+[format(data_y[row][col].magnitude) for col in range(len(data_y[row]))])
+                except:
+                    # print('exception occurred')
+                    csvwriter.writerow([data_x[row], format(data_y[row].magnitude)])
+
 
     def goto_wavelength(self, wavelength):
         # Check necessary instruments
