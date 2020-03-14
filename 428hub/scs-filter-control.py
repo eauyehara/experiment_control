@@ -72,8 +72,8 @@ class Window(QtGui.QMainWindow):
 
         self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
-        self.smu_channel = 1
-        self.smu_bias = Q_(0.0, 'V')
+        self.smu_channel = 2
+        self.smu_bias = Q_(0, 'V')
         self.motor_steps = 0
 
         self.initialize_instruments()
@@ -265,7 +265,7 @@ class Window(QtGui.QMainWindow):
 
             row = row+1
 
-        self.wavelength_start = Q_(550.0, 'nm')
+        self.wavelength_start = Q_(500.0, 'nm')
         self.layout.addWidget(QtGui.QLabel('   Start [nm]:'), row,0,  1,1)
         self.edit_wavelength_start = QtGui.QLineEdit('{}'.format(self.wavelength_start.magnitude))
         self.edit_wavelength_start.editingFinished.connect(self.set_sweep_params)
@@ -273,7 +273,7 @@ class Window(QtGui.QMainWindow):
 
         row = row+1
 
-        self.wavelength_stop = Q_(560.0, 'nm')
+        self.wavelength_stop = Q_(600.0, 'nm')
         self.layout.addWidget(QtGui.QLabel('   End [nm]:'), row,0,  1,1)
         self.edit_wavelength_stop = QtGui.QLineEdit('{}'.format(self.wavelength_stop.magnitude))
         self.edit_wavelength_stop.editingFinished.connect(self.set_sweep_params)
@@ -289,7 +289,7 @@ class Window(QtGui.QMainWindow):
 
         row = row + 1
 
-        self.exp_N = 5
+        self.exp_N = 100
         self.layout.addWidget(QtGui.QLabel('   # of Samples'), row,0,  1,1)
         self.edit_exp_N = QtGui.QLineEdit('{}'.format(self.exp_N))
         self.edit_exp_N.editingFinished.connect(self.set_sweep_params)
@@ -720,16 +720,15 @@ class Window(QtGui.QMainWindow):
                 errD = self.Kd*(errorDot).magnitude
                 drive = -np.clip(int(errP+errI+errD), -5000, 5000)
 
-                # print("moving motor {} steps".format(drive))
                 if drive != 0:
                     self.mc.go_steps(N=drive)
 
-                    tock = np.abs(drive)/1000
+                    #  clip tock to let motor have time to respond
+                    tock = np.clip(np.abs(drive)/1000, 1.0, 5.0)
                 else:
-                    tock = 0.2
+                    tock = 1.0
 
                 tick = tick + tock
-                # print('tick {}'.format(tick))
                 sleep(tock)
 
                 # Get new wavelength and estimate error
@@ -744,7 +743,7 @@ class Window(QtGui.QMainWindow):
 
                 errorAccum = errorAccum + (error + prevError)/2.0*tock
                 errorDot = (error-prevError)/tock
-                print('Time {} : Moved {} steps resulting in error {}'.format(tick, drive, error))
+                print('Time {} : Moved {} steps resulting in error {}'.format(tick, drive, error.to_compact()))
 
             return current_wl
 
