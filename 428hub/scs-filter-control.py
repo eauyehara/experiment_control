@@ -19,6 +19,8 @@ import csv
 
 import numpy as np
 from instrumental import Q_
+from instrumental.drivers.util import visa_timeout_context
+
 
 import pyqtgraph as pg
 import pyqtgraph.exporters
@@ -529,7 +531,13 @@ class Window(QtGui.QMainWindow):
 
 
         if self.pm is not None and self.check_pm.checkState() > 0:
-            meas_power = self.pm.power()
+            with visa_timeout_context(self.pm._rsrc, 1000):
+                # Change power meter wavelength if peak detected
+                if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
+                    self.pm.wavelength = self.current_wl
+
+                meas_power = self.pm.power()
+
             self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(meas_power.to_compact()))
 
             self.power_data_timestamps.append(time.time()-self.power_data_timezero)
@@ -552,8 +560,7 @@ class Window(QtGui.QMainWindow):
 
     # Menu handlers
     def exp_illum(self):
-        from instrumental.drivers.util import visa_timeout_context
-
+        start = time.time()
         with visa_timeout_context(self.pm._rsrc, 1000):
             print('Measuring Illumination')
             saveDirectory, measDescription, fullpath = self.get_filename()
@@ -600,10 +607,11 @@ class Window(QtGui.QMainWindow):
                 self.statusBar().showMessage('Cancelled Illumination Experiment', 1000)
             # print([saveDirectory, measDescription])
 
+        print('Experiment lasted {} seconds'.format(time.time()-start))
+
 
     def exp_photocurrent(self):
-        from instrumental.drivers.util import visa_timeout_context
-
+        start = time.time()
         with visa_timeout_context(self.smu._rsrc, 5000):
             print('Measuring photocurrent')
             saveDirectory, measDescription, fullpath = self.get_filename()
@@ -648,6 +656,8 @@ class Window(QtGui.QMainWindow):
                 self.smu.set_integration_time('short')
             else:
                 self.statusBar().showMessage('Canceled Photocurrent Experiment', 1000)
+
+        print('Experiment lasted {} seconds'.format(time.time()-start))
 
 
     def close_application(self):
@@ -710,7 +720,7 @@ class Window(QtGui.QMainWindow):
                 errD = self.Kd*(errorDot).magnitude
                 drive = -np.clip(int(errP+errI+errD), -5000, 5000)
 
-                print("moving motor {} steps".format(drive))
+                # print("moving motor {} steps".format(drive))
                 if drive != 0:
                     self.mc.go_steps(N=drive)
 
@@ -719,7 +729,7 @@ class Window(QtGui.QMainWindow):
                     tock = 0.2
 
                 tick = tick + tock
-                print('tick {}'.format(tick))
+                # print('tick {}'.format(tick))
                 sleep(tock)
 
                 # Get new wavelength and estimate error
@@ -734,7 +744,7 @@ class Window(QtGui.QMainWindow):
 
                 errorAccum = errorAccum + (error + prevError)/2.0*tock
                 errorDot = (error-prevError)/tock
-                print('error {}'.format(error))
+                print('Time {} : Moved {} steps resulting in error {}'.format(tick, drive, error))
 
             return current_wl
 
