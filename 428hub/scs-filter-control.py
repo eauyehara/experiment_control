@@ -5,7 +5,8 @@ YSL Supercontinuum Source Filter controller
 Required Instruments:
 1. Ocean Optics HR4000 spectrometer
 2. Klinger Scientific CC1.1 Motor controller
-3. Power meter (ILX Lightwave OMM-6810B)
+3. Calibration Power meter (ILX Lightwave OMM-6810B)
+4. Tap power meter (Thorlabs PM100A)
 4. Source meter (HP 4156C)
 """
 
@@ -309,6 +310,11 @@ class Window(QtGui.QMainWindow):
         self.p_power.setLabel('left',text='Power',units='W')
         self.layout.addWidget(self.p_power, int(row/2)+2, 4, int(row/2), int(row/2)+2)
 
+        # # Plot of tap power fluctuations
+        # self.p_tap_power = pg.PlotWidget()
+        # self.p_tap_power.setLabel('bottom',text='Time',units='sec')
+        # self.p_tap_power.setLabel('left',text='Power',units='W')
+        # self.layout.addWidget(self.p_tap_power, row+4, 4, int(row/2), int(row/2)+2)
 
         # Equalizes column stretch factor
         for i in range(self.layout.columnCount()):
@@ -351,11 +357,24 @@ class Window(QtGui.QMainWindow):
 
             self.pm = OMM_6810B(visa_address='GPIB0::2::INSTR')
         except:
-            print('OMM-6810B Power meter not connected')
+            print('OMM-6810B Power meter not connected. ', sys.exc_info()[0])
             self.pm = None
         else:
             self.pm.wavelength = self.target_wl
             self.pm.set_no_filter()
+
+
+        # Initialize tap Power meter
+        try:
+            from instrumental.drivers.powermeters.thorlabs import PM100A
+
+            self.pm_tap = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
+        except:
+            print('PM100A Thorlabs Power meter not connected. ', sys.exc_info()[0])
+            self.pm_tap = None
+        else:
+            self.pm_tap.wavelength = self.target_wl
+            self.pm_tap.num_averaged = 1
 
         # Initialize Source meter
         try:
@@ -363,7 +382,7 @@ class Window(QtGui.QMainWindow):
 
             self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
         except:
-            print('HP 4156C Parameter Analyzer not connected')
+            print('HP 4156C Parameter Analyzer not connected. ', sys.exc_info()[0])
             self.smu = None
         else:
             self.smu.set_integration_time('short')
@@ -405,7 +424,10 @@ class Window(QtGui.QMainWindow):
 
         saveDirectory, measDescription, fullpath = self.get_filename()
         if len(measDescription)>0:
-            self.save_to_csv(saveDirectory, measDescription, ['Time', 'Power [W]'], self.power_data_timestamps, self.power_data)
+            if self.pm_tap is not None:
+                self.save_to_csv(saveDirectory, measDescription, ['Time', 'Power [W]', 'Tap Power [W]'], self.power_data_timestamps, list(zip(self.power_data, self.tap_power_data)))
+            else:
+                self.save_to_csv(saveDirectory, measDescription, ['Time', 'Power [W]'], self.power_data_timestamps, self.power_data)
 
             # Save png
             fpath = fullpath+'.png'
@@ -460,6 +482,9 @@ class Window(QtGui.QMainWindow):
         if self.pm is not None:
             self.pm.wavelength = wavelength
 
+        if self.pm_tap is not None:
+            self.pm_tap.wavelength = wavelength
+
         self.target_wl = wavelength
 
         self.statusBar().showMessage('Setting wavelength to {:.4g~}'.format(wavelength.to_compact()), 5000)
@@ -500,6 +525,7 @@ class Window(QtGui.QMainWindow):
         else:
             self.label_illumpower.setStyleSheet("font: bold 12pt Arial")
             self.power_data = []
+            self.tap_power_data = []
             self.power_data_timestamps = []
             self.power_data_timezero = time.time()
 
@@ -530,19 +556,34 @@ class Window(QtGui.QMainWindow):
             # self.label_wavelength.setText("Peak wavelength {}".format(self.current_wl.to_compact()))
 
 
-        if self.pm is not None and self.check_pm.checkState() > 0:
-            with visa_timeout_context(self.pm._rsrc, 1000):
-                # Change power meter wavelength if peak detected
-                if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
-                    self.pm.wavelength = self.current_wl
-
-                meas_power = self.pm.power()
-
-            self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(meas_power.to_compact()))
-
+        if self.check_pm.checkState() > 0:
             self.power_data_timestamps.append(time.time()-self.power_data_timezero)
-            self.power_data.append(meas_power)
-            self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.power_data], clear=True)
+
+            if self.pm is not None:
+                with visa_timeout_context(self.pm._rsrc, 1000):
+                    # Change power meter wavelength if peak detected
+                    if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
+                        self.pm.wavelength = self.current_wl
+
+                    meas_power = self.pm.power()
+
+                self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(meas_power.to_compact()))
+
+                self.power_data.append(meas_power)
+                self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.power_data], pen=(1,2), clear=True)
+
+            if self.pm_tap is not None:
+                with visa_timeout_context(self.pm_tap._rsrc, 1000):
+                    # Change power meter wavelength if peak detected
+                    if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
+                        self.pm_tap.wavelength = self.current_wl
+
+                    meas_power = self.pm_tap.power
+
+                # self.label_illumpower.setText('Tap Power: {:0<4.4g~}'.format(meas_power.to_compact()))
+
+                self.tap_power_data.append(meas_power)
+                self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.tap_power_data], pen=(2,2))
 
         if self.smu is not None and self.check_smu.checkState() > 0:
             self.label_photocurrent.setText('Photocurrent: {:9<4.4g~}'.format(self.smu.measure_current().to_compact()))
