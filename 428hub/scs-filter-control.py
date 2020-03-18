@@ -266,7 +266,7 @@ class Window(QtGui.QMainWindow):
 
             row = row+1
 
-        self.wavelength_start = Q_(500.0, 'nm')
+        self.wavelength_start = Q_(540.0, 'nm')
         self.layout.addWidget(QtGui.QLabel('   Start [nm]:'), row,0,  1,1)
         self.edit_wavelength_start = QtGui.QLineEdit('{}'.format(self.wavelength_start.magnitude))
         self.edit_wavelength_start.editingFinished.connect(self.set_sweep_params)
@@ -274,7 +274,7 @@ class Window(QtGui.QMainWindow):
 
         row = row+1
 
-        self.wavelength_stop = Q_(600.0, 'nm')
+        self.wavelength_stop = Q_(560.0, 'nm')
         self.layout.addWidget(QtGui.QLabel('   End [nm]:'), row,0,  1,1)
         self.edit_wavelength_stop = QtGui.QLineEdit('{}'.format(self.wavelength_stop.magnitude))
         self.edit_wavelength_stop.editingFinished.connect(self.set_sweep_params)
@@ -282,7 +282,7 @@ class Window(QtGui.QMainWindow):
 
         row = row+1
 
-        self.wavelength_step = Q_(10.0, 'nm')
+        self.wavelength_step = Q_(5.0, 'nm')
         self.layout.addWidget(QtGui.QLabel('   Step [nm]:'), row,0,  1,1)
         self.edit_wavelength_step = QtGui.QLineEdit('{}'.format(self.wavelength_step.magnitude))
         self.edit_wavelength_step.editingFinished.connect(self.set_sweep_params)
@@ -385,6 +385,9 @@ class Window(QtGui.QMainWindow):
             print('HP 4156C Parameter Analyzer not connected. ', sys.exc_info()[0])
             self.smu = None
         else:
+            # Set default settings for smu
+            self.smu.set_channel(channel=self.smu_channel)
+            self.smu.set_voltage(voltage=self.smu_bias)
             self.smu.set_integration_time('short')
 
 
@@ -601,14 +604,15 @@ class Window(QtGui.QMainWindow):
 
     # Menu handlers
     def exp_illum(self):
-        start = time.time()
         with visa_timeout_context(self.pm._rsrc, 1000):
             print('Measuring Illumination')
             saveDirectory, measDescription, fullpath = self.get_filename()
 
             if len(measDescription)>0:
+
+                start = time.time()
                 # prepare power meter
-                self.pm.set_slow_filter()
+                # self.pm.set_slow_filter()
 
                 #  Load measurement parameters
                 wl = self.wavelength_start
@@ -622,51 +626,68 @@ class Window(QtGui.QMainWindow):
                     # meas_wl = wl
 
                     self.pm.wavelength = meas_wl
+                    self.pm_tap.wavelength = meas_wl
                     data_x.append(meas_wl.magnitude)
 
                     data_row = []
+                    data_row2 = []
                     for n in range(self.exp_N):
                         data_row.append(self.pm.power())
-                        print('   Sample {}: {} at {}'.format(n, data_row[-1], meas_wl))
+                        data_row2.append(self.pm_tap.power)
+                        print('   Sample {} at {} : Actual {}, Tap {}'.format(n, meas_wl, data_row[-1], data_row2[-1]))
+
                     # Append average and stdev
                     data_mean = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row]))
                     data_std = np.std(np.array([measure.to_base_units().magnitude for measure in data_row]))
-                    data_row.extend([Q_(data_mean, 'W'), Q_(data_std, 'W')])
+                    data_mean2 = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+                    data_std2 = np.std(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+                    data_coeff = data_mean/data_mean2
+
 
                     # Bring average and stdev to the front
-                    data_row = [data_row[i-2] for i in range(len(data_row))]
-                    data_y.append(data_row)
+                    # data_row.extend([Q_(data_mean, 'W'), Q_(data_std, 'W')])
+                    # data_row = [data_row[i-2] for i in range(len(data_row))]
+                    # data_y.append(data_row)
+
+                    data_y.append([Q_(data_mean, 'W'), Q_(data_std, 'W'), Q_(data_mean2, 'W'), Q_(data_std2, 'W'), Q_(data_coeff, '')])
+
+                    self.refresh_live_spectra()
+
                     wl = wl + self.wavelength_step
 
-                fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Power {} [W]'.format(n) for n in range(self.exp_N)]
+                # fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Power {} [W]'.format(n) for n in range(self.exp_N)]
+                fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] +['Tap Avg. Power [W]', 'Std Dev [W]'] + ['Coefficient']
 
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
                 # return power meter to fast sampling
                 self.pm.set_no_filter()
+
+                print('Experiment lasted {} seconds'.format(time.time()-start))
+                self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*1000)
             else:
                 self.statusBar().showMessage('Cancelled Illumination Experiment', 1000)
             # print([saveDirectory, measDescription])
 
-        print('Experiment lasted {} seconds'.format(time.time()-start))
-
 
     def exp_photocurrent(self):
-        start = time.time()
         with visa_timeout_context(self.smu._rsrc, 5000):
             print('Measuring photocurrent')
             saveDirectory, measDescription, fullpath = self.get_filename()
 
             if len(measDescription)>0:
+                start = time.time()
+
                 # prepare source meter
                 self.set_smu_params()
-                self.smu.set_integration_time('long')
+                self.smu.set_integration_time('short')
 
                 #  Load measurement parameters
                 wl = self.wavelength_start
 
                 data_x = []
                 data_y = []
+                data_print = []
                 while wl <= self.wavelength_stop:
                     print('Measuring {}'.format(wl.to_compact()))
 
@@ -674,31 +695,42 @@ class Window(QtGui.QMainWindow):
                     # meas_wl = wl
 
                     # self.pm.wavelength = meas_wl
+                    self.pm_tap.wavelength = meas_wl
                     data_x.append(meas_wl.magnitude)
 
                     data_row = []
+                    data_row2 = []
                     for n in range(self.exp_N):
                         data_row.append(self.smu.measure_current())
-                        print('   Sample {}: {} at {}'.format(n, data_row[-1], meas_wl))
+                        data_row2.append(self.pm_tap.power)
+                        print('   Sample {} at {}: {}  with {}'.format(n, meas_wl, data_row[-1], data_row2[-1]))
                     # Append average and stdev
                     data_mean = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row]))
                     data_std = np.std(np.array([measure.to_base_units().magnitude for measure in data_row]))
-                    data_row.extend([Q_(data_mean, 'A'), Q_(data_std, 'A')])
+                    data_mean2 = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+                    data_std2 = np.std(np.array([measure.to_base_units().magnitude for measure in data_row2]))
 
-                    data_row = [data_row[i-2] for i in range(len(data_row))]
+                    # data_row.extend([Q_(data_mean, 'A'), Q_(data_std, 'A')])
+                    # data_row = [data_row[i-2] for i in range(len(data_row))]
+                    # data_y.append(data_row)
 
-                    data_y.append(data_row)
+                    data_y.append([Q_(data_mean, 'A'), Q_(data_std, 'A'), Q_(data_mean2, 'W'), Q_(data_std2, 'W')])
+
+                    self.refresh_live_spectra()
+
                     wl = wl + self.wavelength_step
 
-                fields = ['Wavelength [nm]'] + ['Avg. Power [A]', 'Std Dev [A]'] + ['Photocurrent {} [A]'.format(n) for n in range(self.exp_N)]
+                # fields = ['Wavelength [nm]'] + ['Avg. Power [A]', 'Std Dev [A]'] + ['Photocurrent {} [A]'.format(n) for n in range(self.exp_N)]
+                fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]']
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
                 # return source meter to fast sampling
                 self.smu.set_integration_time('short')
+
+                print('Experiment lasted {} seconds'.format(time.time()-start))
+                self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*500)
             else:
                 self.statusBar().showMessage('Canceled Photocurrent Experiment', 1000)
-
-        print('Experiment lasted {} seconds'.format(time.time()-start))
 
 
     def close_application(self):
@@ -730,7 +762,7 @@ class Window(QtGui.QMainWindow):
                     # print('print ok')
                     csvwriter.writerow([data_x[row]]+[format(data_y[row][col].magnitude) for col in range(len(data_y[row]))])
                 except:
-                    # print('exception occurred')
+                    print('exception occurred: ', sys.exc_info()[0])
                     csvwriter.writerow([data_x[row], format(data_y[row].magnitude)])
 
 
