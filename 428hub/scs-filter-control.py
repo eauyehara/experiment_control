@@ -71,7 +71,7 @@ class Window(QtGui.QMainWindow):
         self.Kd = 0.0 #10.0
         self.feedback_timeout = 20.0
 
-        self.target_wl = Q_(550.0, 'nm')
+        self.target_wl = Q_(850.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
         self.smu_channel = 2
         self.smu_bias = Q_(0, 'V')
@@ -266,7 +266,7 @@ class Window(QtGui.QMainWindow):
 
             row = row+1
 
-        self.wavelength_start = Q_(540.0, 'nm')
+        self.wavelength_start = Q_(840.0, 'nm')
         self.layout.addWidget(QtGui.QLabel('   Start [nm]:'), row,0,  1,1)
         self.edit_wavelength_start = QtGui.QLineEdit('{}'.format(self.wavelength_start.magnitude))
         self.edit_wavelength_start.editingFinished.connect(self.set_sweep_params)
@@ -274,7 +274,7 @@ class Window(QtGui.QMainWindow):
 
         row = row+1
 
-        self.wavelength_stop = Q_(560.0, 'nm')
+        self.wavelength_stop = Q_(860.0, 'nm')
         self.layout.addWidget(QtGui.QLabel('   End [nm]:'), row,0,  1,1)
         self.edit_wavelength_stop = QtGui.QLineEdit('{}'.format(self.wavelength_stop.magnitude))
         self.edit_wavelength_stop.editingFinished.connect(self.set_sweep_params)
@@ -295,6 +295,10 @@ class Window(QtGui.QMainWindow):
         self.edit_exp_N = QtGui.QLineEdit('{}'.format(self.exp_N))
         self.edit_exp_N.editingFinished.connect(self.set_sweep_params)
         self.layout.addWidget(self.edit_exp_N, row,1,  1,1)
+
+        self.btn_single = QtGui.QPushButton('Take single measurement')
+        self.btn_single.clicked.connect(self.take_single_measurement)
+        self.layout.addWidget(self.btn_single, row, 2, 1,1) # save spectra button
 
         row = row + 1
 
@@ -443,6 +447,60 @@ class Window(QtGui.QMainWindow):
             self.statusBar().showMessage('Canceled Power trace save', 1000)
         # restart timer
         self.timer.start(max([Window.timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+
+    def take_single_measurement(self):
+        # Takes single measurement without sweeping wavelength
+        with visa_timeout_context(self.smu._rsrc, 5000):
+            print('Measuring photocurrent for single wavelength')
+            saveDirectory, measDescription, fullpath = self.get_filename()
+
+            if len(measDescription)>0:
+                start = time.time()
+
+                # prepare source meter
+                self.set_smu_params()
+                self.smu.set_integration_time('short')
+
+                #  Load measurement parameters
+                wl = self.wavelength_start
+
+                data_x = []
+                data_y = []
+                data_print = []
+
+                print('Measuring {}'.format(wl.to_compact()))
+
+                self.pm_tap.wavelength = wl
+                data_x.append(wl.magnitude)
+
+                data_row = []
+                data_row2 = []
+                for n in range(self.exp_N):
+                    data_row.append(self.smu.measure_current())
+                    data_row2.append(self.pm_tap.power)
+                    print('   Sample {} at {}: {}  with {}'.format(n, wl, data_row[-1], data_row2[-1]))
+                # Append average and stdev
+                data_mean = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row]))
+                data_std = np.std(np.array([measure.to_base_units().magnitude for measure in data_row]))
+                data_mean2 = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+                data_std2 = np.std(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+
+                # data_row.extend([Q_(data_mean, 'A'), Q_(data_std, 'A')])
+                # data_row = [data_row[i-2] for i in range(len(data_row))]
+                # data_y.append(data_row)
+
+                data_y.append([Q_(data_mean, 'A'), Q_(data_std, 'A'), Q_(data_mean2, 'W'), Q_(data_std2, 'W')])
+
+                # fields = ['Wavelength [nm]'] + ['Avg. Power [A]', 'Std Dev [A]'] + ['Photocurrent {} [A]'.format(n) for n in range(self.exp_N)]
+                fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]']
+                self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
+
+                # return source meter to fast sampling
+                self.smu.set_integration_time('short')
+
+                print('Experiment lasted {} seconds'.format(time.time()-start))
+            else:
+                self.statusBar().showMessage('Canceled Photocurrent Experiment', 1000)
 
     def set_spec_params(self):
         self.timer.stop()
@@ -664,7 +722,7 @@ class Window(QtGui.QMainWindow):
                 self.pm.set_no_filter()
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
-                self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*1000)
+                self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*250)
             else:
                 self.statusBar().showMessage('Cancelled Illumination Experiment', 1000)
             # print([saveDirectory, measDescription])
@@ -728,7 +786,7 @@ class Window(QtGui.QMainWindow):
                 self.smu.set_integration_time('short')
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
-                self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*500)
+                self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*250)
             else:
                 self.statusBar().showMessage('Canceled Photocurrent Experiment', 1000)
 
