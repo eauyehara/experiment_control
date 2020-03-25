@@ -220,9 +220,9 @@ class Window(QtGui.QMainWindow):
         self.layout.addWidget(self.label_wavelength, row, 0,  1,4)
 
         row = row+1
-
+        
         # Power meter related UI elements
-        if self.pm is not None:
+        if self.pm is not None or self.pm_tap:
             self.label_illumpower = QtGui.QLabel('Illumination Power: ')
             self.label_illumpower.setStyleSheet("font: bold 12pt Arial; color: gray")
             self.layout.addWidget(self.label_illumpower, row, 0, 1, 2)
@@ -237,6 +237,8 @@ class Window(QtGui.QMainWindow):
             self.layout.addWidget(self.btn_save, row, 3, 1,1) # save spectra button
 
             row = row+1
+        else:
+            self.check_pm = None
 
 
         # SMU UI elements
@@ -617,34 +619,35 @@ class Window(QtGui.QMainWindow):
             # self.label_wavelength.setText("Peak wavelength {}".format(self.current_wl.to_compact()))
 
 
-        if self.check_pm.checkState() > 0:
-            self.power_data_timestamps.append(time.time()-self.power_data_timezero)
-
-            if self.pm is not None:
-                with visa_timeout_context(self.pm._rsrc, 1000):
-                    # Change power meter wavelength if peak detected
-                    if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
-                        self.pm.wavelength = self.current_wl
-
-                    meas_power = self.pm.power()
-
-                self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(meas_power.to_compact()))
-
-                self.power_data.append(meas_power)
-                self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.power_data], pen=(1,2), clear=True)
-
-            if self.pm_tap is not None:
-                with visa_timeout_context(self.pm_tap._rsrc, 1000):
-                    # Change power meter wavelength if peak detected
-                    if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
-                        self.pm_tap.wavelength = self.current_wl
-
-                    meas_power = self.pm_tap.power
-
-                # self.label_illumpower.setText('Tap Power: {:0<4.4g~}'.format(meas_power.to_compact()))
-
-                self.tap_power_data.append(meas_power)
-                self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.tap_power_data], pen=(2,2))
+        if self.check_pm is not None:
+            if self.check_pm.checkState() > 0:
+                self.power_data_timestamps.append(time.time()-self.power_data_timezero)
+                
+                if self.pm is not None:
+                    with visa_timeout_context(self.pm._rsrc, 1000):
+                        # Change power meter wavelength if peak detected
+                        if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
+                            self.pm.wavelength = self.current_wl
+        
+                        meas_power = self.pm.power()
+        
+                    self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(meas_power.to_compact()))
+        
+                    self.power_data.append(meas_power)
+                    self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.power_data], pen=(1,2), clear=True)
+    
+                if self.pm_tap is not None:
+                    with visa_timeout_context(self.pm_tap._rsrc, 1000):
+                        # Change power meter wavelength if peak detected
+                        if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
+                            self.pm_tap.wavelength = self.current_wl
+    
+                        meas_power = self.pm_tap.power
+    
+                    # self.label_illumpower.setText('Tap Power: {:0<4.4g~}'.format(meas_power.to_compact()))
+    
+                    self.tap_power_data.append(meas_power)
+                    self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.tap_power_data], pen=(2,2))
 
         if self.smu is not None and self.check_smu.checkState() > 0:
             self.label_photocurrent.setText('Photocurrent: {:9<4.4g~}'.format(self.smu.measure_current().to_compact()))
