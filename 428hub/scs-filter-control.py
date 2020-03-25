@@ -61,6 +61,7 @@ class Window(QtGui.QMainWindow):
         # Initialize instance variables
         self.spectra_data = np.array([])
         self.power_data = []
+        self.tap_power_data = []
         self.power_data_timestamps = []
         self.power_data_timezero = time.time()
         self.current_wl = Q_(0.0, 'nm')
@@ -222,7 +223,7 @@ class Window(QtGui.QMainWindow):
         row = row+1
         
         # Power meter related UI elements
-        if self.pm is not None or self.pm_tap:
+        if self.pm is not None or self.pm_tap is not None:
             self.label_illumpower = QtGui.QLabel('Illumination Power: ')
             self.label_illumpower.setStyleSheet("font: bold 12pt Arial; color: gray")
             self.layout.addWidget(self.label_illumpower, row, 0, 1, 2)
@@ -432,19 +433,34 @@ class Window(QtGui.QMainWindow):
         timestamp_str = datetime.strftime(datetime.now(),'%Y_%m_%d_%H_%M_%S')
 
         saveDirectory, measDescription, fullpath = self.get_filename()
-        if len(measDescription)>0:
+        if len(measDescription)>0:            
+            fields = ['Time']
+            data = []
+            if self.pm is not None:
+                fields.append('Power [W]')
+                data = self.power_data
+                
             if self.pm_tap is not None:
-                self.save_to_csv(saveDirectory, measDescription, ['Time', 'Power [W]', 'Tap Power [W]'], self.power_data_timestamps, list(zip(self.power_data, self.tap_power_data)))
+                fields.append('Tap Power [W]')
+                if len(data) > 0:
+                    data = list(zip(data, self.tap_power_data))
+                else:
+                    data = self.tap_power_data
+            
+            if len(data) > 0:
+                self.save_to_csv(saveDirectory, measDescription, fields, self.power_data_timestamps, data)
+                
+                # Save png
+                fpath = fullpath+'.png'
+        
+                exporter = pg.exporters.ImageExporter(self.p_power.scene())
+                exporter.export(fpath)
+        
+                self.statusBar().showMessage('Saved power trace to {}'.format(fpath), 5000)
             else:
-                self.save_to_csv(saveDirectory, measDescription, ['Time', 'Power [W]'], self.power_data_timestamps, self.power_data)
+                print('No data to save in power trace window')
+                self.statusBar().showMessage('No data to save in power trace window', 1000)
 
-            # Save png
-            fpath = fullpath+'.png'
-
-            exporter = pg.exporters.ImageExporter(self.p_power.scene())
-            exporter.export(fpath)
-
-            self.statusBar().showMessage('Saved power trace to {}'.format(fpath), 5000)
         else:
             self.statusBar().showMessage('Canceled Power trace save', 1000)
         # restart timer
@@ -631,7 +647,7 @@ class Window(QtGui.QMainWindow):
         
                         meas_power = self.pm.power()
         
-                    self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(meas_power.to_compact()))
+                    # self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(meas_power.to_compact()))
         
                     self.power_data.append(meas_power)
                     self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.power_data], pen=(1,2), clear=True)
@@ -639,12 +655,13 @@ class Window(QtGui.QMainWindow):
                 if self.pm_tap is not None:
                     with visa_timeout_context(self.pm_tap._rsrc, 1000):
                         # Change power meter wavelength if peak detected
-                        if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
-                            self.pm_tap.wavelength = self.current_wl
+                        if self.spec is not None: 
+                            if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
+                                self.pm_tap.wavelength = self.current_wl
     
                         meas_power = self.pm_tap.power
     
-                    # self.label_illumpower.setText('Tap Power: {:0<4.4g~}'.format(meas_power.to_compact()))
+                    self.label_illumpower.setText('Tap Power: {:0<4.4g~}'.format(meas_power.to_compact()))
     
                     self.tap_power_data.append(meas_power)
                     self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.tap_power_data], pen=(2,2))
@@ -823,8 +840,9 @@ class Window(QtGui.QMainWindow):
                     # print('print ok')
                     csvwriter.writerow([data_x[row]]+[format(data_y[row][col].magnitude) for col in range(len(data_y[row]))])
                 except:
-                    print('exception occurred: ', sys.exc_info()[0])
+                    # print('exception occurred: ', sys.exc_info()[0])
                     csvwriter.writerow([data_x[row], format(data_y[row].magnitude)])
+                    # print( format(data_y[row].magnitude))
 
 
     def goto_wavelength(self, wavelength):
