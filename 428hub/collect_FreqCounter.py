@@ -7,15 +7,12 @@ import matplotlib.pyplot as plt
 
 USB_adress = 'USB0::0x0957::0x1807::MY50009613::INSTR'
 
-# Find an open the instrument
-rm = pyvisa.ResourceManager()
-COUNTER = rm.open_resource(USB_adress)
 
-num_counts = 10 # Number of interarrival times to be measured
+num_counts = 100 # Number of interarrival times to be measured
 slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
-threshold = 0 # V (absolute)
+threshold = -0.01 # V (absolute)
 
-# Find, open and configure the FreqCounter
+# Find, open and configure instrument
 def open_FreqCounter():
 	rm = pyvisa.ResourceManager()
 	COUNTER = rm.open_resource(USB_adress)
