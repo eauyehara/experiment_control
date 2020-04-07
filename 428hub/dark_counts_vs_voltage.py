@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 USB_adress_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
-USB_adress_SOURCEMETER = ''
+USB_adress_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
 
 Vbd = 25.1 # [V]
 max_overbias = 10 # [%]
@@ -16,6 +16,7 @@ threshold = 0 # [V] (absolute)
 
 def open_SourceMeter():
     SOURCEMETER = rm.open_resource(USB_adress_SOURCEMETER)
+    SOURCEMETER.write('*RST') # Reset to default settings
     SOURCEMETER.write(':SENS:CURR:PROT 100E-06') # Set compliance at 100 uA
 
     return SOURCEMETER
@@ -37,15 +38,32 @@ def open_FreqCounter():
 
 	return COUNTER
 
+
+# Set bias at Vbias and collect counts during 1 sec
 def take_measure(COUNTER, SOURCEMETER, Vbias):
     # Set voltage to Vbias
-    SOURCEMETER.write(':SOUR:VOLT:CENT {}'.format(Vbias))
+    SOURCEMETER.write(':SOUR1:VOLT {}'.format(Vbias))
+    SOURCEMETER.write(':INIT')
 
     # Initiate couting
     COUNTER.write('INIT') # Initiate couting
     COUNTER.write('*WAI')
     num_counts = COUNTER.query_ascii_values('FETC?')
     return num_counts
+
+
+# Bring the SPAD from 0V to Vbias at Vbias V/step
+def bring_to_breakdown(SOURCEMETER, Vbias):
+    Vinit = 0
+    Vstep = 0.5
+
+    while (Vinit < Vbias):
+        SOURCEMETER.write(':SOUR1:VOLT {}'.format(Vinit))
+        SOURCEMETER.write(':INIT')
+        Vinit = Vinit + Vstep
+
+
+
 
 rm = pyvisa.ResourceManager()
 COUNTER = open_FreqCounter()
