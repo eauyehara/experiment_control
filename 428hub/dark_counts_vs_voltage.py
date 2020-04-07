@@ -1,5 +1,6 @@
 import pyvisa
 import numpy as np
+import time
 import matplotlib.pyplot as plt
 
 USB_adress_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
@@ -53,21 +54,24 @@ def take_measure(COUNTER, SOURCEMETER, Vbias):
 
 
 # Bring the SPAD from 0V to Vbias at Vbias V/step
-def bring_to_breakdown(SOURCEMETER, Vbias):
+def bring_to_breakdown(SOURCEMETER, Vbd):
     Vinit = 0
-    Vstep = 0.5
+    Vstep = 0.25
 
-    while (Vinit < Vbias):
+    while (Vinit < Vbd):
         SOURCEMETER.write(':SOUR1:VOLT {}'.format(Vinit))
         SOURCEMETER.write(':INIT')
         Vinit = Vinit + Vstep
+        time.sleep(0.5)
 
 
 
 
 rm = pyvisa.ResourceManager()
-COUNTER = open_FreqCounter()
+#COUNTER = open_FreqCounter()
 SOURCEMETER = open_SourceMeter()
+bring_to_breakdown(SOURCEMETER, Vbd)
+
 
 num_measures = int(max_overbias/step_overbias) + 1 # 0% and max_overbias% included
 vec_overbias = np.linspace(0, max_overbias, num = num_measures)
