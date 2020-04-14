@@ -3,6 +3,7 @@
 import pyvisa
 import numpy as np
 import csv
+import time
 
 USB_adress = 'USB0::0x0957::0x1807::MY50009613::INSTR'
 
