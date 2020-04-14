@@ -83,9 +83,9 @@ plt.title('Dark counts')
 plt.xlabel('Reverse Bias Voltage [V]')
 plt.ylabel('Dark counts [1/s]')
 plt.grid(True)
-plt.savefig("dark_counts_vs_overbias_Vbd_{}_{}max_{}step.png".format(Vbd, max_overbias, step_overbias))
+plt.savefig("dark_counts_vs_overbias_Vbd_{}_{}max_{}step.png".format(Vbd.magnitude, max_overbias, step_overbias))
 
-with open("dark_counts_vs_overbias_Vbd_{}_{}max_{}step.csv".format(Vbd, max_overbias, step_overbias), "w", newline="") as file:
+with open("dark_counts_vs_overbias_Vbd_{}_{}max_{}step.csv".format(Vbd.magnitude, max_overbias, step_overbias), "w", newline="") as file:
         writer = csv.writer(file, dialect='excel')
         writer.writerows(map(lambda x: [x], voltage_counts[2]))
 
