@@ -3,6 +3,7 @@
 import pyvisa
 import numpy as np
 import statistics as stat
+import matplotlib.pyplot as plt
 import time
 import csv
 
@@ -10,7 +11,7 @@ USB_adress = 'USB0::0x0957::0x1807::MY50009613::INSTR'
 
 delta_T = 0.1 # Measuring time (sec)
 slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
-num_bins = 5 # Number of bins to be measured
+num_bins = 10 # Number of bins to be measured
 
 delta_thres = 2.5e-03 # 2.5mV steps (resolution of the DAC in the instrument)
 Vt_list = np.arange(0, 25e-03, delta_thres) # Attempt, changes in keep_inc
@@ -57,7 +58,7 @@ def first_attempt():
 
 def keep_incr(Vt_list, data):
 	while(data[0][-1] != 0): # Stop when we get no counts
-		next_Vt = Vt_list[-1] + 0.5
+		next_Vt = Vt_list[-1] + delta_thres
 		Vt_list = np.append(Vt_list, next_Vt)
 		counts = single_totalize_meas(COUNTER, next_Vt, num_bins)
 		data[0] = np.append(data[0], stat.mean(counts)) # Add the new mean to the data collected
@@ -73,9 +74,21 @@ data = first_attempt()
 
 Vt_list, data = keep_incr(Vt_list, data)
 
-print(Vt_list)
-#print(data)
 
+PDF = np.zeros(len(Vt_list) - 1)
+xaxis = np.zeros(len(Vt_list) - 1)
+for i in range (0, len(Vt_list) - 1):
+	xaxis[i] = 1e03 * (Vt_list[i] + (Vt_list[i + 1] - Vt_list[i])/2)
+	PDF[i] = (data[0][i] - data[0][i + 1])/delta_thres
 
+with open("height_pdf_va_26.4V_{}bins_meastime_{}s.csv".format(num_bins, delta_T), "w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerows(map(lambda x: [x], xaxis))
+        writer.writerows(map(lambda x: [x], PDF))
 
-
+plt.figure()
+plt.title('PDF of height of peaks')
+plt.plot(xaxis, PDF)
+plt.xlabel('Voltage [mV]')
+plt.ylabel('PDF (arb units)')
+plt.show()
