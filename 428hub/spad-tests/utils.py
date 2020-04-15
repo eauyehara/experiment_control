@@ -14,6 +14,7 @@ def bring_to_breakdown(SOURCEMETER, Vbd):
         time.sleep(0.5)
 
     SOURCEMETER.set_voltage(Vbd)
+    print('Sourcemeter at breakdown voltage {}'.format(Vbd))
 
 # Bring the SPAD from breakdown to 0V at Vstep V/step
 def bring_down_from_breakdown(SOURCEMETER, Vbd):
@@ -28,3 +29,4 @@ def bring_down_from_breakdown(SOURCEMETER, Vbd):
         time.sleep(0.5)
 
     SOURCEMETER.set_voltage(Q_(0, 'V'))
+    print('Sourcemeter at 0V')

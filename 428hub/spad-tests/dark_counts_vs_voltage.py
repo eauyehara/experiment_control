@@ -1,3 +1,4 @@
+import sys
 import pyvisa
 import numpy as np
 import time
@@ -9,6 +10,11 @@ from utils import *
 
 USB_adress_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
 # USB_adress_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
+
+if length(sys.argv)>1:
+	Die = sys.argv[1]
+else:
+	Die = ''
 
 Vbd = 24.2 # [V]
 max_overbias = 10 # [%]
@@ -66,7 +72,6 @@ SOURCEMETER = Keithley_2400(visa_address='GPIB0::15::INSTR')
 SOURCEMETER.set_current_compliance(Q_(100e-6, 'A'))
 bring_to_breakdown(SOURCEMETER, Vbd)
 
-
 num_measures = int(max_overbias/step_overbias) + 1 # 0% and max_overbias% included
 vec_overbias = np.linspace(0, max_overbias, num = num_measures)
 voltage_counts = [vec_overbias , np.empty(num_measures), np.empty(num_measures)]
@@ -83,11 +88,11 @@ plt.title('Dark counts')
 plt.xlabel('Reverse Bias Voltage [V]')
 plt.ylabel('Dark counts [1/s]')
 plt.grid(True)
-plt.savefig("dark_counts_vs_overbias_Vbd_{}_{}max_{}step.png".format(Vbd.magnitude, max_overbias, step_overbias))
+plt.savefig("{}-dark_counts_vs_overbias_Vbd_{}_{}max_{}step.png".format(Die, Vbd.magnitude, max_overbias, step_overbias))
 
-with open("dark_counts_vs_overbias_Vbd_{}_{}max_{}step.csv".format(Vbd.magnitude, max_overbias, step_overbias), "w", newline="") as file:
-        writer = csv.writer(file, dialect='excel')
-        writer.writerows(map(lambda x: [x], voltage_counts[2]))
+with open("{}-dark_counts_vs_overbias_Vbd_{}_{}max_{}step.csv".format(Die, Vbd.magnitude, max_overbias, step_overbias), "w", newline="") as file:
+    writer = csv.writer(file, dialect='excel')
+    writer.writerows(map(lambda x: [x], voltage_counts[2]))
 
 
 COUNTER.close()
