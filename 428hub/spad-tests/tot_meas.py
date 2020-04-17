@@ -1,3 +1,24 @@
+'''
+Created 04/18/2020 @ 11:40
+
+Not tried yet.
+
+Instruments:
+	Frequency counter Keysight 53220A
+    SMU Keysight B2902A
+
+Description
+	Collects dark counts and laser counts for different bias voltages.
+
+	1) Collect dark counts sweeping threshold from -2.5mV up to peak's height.
+	2) Collect laser counts sweeping threshold from -2.5mV up to the height of a
+	dark peak (different for each bias)
+	3) Calculate a figure of merit
+	4) Save data
+
+'''
+
+
 import sys
 import pyvisa
 import numpy as np
@@ -16,6 +37,9 @@ if length(sys.argv)>1:
 else:
 	Die = ''
 
+
+
+
 Vbd = 24.2 # [V]
 max_overbias = 10 # [%]
 step_overbias = 1 # [%] Each step 1% more overbias
@@ -26,6 +50,9 @@ slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
 delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
 
 
+
+
+# Open Source Meter
 def open_SourceMeter():
     SOURCEMETER = rm.open_resource(USB_adress_SOURCEMETER)
     SOURCEMETER.write('*RST') # Reset to default settings
@@ -50,6 +77,7 @@ def open_FreqCounter():
 
 	return COUNTER
 
+# Bring progressively to breakdown
 def bring_to_breakdown(SOURCEMETER, Vbd):
     Vinit = 0
     Vstep = 0.25
@@ -67,7 +95,7 @@ def bring_to_breakdown(SOURCEMETER, Vbd):
 	print('Sourcemeter at breakdown: {} V'.format(Vbd))
 
 
-
+# Bring progressively to 0 bias
 def bring_down_from_breakdown(SOURCEMETER, Vcurrent):
     Vstep = 0.25
     Vcurrent = Vcurrent - Vstep
@@ -100,9 +128,9 @@ def take_measure(COUNTER, SOURCEMETER, Vbias, Vthres):
     return num_counts[0]
 
 
-
+# Collect dark counts at different trigger levels until no count is registered
 def sweep_threshold(COUNTER, SOURCEMETER, Vbias):
-	Vthresh = delta_thres
+	Vthresh = delta_thres # Start with -2.5 mV threshold
 	counts = [take_measure(COUNTER, SOURCEMETER, Vbias, -Vthresh)]
 
 	while (counts[-1] != 0):
@@ -112,7 +140,7 @@ def sweep_threshold(COUNTER, SOURCEMETER, Vbias):
 	return [Vthresh, counts]
 
 
-
+# Collect laser counts at trigger levels for which we had dark counts
 def meas_laser_counts(COUNTER, SOURCEMETER, Vbias, limit_thres):
 	num_thres = int(limit_thres / delta_thres)
 	counts = np.empty(num_thres)
@@ -124,13 +152,18 @@ def meas_laser_counts(COUNTER, SOURCEMETER, Vbias, limit_thres):
 
 
 
+#---------------------------------------------------------------------------------------
 
+
+# Open the instruments
 rm = pyvisa.ResourceManager()
 COUNTER = open_FreqCounter()
 SOURCEMETER = open_SourceMeter()
 
 bring_to_breakdown(SOURCEMETER, Vbd)
 
+
+# Start with dark measurements
 num_measures = int(max_overbias/step_overbias) + 1 # 0% and max_overbias% included
 vec_overbias = Vbd + Vbd/100 * np.linspace(0, max_overbias, num = num_measures)
 dark_counts = np.empty(num_measures)
@@ -146,7 +179,7 @@ for i in range (0, num_measures):
 print('Dark counts measurement finished...')
 
 
-
+# Continue with laser measurements with laser on
 input("Press Enter once laser is on...")
 
 
@@ -155,26 +188,36 @@ print('Performing Laser counts measurement...')
 laser_counts = np.empty(num_measures)
 
 for i in range (0, num_measures):
-	dark_counts[i] = meas_laser_counts(COUNTER, SOURCEMETER, vec_overbias[i], max_threshold[i])
+	laser_counts[i] = meas_laser_counts(COUNTER, SOURCEMETER, vec_overbias[i], max_threshold[i])
 
 print('Laser counts measurement finished...')
 
 bring_down_from_breakdown(SOURCEMETER, vec_overbias[-1])
 
-# Now SPAD is at 0 V, take QE measurements
-# Save data
 
-plt.figure()
-plt.plot(voltage_counts[1], voltage_counts[2], 'ro')
-plt.title('Dark counts')
-plt.xlabel('Reverse Bias Voltage [V]')
-plt.ylabel('Dark counts [1/s]')
-plt.grid(True)
-plt.savefig("{}-dark_counts_vs_overbias_Vbd_{}_{}max_{}step.png".format(Die, Vbd.magnitude, max_overbias, step_overbias))
+# Calculate PDE or any other figure of merit (fm)
+fm = np.empty(num_measures)
+for i in range (0, num_measures):
+	fmi = np.empty(len(laser_counts[i]))
+	for j in range (0 : len(laser_counts[i])):
+		fmi[j] = (laser_counts[i][j] - dark_counts[i][j])/laser_counts[i][j]
 
+
+# Save results
 with open("{}-dark_counts_vs_overbias_Vbd_{}_{}max_{}step.csv".format(Die, Vbd.magnitude, max_overbias, step_overbias), "w", newline="") as file:
     writer = csv.writer(file, dialect='excel')
-    writer.writerows(map(lambda x: [x], voltage_counts[2]))
+
+	writer.writerows('Dark counts')
+	for i in range (0: num_measures):
+		writer.writerows(str(vec_overbias[i]) + '  ' + ','.join(map(str, dark_counts[i])))
+
+	writer.writerows('Laser counts')
+	for i in range (0: num_measures):
+		writer.writerows(str(vec_overbias[i]) + '  ' + ','.join(map(str, laser_counts[i])))
+
+    writer.writerows('Figure of merit')
+    for i in range (0: num_measures):
+		writer.writerows(str(vec_overbias[i]) + '  ' + ','.join(map(str, fm[i])))
 
 
 COUNTER.close()
