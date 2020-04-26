@@ -698,6 +698,12 @@ class Window(QtGui.QMainWindow):
             if len(measDescription)>0:
 
                 start = time.time()
+                try:
+                    import winsound
+                    winsound.Beep(2200, 1000)
+                except:
+                    print('winsound not available no beeping')
+
                 # prepare power meter
                 # self.pm.set_slow_filter()
 
@@ -751,6 +757,13 @@ class Window(QtGui.QMainWindow):
                 self.pm.set_no_filter()
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
+
+                try:
+                    import winsound
+                    winsound.Beep(2500, 1000)
+                except:
+                    print('winsound not available no beeping')
+
                 self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*250)
             else:
                 self.statusBar().showMessage('Cancelled Illumination Experiment', 1000)
@@ -763,6 +776,13 @@ class Window(QtGui.QMainWindow):
             saveDirectory, measDescription, fullpath = self.get_filename()
 
             if len(measDescription)>0:
+
+                try:
+                    import winsound
+                    winsound.Beep(2200, 1000)
+                except:
+                    print('winsound not available no beeping')
+
                 start = time.time()
 
                 # prepare source meter
@@ -814,6 +834,14 @@ class Window(QtGui.QMainWindow):
                 self.smu.set_integration_time('short')
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
+
+                try:
+                    import winsound
+                    winsound.Beep(2500, 1000)
+                except:
+                    print('winsound not available no beeping')
+
+
                 self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*250)
             else:
                 self.statusBar().showMessage('Canceled Photocurrent Experiment', 1000)
