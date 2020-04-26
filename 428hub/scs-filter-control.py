@@ -72,11 +72,18 @@ class Window(QtGui.QMainWindow):
         self.Kd = 0.0 #10.0
         self.feedback_timeout = 20.0
 
-        self.target_wl = Q_(650.0, 'nm')
+        # Spectrometer parameters
+        self.target_wl = Q_(850.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
         self.smu_channel = 2
         self.smu_bias = Q_(0, 'V')
         self.motor_steps = 0
+
+        # Wavelength sweep parameters
+        self.wavelength_start = Q_(830.0, 'nm')
+        self.wavelength_stop = Q_(870.0, 'nm')
+        self.wavelength_step = Q_(5.0, 'nm')
+        self.exp_N = 1000
 
         self.initialize_instruments()
 
@@ -137,16 +144,16 @@ class Window(QtGui.QMainWindow):
         if self.spec is not None:
             ## Add widgets to the layout in their proper positions
             self.layout.addWidget(QtGui.QLabel('Device Name'), 0, 0, 1,1)
-    
+
             self.edit_deviceName = QtGui.QLineEdit('TC0')
             self.layout.addWidget(self.edit_deviceName, row, 1, 1,1)
-    
+
             self.btn_save = QtGui.QPushButton('Save Spectra')
             self.btn_save.clicked.connect(self.save_spectra)
             self.layout.addWidget(self.btn_save, row, 2, 1,1) # save spectra button
-            
+
             row = row + 1
-    
+
             self.btn_setdirec = QtGui.QPushButton('Set Data Directory')
             self.btn_setdirec.clicked.connect(self.set_directory)
             self.layout.addWidget(self.btn_setdirec, row, 2, 1,1) # Set directory button
@@ -218,14 +225,14 @@ class Window(QtGui.QMainWindow):
             self.layout.addWidget(self.btn_motor, row, 2, 1,1)
 
             row = row+1
-            
+
         if self.spec is not None:
             self.label_wavelength = QtGui.QLabel('Peak Wavelength:')
             self.label_wavelength.setStyleSheet("font: bold 12pt Arial")
             self.layout.addWidget(self.label_wavelength, row, 0,  1,4)
-    
+
             row = row+1
-        
+
         # Power meter related UI elements
         if self.pm is not None or self.pm_tap is not None:
             self.label_illumpower = QtGui.QLabel('Illumination Power: ')
@@ -259,7 +266,6 @@ class Window(QtGui.QMainWindow):
             self.edit_bias = QtGui.QLineEdit('{:.4g}'.format(self.smu_bias.magnitude))
             self.edit_bias.editingFinished.connect(self.set_smu_params)
             self.layout.addWidget(self.edit_bias, row, 3,  1,1)
-
             row = row+1
 
             self.label_photocurrent = QtGui.QLabel('Photocurrent:')
@@ -270,44 +276,39 @@ class Window(QtGui.QMainWindow):
             self.check_smu.stateChanged.connect(self.toggle_smu_output)
             self.check_smu.setCheckState(0) # off
             self.layout.addWidget(self.check_smu, row, 3, 1, 1)
-
             row = row+1
 
         if self.spec is not None:
-            self.wavelength_start = Q_(840.0, 'nm')
+
             self.layout.addWidget(QtGui.QLabel('   Start [nm]:'), row,0,  1,1)
             self.edit_wavelength_start = QtGui.QLineEdit('{}'.format(self.wavelength_start.magnitude))
             self.edit_wavelength_start.editingFinished.connect(self.set_sweep_params)
             self.layout.addWidget(self.edit_wavelength_start, row,1,  1,1)
-    
             row = row+1
-    
-            self.wavelength_stop = Q_(860.0, 'nm')
+
+
             self.layout.addWidget(QtGui.QLabel('   End [nm]:'), row,0,  1,1)
             self.edit_wavelength_stop = QtGui.QLineEdit('{}'.format(self.wavelength_stop.magnitude))
             self.edit_wavelength_stop.editingFinished.connect(self.set_sweep_params)
             self.layout.addWidget(self.edit_wavelength_stop, row,1,  1,1)
-    
             row = row+1
-    
-            self.wavelength_step = Q_(5.0, 'nm')
+
+
             self.layout.addWidget(QtGui.QLabel('   Step [nm]:'), row,0,  1,1)
             self.edit_wavelength_step = QtGui.QLineEdit('{}'.format(self.wavelength_step.magnitude))
-            self.edit_wavelength_step.editingFinished.connect(self.set_sweep_params)
+            self.edit_wavelength_step.editingFinished.connect(self.set_sweep_params)k
             self.layout.addWidget(self.edit_wavelength_step, row,1,  1,1)
-    
             row = row + 1
-    
-            self.exp_N = 100
+
+
             self.layout.addWidget(QtGui.QLabel('   # of Samples'), row,0,  1,1)
             self.edit_exp_N = QtGui.QLineEdit('{}'.format(self.exp_N))
             self.edit_exp_N.editingFinished.connect(self.set_sweep_params)
             self.layout.addWidget(self.edit_exp_N, row,1,  1,1)
-    
+
             self.btn_single = QtGui.QPushButton('Take single measurement')
             self.btn_single.clicked.connect(self.take_single_measurement)
             self.layout.addWidget(self.btn_single, row, 2, 1,1) # save spectra button
-    
             row = row + 1
 
         # Plot of spectra
@@ -435,31 +436,34 @@ class Window(QtGui.QMainWindow):
 
     def save_power_trace(self):
         self.timer.stop()
-        
+
         saveDirectory, measDescription, fullpath = self.get_filename()
-        if len(measDescription)>0:            
+        if len(measDescription)>0:
             fields = ['Time']
             data = []
             if self.pm is not None:
                 fields.append('Power [W]')
                 data = self.power_data
-                
+
             if self.pm_tap is not None:
                 fields.append('Tap Power [W]')
                 if len(data) > 0:
                     data = list(zip(data, self.tap_power_data))
+
+                    fields.append('Coefficient')
+                    data = list(zip(data, [self.power_data[i]/self.tap_power_data[i] for i in len(self.power_data)]))
                 else:
                     data = self.tap_power_data
-            
+
             if len(data) > 0:
                 self.save_to_csv(saveDirectory, measDescription, fields, self.power_data_timestamps, data)
-                
+
                 # Save png
                 fpath = fullpath+'.png'
-        
+
                 exporter = pg.exporters.ImageExporter(self.p_power.scene())
                 exporter.export(fpath)
-        
+
                 self.statusBar().showMessage('Saved power trace to {}'.format(fpath), 5000)
             else:
                 print('No data to save in power trace window')
@@ -488,7 +492,7 @@ class Window(QtGui.QMainWindow):
 
                 data_x = []
                 data_y = []
-                
+
                 print('Measuring {}'.format(wl.to_compact()))
 
                 self.pm_tap.wavelength = wl
@@ -610,7 +614,7 @@ class Window(QtGui.QMainWindow):
             self.tap_power_data = []
             self.power_data_timestamps = []
             self.power_data_timezero = time.time()
-            
+
             self.p_power.clear()
 
     def toggle_smu_output(self):
@@ -643,31 +647,31 @@ class Window(QtGui.QMainWindow):
         if self.check_pm is not None:
             if self.check_pm.checkState() > 0:
                 self.power_data_timestamps.append(time.time()-self.power_data_timezero)
-                
+
                 if self.pm is not None:
                     with visa_timeout_context(self.pm._rsrc, 1000):
                         # Change power meter wavelength if peak detected
                         if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
                             self.pm.wavelength = self.current_wl
-        
+
                         meas_power = self.pm.power()
-        
+
                     # self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(meas_power.to_compact()))
-        
+
                     self.power_data.append(meas_power)
                     self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.power_data], pen=(1,2), clear=True)
-    
+
                 if self.pm_tap is not None:
                     with visa_timeout_context(self.pm_tap._rsrc, 1000):
                         # Change power meter wavelength if peak detected
-                        if self.spec is not None: 
+                        if self.spec is not None:
                             if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
                                 self.pm_tap.wavelength = self.current_wl
-    
+
                         meas_power = self.pm_tap.power
-    
+
                     self.label_illumpower.setText('Tap Power: {:0<4.4g~}'.format(meas_power.to_compact()))
-    
+
                     self.tap_power_data.append(meas_power)
                     self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.tap_power_data], pen=(2,2))
 
@@ -803,7 +807,7 @@ class Window(QtGui.QMainWindow):
                     wl = wl + self.wavelength_step
 
                 # fields = ['Wavelength [nm]'] + ['Avg. Power [A]', 'Std Dev [A]'] + ['Photocurrent {} [A]'.format(n) for n in range(self.exp_N)]
-                fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]']
+                fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Coefficient', 'Actual Power [W]'] + ['Responsivity [A/W]', 'Q.E.']
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
                 # return source meter to fast sampling
