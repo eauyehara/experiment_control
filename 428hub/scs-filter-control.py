@@ -673,6 +673,7 @@ class Window(QtGui.QMainWindow):
                         meas_power = self.pm_tap.power
 
                     label_illumpower_text = label_illumpower_text + ' Tap: {:0<4.4g~}'.format(meas_power.to_compact())
+
                     # self.label_illumpower.setText('Tap Power: {:0<4.4g~}'.format(meas_power.to_compact()))
 
                     self.tap_power_data.append(meas_power)
@@ -756,7 +757,7 @@ class Window(QtGui.QMainWindow):
                     wl = wl + self.wavelength_step
 
                 # fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Power {} [W]'.format(n) for n in range(self.exp_N)]
-                fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] +['Tap Avg. Power [W]', 'Std Dev [W]'] + ['Coefficient']
+                fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] +['Tap Avg. Power [W]', 'Std Dev [W]'] + ['Coefficient'] + ['average over {} points'.format(self.exp_N)]
 
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
@@ -834,7 +835,7 @@ class Window(QtGui.QMainWindow):
                     wl = wl + self.wavelength_step
 
                 # fields = ['Wavelength [nm]'] + ['Avg. Power [A]', 'Std Dev [A]'] + ['Photocurrent {} [A]'.format(n) for n in range(self.exp_N)]
-                fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Coefficient', 'Actual Power [W]'] + ['Responsivity [A/W]', 'Q.E.']
+                fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Coefficient', 'Actual Power [W]'] + ['Responsivity [A/W]', 'Q.E.'] + ['average over {} points'.format(self.exp_N)]
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
                 # return source meter to fast sampling
