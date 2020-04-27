@@ -236,7 +236,7 @@ class Window(QtGui.QMainWindow):
         # Power meter related UI elements
         if self.pm is not None or self.pm_tap is not None:
             self.label_illumpower = QtGui.QLabel('Illumination Power: ')
-            self.label_illumpower.setStyleSheet("font: bold 12pt Arial; color: gray")
+            self.label_illumpower.setStyleSheet("font: bold 10pt Arial; color: gray")
             self.layout.addWidget(self.label_illumpower, row, 0, 1, 2)
 
             self.check_pm = QtGui.QCheckBox('Read Power Meter')
@@ -296,7 +296,7 @@ class Window(QtGui.QMainWindow):
 
             self.layout.addWidget(QtGui.QLabel('   Step [nm]:'), row,0,  1,1)
             self.edit_wavelength_step = QtGui.QLineEdit('{}'.format(self.wavelength_step.magnitude))
-            self.edit_wavelength_step.editingFinished.connect(self.set_sweep_params)k
+            self.edit_wavelength_step.editingFinished.connect(self.set_sweep_params)
             self.layout.addWidget(self.edit_wavelength_step, row,1,  1,1)
             row = row + 1
 
@@ -381,7 +381,7 @@ class Window(QtGui.QMainWindow):
         try:
             from instrumental.drivers.powermeters.thorlabs import PM100A
 
-            self.pm_tap = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
+            self.pm_tap = PM100A(visa_address='USB0::0x1313::0x8079::P1001952::INSTR')
         except:
             print('PM100A Thorlabs Power meter not connected. ', sys.exc_info()[0])
             self.pm_tap = None
@@ -609,7 +609,7 @@ class Window(QtGui.QMainWindow):
         if self.check_pm.checkState() == 0:
             self.label_illumpower.setStyleSheet("font: bold 12pt Arial; color: gray")
         else:
-            self.label_illumpower.setStyleSheet("font: bold 12pt Arial")
+            self.label_illumpower.setStyleSheet("font: bold 10pt Arial")
             self.power_data = []
             self.tap_power_data = []
             self.power_data_timestamps = []
@@ -648,6 +648,8 @@ class Window(QtGui.QMainWindow):
             if self.check_pm.checkState() > 0:
                 self.power_data_timestamps.append(time.time()-self.power_data_timezero)
 
+                label_illumpower_text = ''
+
                 if self.pm is not None:
                     with visa_timeout_context(self.pm._rsrc, 1000):
                         # Change power meter wavelength if peak detected
@@ -655,7 +657,7 @@ class Window(QtGui.QMainWindow):
                             self.pm.wavelength = self.current_wl
 
                         meas_power = self.pm.power()
-
+                    label_illumpower_text = 'Actual: {:0<4.4g~},'.format(meas_power.to_compact())
                     # self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(meas_power.to_compact()))
 
                     self.power_data.append(meas_power)
@@ -670,10 +672,13 @@ class Window(QtGui.QMainWindow):
 
                         meas_power = self.pm_tap.power
 
-                    self.label_illumpower.setText('Tap Power: {:0<4.4g~}'.format(meas_power.to_compact()))
+                    label_illumpower_text = label_illumpower_text + ' Tap: {:0<4.4g~}'.format(meas_power.to_compact())
+                    # self.label_illumpower.setText('Tap Power: {:0<4.4g~}'.format(meas_power.to_compact()))
 
                     self.tap_power_data.append(meas_power)
                     self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.tap_power_data], pen=(2,2))
+
+                self.label_illumpower.setText(label_illumpower_text)
 
         if self.smu is not None and self.check_smu.checkState() > 0:
             self.label_photocurrent.setText('Photocurrent: {:9<4.4g~}'.format(self.smu.measure_current().to_compact()))
@@ -698,11 +703,7 @@ class Window(QtGui.QMainWindow):
             if len(measDescription)>0:
 
                 start = time.time()
-                try:
-                    import winsound
-                    winsound.Beep(2200, 1000)
-                except:
-                    print('winsound not available no beeping')
+
 
                 # prepare power meter
                 # self.pm.set_slow_filter()
@@ -714,6 +715,12 @@ class Window(QtGui.QMainWindow):
                 data_y = []
                 while wl <= self.wavelength_stop:
                     print('Measuring {}'.format(wl.to_compact()))
+
+                    try:
+                        import winsound
+                        winsound.Beep(2200, 1000)
+                    except:
+                        print('winsound not available no beeping')
 
                     meas_wl = self.goto_wavelength(wl)
                     # meas_wl = wl
