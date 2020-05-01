@@ -73,15 +73,15 @@ class Window(QtGui.QMainWindow):
         self.feedback_timeout = 20.0
 
         # Spectrometer parameters
-        self.target_wl = Q_(850.0, 'nm')
+        self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
         self.smu_channel = 2
         self.smu_bias = Q_(0, 'V')
         self.motor_steps = 0
 
         # Wavelength sweep parameters
-        self.wavelength_start = Q_(830.0, 'nm')
-        self.wavelength_stop = Q_(870.0, 'nm')
+        self.wavelength_start = Q_(545.0, 'nm')
+        self.wavelength_stop = Q_(555.0, 'nm')
         self.wavelength_step = Q_(5.0, 'nm')
         self.exp_N = 1000
 
@@ -321,6 +321,7 @@ class Window(QtGui.QMainWindow):
         self.p_power = pg.PlotWidget()
         self.p_power.setLabel('bottom',text='Time',units='sec')
         self.p_power.setLabel('left',text='Power',units='W')
+        self.p_power.setLogMode(x=None, y=True)
         self.layout.addWidget(self.p_power, int(row/2)+2, 4, int(row/2), int(row/2)+2)
 
         # # Plot of tap power fluctuations
@@ -448,14 +449,24 @@ class Window(QtGui.QMainWindow):
             if self.pm_tap is not None:
                 fields.append('Tap Power [W]')
                 if len(data) > 0:
-                    data = list(zip(data, self.tap_power_data))
-
                     fields.append('Coefficient')
-                    data = list(zip(data, [self.power_data[i]/self.tap_power_data[i] for i in len(self.power_data)]))
+                    data = list(zip(self.power_data, self.tap_power_data, [self.power_data[i]/tap_power for (i, tap_power) in enumerate(self.tap_power_data)]))
                 else:
                     data = self.tap_power_data
 
             if len(data) > 0:
+                print('')
+                print(len(data))
+                print(data)
+                print('')
+
+                print(len(data[0]))
+                print(data[0])
+                print('')
+
+                print(data[0][0])
+                print('')
+
                 self.save_to_csv(saveDirectory, measDescription, fields, self.power_data_timestamps, data)
 
                 # Save png
