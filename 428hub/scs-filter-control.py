@@ -245,13 +245,13 @@ class Window(QtGui.QMainWindow):
         else:
             self.check_pm = None
 
-
         # SMU UI elements
         if self.smu is not None:
-            self.layout.addWidget(QtGui.QLabel('SMU channel [1~4]'), row,0,  1,1)
-
-            col = 1
+            col = 0
             if self.smu_channel is not None:
+                self.layout.addWidget(QtGui.QLabel('SMU channel [1~4]'), row,col,  1,1)
+                col = col+1
+
                 self.edit_channel = QtGui.QLineEdit('{}'.format(self.smu_channel))
                 self.edit_channel.editingFinished.connect(self.set_smu_params)
                 self.layout.addWidget(self.edit_channel, row, col,  1,1)
@@ -266,8 +266,12 @@ class Window(QtGui.QMainWindow):
             row = row+1
 
             self.label_photocurrent = QtGui.QLabel('Photocurrent:')
-            self.label_photocurrent.setStyleSheet("font: bold 12pt Arial; color: gray")
-            self.layout.addWidget(self.label_photocurrent, row, 0, 1, 3)
+            self.label_photocurrent.setStyleSheet("font: bold 10pt Arial; color: gray")
+            self.layout.addWidget(self.label_photocurrent, row, 0, 1, 2)
+
+            self.btn_save_current = QtGui.QPushButton('Save current trace')
+            self.btn_save_current.clicked.connect(self.save_current_trace)
+            self.layout.addWidget(self.btn_save_current, row, 2, 1,1) # save spectra button
 
             self.check_smu = QtGui.QCheckBox('Read Source Meter')
             self.check_smu.stateChanged.connect(self.toggle_smu_output)
@@ -321,6 +325,13 @@ class Window(QtGui.QMainWindow):
         self.p_power.setLogMode(x=None, y=True)
         self.layout.addWidget(self.p_power, int(row/2)+2, 4, int(row/2), int(row/2)+2)
 
+        # Plot of photocurrent fluctuations
+        self.p_current = pg.PlotWidget()
+        self.p_current.setLabel('bottom',text='Time',units='sec')
+        self.p_current.setLabel('left',text='Photocurrent',units='A')
+        self.p_current.setLogMode(x=None, y=True)
+        self.layout.addWidget(self.p_current, row+2, 4, int(row/2), int(row/2)+2)
+
         # # Plot of tap power fluctuations
         # self.p_tap_power = pg.PlotWidget()
         # self.p_tap_power.setLabel('bottom',text='Time',units='sec')
@@ -354,13 +365,13 @@ class Window(QtGui.QMainWindow):
             from instrumental.drivers.motion.klinger import KlingerMotorController
 
             self.mc = KlingerMotorController(visa_address='GPIB0::8::INSTR')
+
+            # Set motor at high speed
+            # self.mc.set_steprate(R=245, S=1, F=20)
+            self.mc.set_steprate(R=250, S=1, F=20)
         except:
             print('Klinger Motor controller not connected')
             self.mc = None
-        else:
-            # Set motor at high speed
-            # self.mc.set_steprate(R=245, S=1, F=20)
-            self.mc.set_steprate(R=250, S=1, F=20) #stalls
 
         # Initialize Power meter
         try:
@@ -464,17 +475,6 @@ class Window(QtGui.QMainWindow):
                     data = self.tap_power_data
 
             if len(data) > 0:
-                # print('')
-                # print(len(data))
-                # print(data)
-                # print('')
-                #
-                # print(len(data[0]))
-                # print(data[0])
-                # print('')
-                #
-                # print(data[0][0])
-                # print('')
 
                 self.save_to_csv(saveDirectory, measDescription, fields, self.power_data_timestamps, data)
 
@@ -493,6 +493,34 @@ class Window(QtGui.QMainWindow):
             self.statusBar().showMessage('Canceled Power trace save', 1000)
         # restart timer
         self.timer.start(max([Window.timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+
+    def save_current_trace(self):
+        self.timer.stop()
+        saveDirectory, measDescription, fullpath = self.get_filename()
+        if len(measDescription)>0:
+            fields = ['Time', 'Current [A]']
+            data = self.current_data
+
+            if len(data) > 0:
+                self.save_to_csv(saveDirectory, measDescription, fields, self.current_data_timestamps, data)
+
+                # Save png
+                fpath = fullpath+'.png'
+
+                exporter = pg.exporters.ImageExporter(self.p_current.scene())
+                exporter.export(fpath)
+
+                self.statusBar().showMessage('Saved current trace to {}'.format(fpath), 5000)
+            else:
+                print('No data to save in current trace window')
+                self.statusBar().showMessage('No data to save in current trace window', 1000)
+
+        else:
+            self.statusBar().showMessage('Canceled current trace save', 1000)
+        # restart timer
+        self.timer.start(max([Window.timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+
+
 
     def take_single_measurement(self):
         # Takes single measurement without sweeping wavelength
@@ -573,7 +601,9 @@ class Window(QtGui.QMainWindow):
             self.edit_channel.setText('0.0')
 
         if self.smu is not None:
-            self.smu.set_channel(channel=self.smu_channel)
+            if self.smu_channel is not None:
+                self.smu.set_channel(channel=self.smu_channel)
+
             self.smu.set_voltage(voltage=self.smu_bias)
             self.statusBar().showMessage('Setting SMU channel {} to {:.4g~}'.format(self.smu_channel, self.smu_bias), 3000)
 
@@ -640,9 +670,15 @@ class Window(QtGui.QMainWindow):
 
     def toggle_smu_output(self):
         if self.check_smu.checkState() == 0:
-            self.label_photocurrent.setStyleSheet("font: bold 12pt Arial; color: gray")
+            self.label_photocurrent.setStyleSheet("font: bold 10pt Arial; color: gray")
         else:
-            self.label_photocurrent.setStyleSheet("font: bold 12pt Arial")
+            self.smu.set_integration_time('medium')
+            self.label_photocurrent.setStyleSheet("font: bold 10pt Arial")
+            self.current_data = []
+            self.current_data_timestamps = []
+            self.current_data_timezero = time.time()
+
+            self.p_current.clear()
 
     def set_feedback_params(self):
         self.Kp=float(self.edit_kp.text())
@@ -703,7 +739,11 @@ class Window(QtGui.QMainWindow):
                 self.label_illumpower.setText(label_illumpower_text)
 
         if self.smu is not None and self.check_smu.checkState() > 0:
-            self.label_photocurrent.setText('Photocurrent: {:9<4.4g~}'.format(self.smu.measure_current().to_compact()))
+            self.current_data_timestamps.append(time.time()-self.current_data_timezero)
+            meas_current = self.smu.measure_current()
+            self.current_data.append(meas_current)
+            self.p_current.plot(self.current_data_timestamps, [data.magnitude for data in self.current_data], pen=(2,2))
+            self.label_photocurrent.setText('Photocurrent: {:9<4.4g~}'.format(meas_current.to_compact()))
 
         if self.mc is not None:
             if self.feedback_state > 0:
