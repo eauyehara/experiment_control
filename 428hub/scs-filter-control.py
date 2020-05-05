@@ -137,16 +137,16 @@ class Window(QtGui.QMainWindow):
         if self.spec is not None:
             ## Add widgets to the layout in their proper positions
             self.layout.addWidget(QtGui.QLabel('Device Name'), 0, 0, 1,1)
-    
-            self.edit_deviceName = QtGui.QLineEdit('TC0')
+
+            self.edit_deviceName = QtGui.QLineEdit('TC1')
             self.layout.addWidget(self.edit_deviceName, row, 1, 1,1)
-    
+
             self.btn_save = QtGui.QPushButton('Save Spectra')
             self.btn_save.clicked.connect(self.save_spectra)
             self.layout.addWidget(self.btn_save, row, 2, 1,1) # save spectra button
-            
+
             row = row + 1
-    
+
             self.btn_setdirec = QtGui.QPushButton('Set Data Directory')
             self.btn_setdirec.clicked.connect(self.set_directory)
             self.layout.addWidget(self.btn_setdirec, row, 2, 1,1) # Set directory button
@@ -218,18 +218,18 @@ class Window(QtGui.QMainWindow):
             self.layout.addWidget(self.btn_motor, row, 2, 1,1)
 
             row = row+1
-            
+
         if self.spec is not None:
             self.label_wavelength = QtGui.QLabel('Peak Wavelength:')
             self.label_wavelength.setStyleSheet("font: bold 12pt Arial")
             self.layout.addWidget(self.label_wavelength, row, 0,  1,4)
-    
+
             row = row+1
-        
+
         # Power meter related UI elements
         if self.pm is not None or self.pm_tap is not None:
             self.label_illumpower = QtGui.QLabel('Illumination Power: ')
-            self.label_illumpower.setStyleSheet("font: bold 12pt Arial; color: gray")
+            self.label_illumpower.setStyleSheet("font: bold 10pt Arial; color: gray")
             self.layout.addWidget(self.label_illumpower, row, 0, 1, 2)
 
             self.check_pm = QtGui.QCheckBox('Read Power Meter')
@@ -250,16 +250,19 @@ class Window(QtGui.QMainWindow):
         if self.smu is not None:
             self.layout.addWidget(QtGui.QLabel('SMU channel [1~4]'), row,0,  1,1)
 
-            self.edit_channel = QtGui.QLineEdit('{}'.format(self.smu_channel))
-            self.edit_channel.editingFinished.connect(self.set_smu_params)
-            self.layout.addWidget(self.edit_channel, row, 1,  1,1)
+            col = 1
+            if self.smu_channel is not None:
+                self.edit_channel = QtGui.QLineEdit('{}'.format(self.smu_channel))
+                self.edit_channel.editingFinished.connect(self.set_smu_params)
+                self.layout.addWidget(self.edit_channel, row, col,  1,1)
+                col = col+1
 
-            self.layout.addWidget(QtGui.QLabel('SMU voltage [V]'), row,2,  1,1)
+            self.layout.addWidget(QtGui.QLabel('SMU voltage [V]'), row,col,  1,1)
+            col = col+1
 
             self.edit_bias = QtGui.QLineEdit('{:.4g}'.format(self.smu_bias.magnitude))
             self.edit_bias.editingFinished.connect(self.set_smu_params)
-            self.layout.addWidget(self.edit_bias, row, 3,  1,1)
-
+            self.layout.addWidget(self.edit_bias, row, col,  1,1)
             row = row+1
 
             self.label_photocurrent = QtGui.QLabel('Photocurrent:')
@@ -270,44 +273,39 @@ class Window(QtGui.QMainWindow):
             self.check_smu.stateChanged.connect(self.toggle_smu_output)
             self.check_smu.setCheckState(0) # off
             self.layout.addWidget(self.check_smu, row, 3, 1, 1)
-
             row = row+1
 
         if self.spec is not None:
-            self.wavelength_start = Q_(840.0, 'nm')
+
             self.layout.addWidget(QtGui.QLabel('   Start [nm]:'), row,0,  1,1)
             self.edit_wavelength_start = QtGui.QLineEdit('{}'.format(self.wavelength_start.magnitude))
             self.edit_wavelength_start.editingFinished.connect(self.set_sweep_params)
             self.layout.addWidget(self.edit_wavelength_start, row,1,  1,1)
-    
             row = row+1
-    
-            self.wavelength_stop = Q_(860.0, 'nm')
+
+
             self.layout.addWidget(QtGui.QLabel('   End [nm]:'), row,0,  1,1)
             self.edit_wavelength_stop = QtGui.QLineEdit('{}'.format(self.wavelength_stop.magnitude))
             self.edit_wavelength_stop.editingFinished.connect(self.set_sweep_params)
             self.layout.addWidget(self.edit_wavelength_stop, row,1,  1,1)
-    
             row = row+1
-    
-            self.wavelength_step = Q_(5.0, 'nm')
+
+
             self.layout.addWidget(QtGui.QLabel('   Step [nm]:'), row,0,  1,1)
             self.edit_wavelength_step = QtGui.QLineEdit('{}'.format(self.wavelength_step.magnitude))
             self.edit_wavelength_step.editingFinished.connect(self.set_sweep_params)
             self.layout.addWidget(self.edit_wavelength_step, row,1,  1,1)
-    
             row = row + 1
-    
-            self.exp_N = 100
+
+
             self.layout.addWidget(QtGui.QLabel('   # of Samples'), row,0,  1,1)
             self.edit_exp_N = QtGui.QLineEdit('{}'.format(self.exp_N))
             self.edit_exp_N.editingFinished.connect(self.set_sweep_params)
             self.layout.addWidget(self.edit_exp_N, row,1,  1,1)
-    
+
             self.btn_single = QtGui.QPushButton('Take single measurement')
             self.btn_single.clicked.connect(self.take_single_measurement)
             self.layout.addWidget(self.btn_single, row, 2, 1,1) # save spectra button
-    
             row = row + 1
 
         # Plot of spectra
@@ -320,6 +318,7 @@ class Window(QtGui.QMainWindow):
         self.p_power = pg.PlotWidget()
         self.p_power.setLabel('bottom',text='Time',units='sec')
         self.p_power.setLabel('left',text='Power',units='W')
+        self.p_power.setLogMode(x=None, y=True)
         self.layout.addWidget(self.p_power, int(row/2)+2, 4, int(row/2), int(row/2)+2)
 
         # # Plot of tap power fluctuations
@@ -380,7 +379,7 @@ class Window(QtGui.QMainWindow):
         try:
             from instrumental.drivers.powermeters.thorlabs import PM100A
 
-            self.pm_tap = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
+            self.pm_tap = PM100A(visa_address='USB0::0x1313::0x8079::P1001952::INSTR')
         except:
             print('PM100A Thorlabs Power meter not connected. ', sys.exc_info()[0])
             self.pm_tap = None
@@ -394,8 +393,20 @@ class Window(QtGui.QMainWindow):
 
             self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
         except:
-            print('HP 4156C Parameter Analyzer not connected. ', sys.exc_info()[0])
-            self.smu = None
+            print('HP 4156C Parameter Analyzer not connected. Trying Keithley 2400...', sys.exc_info()[0])
+
+            # Try connecting to Keithley source meter instead
+            try:
+                from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+                self.smu = Keithley_2400(visa_address='GPIB0::15::INSTR')
+            except:
+                print('Keithley 2400 Sourcemeter not connected. ', sys.exc_info()[0])
+                self.smu = None
+            else:
+                # Set default settings for smu
+                self.smu_channel = None
+                self.smu.set_voltage(voltage=self.smu_bias)
+                self.smu.set_integration_time('short')
         else:
             # Set default settings for smu
             self.smu.set_channel(channel=self.smu_channel)
@@ -435,31 +446,44 @@ class Window(QtGui.QMainWindow):
 
     def save_power_trace(self):
         self.timer.stop()
-        
+
         saveDirectory, measDescription, fullpath = self.get_filename()
-        if len(measDescription)>0:            
+        if len(measDescription)>0:
             fields = ['Time']
             data = []
             if self.pm is not None:
                 fields.append('Power [W]')
                 data = self.power_data
-                
+
             if self.pm_tap is not None:
                 fields.append('Tap Power [W]')
                 if len(data) > 0:
-                    data = list(zip(data, self.tap_power_data))
+                    fields.append('Coefficient')
+                    data = list(zip(self.power_data, self.tap_power_data, [self.power_data[i]/tap_power for (i, tap_power) in enumerate(self.tap_power_data)]))
                 else:
                     data = self.tap_power_data
-            
+
             if len(data) > 0:
+                # print('')
+                # print(len(data))
+                # print(data)
+                # print('')
+                #
+                # print(len(data[0]))
+                # print(data[0])
+                # print('')
+                #
+                # print(data[0][0])
+                # print('')
+
                 self.save_to_csv(saveDirectory, measDescription, fields, self.power_data_timestamps, data)
-                
+
                 # Save png
                 fpath = fullpath+'.png'
-        
+
                 exporter = pg.exporters.ImageExporter(self.p_power.scene())
                 exporter.export(fpath)
-        
+
                 self.statusBar().showMessage('Saved power trace to {}'.format(fpath), 5000)
             else:
                 print('No data to save in power trace window')
@@ -488,7 +512,7 @@ class Window(QtGui.QMainWindow):
 
                 data_x = []
                 data_y = []
-                
+
                 print('Measuring {}'.format(wl.to_compact()))
 
                 self.pm_tap.wavelength = wl
@@ -533,12 +557,13 @@ class Window(QtGui.QMainWindow):
         self.statusBar().showMessage('Set spectrometer parameters', 5000)
 
     def set_smu_params(self):
-        try:
-            self.smu_channel = int(self.edit_channel.text())
-        except:
-            self.statusBar().showMessage('Invalid input for SMU channel', 3000)
-            self.smu_channel = 1
-            self.edit_channel.setText('1')
+        if self.smu_channel is not None:
+            try:
+                self.smu_channel = int(self.edit_channel.text())
+            except:
+                self.statusBar().showMessage('Invalid input for SMU channel', 3000)
+                self.smu_channel = 1
+                self.edit_channel.setText('1')
 
         try:
             self.smu_bias = Q_(float(self.edit_bias.text()), 'V')
@@ -605,12 +630,12 @@ class Window(QtGui.QMainWindow):
         if self.check_pm.checkState() == 0:
             self.label_illumpower.setStyleSheet("font: bold 12pt Arial; color: gray")
         else:
-            self.label_illumpower.setStyleSheet("font: bold 12pt Arial")
+            self.label_illumpower.setStyleSheet("font: bold 10pt Arial")
             self.power_data = []
             self.tap_power_data = []
             self.power_data_timestamps = []
             self.power_data_timezero = time.time()
-            
+
             self.p_power.clear()
 
     def toggle_smu_output(self):
@@ -643,33 +668,39 @@ class Window(QtGui.QMainWindow):
         if self.check_pm is not None:
             if self.check_pm.checkState() > 0:
                 self.power_data_timestamps.append(time.time()-self.power_data_timezero)
-                
+
+                label_illumpower_text = ''
+
                 if self.pm is not None:
                     with visa_timeout_context(self.pm._rsrc, 1000):
                         # Change power meter wavelength if peak detected
                         if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
                             self.pm.wavelength = self.current_wl
-        
+
                         meas_power = self.pm.power()
-        
+                    label_illumpower_text = 'Actual: {:0<4.4g~},'.format(meas_power.to_compact())
                     # self.label_illumpower.setText('Illumination Power: {:0<4.4g~}'.format(meas_power.to_compact()))
-        
+
                     self.power_data.append(meas_power)
                     self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.power_data], pen=(1,2), clear=True)
-    
+
                 if self.pm_tap is not None:
                     with visa_timeout_context(self.pm_tap._rsrc, 1000):
                         # Change power meter wavelength if peak detected
-                        if self.spec is not None: 
+                        if self.spec is not None:
                             if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
                                 self.pm_tap.wavelength = self.current_wl
-    
+
                         meas_power = self.pm_tap.power
-    
-                    self.label_illumpower.setText('Tap Power: {:0<4.4g~}'.format(meas_power.to_compact()))
-    
+
+                    label_illumpower_text = label_illumpower_text + ' Tap: {:0<4.4g~}'.format(meas_power.to_compact())
+
+                    # self.label_illumpower.setText('Tap Power: {:0<4.4g~}'.format(meas_power.to_compact()))
+
                     self.tap_power_data.append(meas_power)
                     self.p_power.plot(self.power_data_timestamps, [data.magnitude for data in self.tap_power_data], pen=(2,2))
+
+                self.label_illumpower.setText(label_illumpower_text)
 
         if self.smu is not None and self.check_smu.checkState() > 0:
             self.label_photocurrent.setText('Photocurrent: {:9<4.4g~}'.format(self.smu.measure_current().to_compact()))
@@ -705,6 +736,12 @@ class Window(QtGui.QMainWindow):
                 while wl <= self.wavelength_stop:
                     print('Measuring {}'.format(wl.to_compact()))
 
+                    try:
+                        import winsound
+                        winsound.Beep(2200, 1000)
+                    except:
+                        print('winsound not available no beeping')
+
                     meas_wl = self.goto_wavelength(wl)
                     # meas_wl = wl
 
@@ -739,7 +776,7 @@ class Window(QtGui.QMainWindow):
                     wl = wl + self.wavelength_step
 
                 # fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Power {} [W]'.format(n) for n in range(self.exp_N)]
-                fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] +['Tap Avg. Power [W]', 'Std Dev [W]'] + ['Coefficient']
+                fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] +['Tap Avg. Power [W]', 'Std Dev [W]'] + ['Coefficient'] + ['average over {} points'.format(self.exp_N)]
 
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
@@ -747,6 +784,13 @@ class Window(QtGui.QMainWindow):
                 self.pm.set_no_filter()
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
+
+                try:
+                    import winsound
+                    winsound.Beep(2500, 1000)
+                except:
+                    print('winsound not available no beeping')
+
                 self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*250)
             else:
                 self.statusBar().showMessage('Cancelled Illumination Experiment', 1000)
@@ -759,6 +803,13 @@ class Window(QtGui.QMainWindow):
             saveDirectory, measDescription, fullpath = self.get_filename()
 
             if len(measDescription)>0:
+
+                try:
+                    import winsound
+                    winsound.Beep(2200, 1000)
+                except:
+                    print('winsound not available no beeping')
+
                 start = time.time()
 
                 # prepare source meter
@@ -803,13 +854,21 @@ class Window(QtGui.QMainWindow):
                     wl = wl + self.wavelength_step
 
                 # fields = ['Wavelength [nm]'] + ['Avg. Power [A]', 'Std Dev [A]'] + ['Photocurrent {} [A]'.format(n) for n in range(self.exp_N)]
-                fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]']
+                fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Coefficient', 'Actual Power [W]'] + ['Responsivity [A/W]', 'Q.E.'] + ['average over {} points'.format(self.exp_N)]
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
                 # return source meter to fast sampling
                 self.smu.set_integration_time('short')
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
+
+                try:
+                    import winsound
+                    winsound.Beep(2500, 1000)
+                except:
+                    print('winsound not available no beeping')
+
+
                 self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*250)
             else:
                 self.statusBar().showMessage('Canceled Photocurrent Experiment', 1000)
