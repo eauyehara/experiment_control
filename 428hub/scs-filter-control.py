@@ -257,15 +257,19 @@ class Window(QtGui.QMainWindow):
         if self.smu is not None:
             self.layout.addWidget(QtGui.QLabel('SMU channel [1~4]'), row,0,  1,1)
 
-            self.edit_channel = QtGui.QLineEdit('{}'.format(self.smu_channel))
-            self.edit_channel.editingFinished.connect(self.set_smu_params)
-            self.layout.addWidget(self.edit_channel, row, 1,  1,1)
+            col = 1
+            if self.smu_channel is not None:
+                self.edit_channel = QtGui.QLineEdit('{}'.format(self.smu_channel))
+                self.edit_channel.editingFinished.connect(self.set_smu_params)
+                self.layout.addWidget(self.edit_channel, row, col,  1,1)
+                col = col+1
 
-            self.layout.addWidget(QtGui.QLabel('SMU voltage [V]'), row,2,  1,1)
+            self.layout.addWidget(QtGui.QLabel('SMU voltage [V]'), row,col,  1,1)
+            col = col+1
 
             self.edit_bias = QtGui.QLineEdit('{:.4g}'.format(self.smu_bias.magnitude))
             self.edit_bias.editingFinished.connect(self.set_smu_params)
-            self.layout.addWidget(self.edit_bias, row, 3,  1,1)
+            self.layout.addWidget(self.edit_bias, row, col,  1,1)
             row = row+1
 
             self.label_photocurrent = QtGui.QLabel('Photocurrent:')
@@ -396,8 +400,20 @@ class Window(QtGui.QMainWindow):
 
             self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
         except:
-            print('HP 4156C Parameter Analyzer not connected. ', sys.exc_info()[0])
-            self.smu = None
+            print('HP 4156C Parameter Analyzer not connected. Trying Keithley 2400...', sys.exc_info()[0])
+
+            # Try connecting to Keithley source meter instead
+            try:
+                from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+                self.smu = Keithley_2400(visa_address='GPIB0::15::INSTR')
+            except:
+                print('Keithley 2400 Sourcemeter not connected. ', sys.exc_info()[0])
+                self.smu = None
+            else:
+                # Set default settings for smu
+                self.smu_channel = None
+                self.smu.set_voltage(voltage=self.smu_bias)
+                self.smu.set_integration_time('short')
         else:
             # Set default settings for smu
             self.smu.set_channel(channel=self.smu_channel)
@@ -548,12 +564,13 @@ class Window(QtGui.QMainWindow):
         self.statusBar().showMessage('Set spectrometer parameters', 5000)
 
     def set_smu_params(self):
-        try:
-            self.smu_channel = int(self.edit_channel.text())
-        except:
-            self.statusBar().showMessage('Invalid input for SMU channel', 3000)
-            self.smu_channel = 1
-            self.edit_channel.setText('1')
+        if self.smu_channel is not None:
+            try:
+                self.smu_channel = int(self.edit_channel.text())
+            except:
+                self.statusBar().showMessage('Invalid input for SMU channel', 3000)
+                self.smu_channel = 1
+                self.edit_channel.setText('1')
 
         try:
             self.smu_bias = Q_(float(self.edit_bias.text()), 'V')
