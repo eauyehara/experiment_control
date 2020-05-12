@@ -725,7 +725,7 @@ class Window(QtGui.QMainWindow):
 
                 data_x = []
                 data_y = []
-                while wl <= self.wavelength_stop:
+                while (wl <= self.wavelength_stop and self.wavelength_step>0.0) or (wl >= self.wavelength_stop and self.wavelength_step<0.0):
                     print('Measuring {}'.format(wl.to_compact()))
 
                     try:
@@ -813,7 +813,7 @@ class Window(QtGui.QMainWindow):
 
                 data_x = []
                 data_y = []
-                while wl <= self.wavelength_stop:
+                while (wl <= self.wavelength_stop and self.wavelength_step>0.0) or (wl >= self.wavelength_stop and self.wavelength_step<0.0):
                     print('Measuring {}'.format(wl.to_compact()))
 
                     meas_wl = self.goto_wavelength(wl)
@@ -865,6 +865,75 @@ class Window(QtGui.QMainWindow):
             else:
                 self.statusBar().showMessage('Canceled Photocurrent Experiment', 1000)
 
+    def exp_iv(self):
+        pass
+        with visa_timeout_context(self.smu._rsrc, 5000):
+            print('Measuring IV curve')
+            saveDirectory, measDescription, fullpath = self.get_filename()
+
+            if len(measDescription)>0:
+                try:
+                    import winsound
+                    winsound.Beep(2200, 1000)
+                except:
+                    print('winsound not available no beeping')
+
+                start = time.time()
+
+                # prepare source meter
+                self.set_smu_params()
+                self.smu.set_integration_time('long')
+
+                #  Load measurement parameters
+                bias = self.bias_start
+
+                data_x = []
+                data_y = []
+                while bias <= self.bias_stop:
+                    print('Measuring current at bias {}'.format(bias.to_compact()))
+
+                    self.smu.set_voltage(bias)
+
+                    data_x.append(bias.magnitude)
+
+                    data_row = []
+                    data_row2 = []
+                    for n in range(self.exp_N):
+                        data_row.append(self.smu.measure_current())
+                        data_row2.append(self.pm_tap.power)
+                        print('   Sample {} at {}: {}  with {}'.format(n, meas_wl, data_row[-1], data_row2[-1]))
+                    # Append average and stdev
+                    data_mean = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row]))
+                    data_std = np.std(np.array([measure.to_base_units().magnitude for measure in data_row]))
+                    data_mean2 = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+                    data_std2 = np.std(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+
+                    # data_row.extend([Q_(data_mean, 'A'), Q_(data_std, 'A')])
+                    # data_row = [data_row[i-2] for i in range(len(data_row))]
+                    # data_y.append(data_row)
+
+                    data_y.append([Q_(data_mean, 'A'), Q_(data_std, 'A'), Q_(data_mean2, 'W'), Q_(data_std2, 'W')])
+
+                    self.refresh_live_spectra()
+
+                    wl = wl + self.wavelength_step
+
+                # fields = ['Wavelength [nm]'] + ['Avg. Power [A]', 'Std Dev [A]'] + ['Photocurrent {} [A]'.format(n) for n in range(self.exp_N)]
+                fields = ['Voltage [V]'] + ['Current [A]']
+                self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
+
+                # return source meter to fast sampling
+                self.smu.set_integration_time('short')
+
+                print('Experiment lasted {} seconds'.format(time.time()-start))
+
+                try:
+                    import winsound
+                    winsound.Beep(2500, 1000)
+                except:
+                    print('winsound not available no beeping')
+            else:
+                self.statusBar().showMessage('Canceled IV Experiment', 1000)
 
     def close_application(self):
         sys.exit()
