@@ -70,13 +70,18 @@ class Window(QtGui.QMainWindow):
         self.Kp =100.0
         self.Ki = 0.0 # 10.0
         self.Kd = 0.0 #10.0
-        self.feedback_timeout = 20.0
+        self.feedback_timeout = 30.0
 
         self.target_wl = Q_(650.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
         self.smu_channel = 2
         self.smu_bias = Q_(0, 'V')
         self.motor_steps = 0
+
+        self.wavelength_start = Q_(750.0, 'nm')
+        self.wavelength_stop = Q_(700.0, 'nm')
+        self.wavelength_step = Q_(-5.0, 'nm')
+        self.exp_N = 500
 
         self.initialize_instruments()
 
@@ -536,7 +541,8 @@ class Window(QtGui.QMainWindow):
                 self.smu.set_integration_time('short')
 
                 #  Load measurement parameters
-                wl = self.wavelength_start
+                wl = self.target_wl
+                self.goto_wavelength(wavelength = wl)
 
                 data_x = []
                 data_y = []
@@ -751,7 +757,7 @@ class Window(QtGui.QMainWindow):
                 errP = -self.Kp*error.magnitude
                 drive = np.clip(int(errP), -5000, 5000)
 
-                print("adusting feedback drive steps: {}".format(drive))
+                print("Current wavelength {}, error {},  feedback drive steps: {}".format(self.current_wl, error, drive))
                 if drive != 0:
                     self.mc.go_steps(N=drive)
                     sleep(abs(drive)/500)
