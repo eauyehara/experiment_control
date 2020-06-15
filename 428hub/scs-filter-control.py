@@ -70,17 +70,17 @@ class Window(QtGui.QMainWindow):
         self.Kp =100.0
         self.Ki = 0.0 # 10.0
         self.Kd = 0.0 #10.0
-        self.feedback_timeout = 30.0
+        self.feedback_timeout = 60.0
 
-        self.target_wl = Q_(650.0, 'nm')
+        self.target_wl = Q_(840.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
         self.smu_channel = 2
         self.smu_bias = Q_(0, 'V')
         self.motor_steps = 0
 
-        self.wavelength_start = Q_(750.0, 'nm')
-        self.wavelength_stop = Q_(700.0, 'nm')
-        self.wavelength_step = Q_(-5.0, 'nm')
+        self.wavelength_start = Q_(840.0, 'nm')
+        self.wavelength_stop = Q_(860.0, 'nm')
+        self.wavelength_step = Q_(5.0, 'nm')
         self.exp_N = 500
 
         self.initialize_instruments()
