@@ -542,7 +542,7 @@ class Window(QtGui.QMainWindow):
 
                 #  Load measurement parameters
                 wl = self.target_wl
-                self.goto_wavelength(wavelength = wl)
+                # self.goto_wavelength(wavelength = wl)
 
                 data_x = []
                 data_y = []
@@ -554,24 +554,29 @@ class Window(QtGui.QMainWindow):
 
                 data_row = []
                 data_row2 = []
+                data_row3 = []
                 for n in range(self.exp_N):
                     data_row.append(self.smu.measure_current())
-                    data_row2.append(self.pm_tap.power)
-                    print('   Sample {} at {}: {}  with {}'.format(n, wl, data_row[-1], data_row2[-1]))
+                    data_row2.append(self.pm.power())
+                    data_row3.append(self.pm_tap.power)
+                    print('   Sample {} at {}: {}  with {}, tap {}'.format(n, wl, data_row[-1], data_row2[-1], data_row3[-1]))
                 # Append average and stdev
                 data_mean = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row]))
                 data_std = np.std(np.array([measure.to_base_units().magnitude for measure in data_row]))
                 data_mean2 = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row2]))
                 data_std2 = np.std(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+                data_mean3 = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row3]))
+                data_std3 = np.std(np.array([measure.to_base_units().magnitude for measure in data_row3]))
+
 
                 # data_row.extend([Q_(data_mean, 'A'), Q_(data_std, 'A')])
                 # data_row = [data_row[i-2] for i in range(len(data_row))]
                 # data_y.append(data_row)
 
-                data_y.append([Q_(data_mean, 'A'), Q_(data_std, 'A'), Q_(data_mean2, 'W'), Q_(data_std2, 'W')])
+                data_y.append([Q_(data_mean, 'A'), Q_(data_std, 'A'), Q_(data_mean2, 'W'), Q_(data_std2, 'W'), Q_(data_mean3, 'W'), Q_(data_std3, 'W')])
 
                 # fields = ['Wavelength [nm]'] + ['Avg. Power [A]', 'Std Dev [A]'] + ['Photocurrent {} [A]'.format(n) for n in range(self.exp_N)]
-                fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]']
+                fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Avg. Tap Power [W]', 'Std Dev [W]']
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
                 # return source meter to fast sampling

@@ -6,6 +6,7 @@ Not tried yet.
 Instruments:
 	Frequency counter Keysight 53220A
     SMU Keysight B2902A
+	or HP Parameter Analyzer
 
 Description
 	Collects dark counts and laser counts for different bias voltages.
@@ -18,14 +19,12 @@ Description
 
 '''
 
-
 import sys
 import pyvisa
 import numpy as np
 import time
 import csv
 #import matplotlib.pyplot as plt
-from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
 from pint import Quantity as Q_
 from utils import *
 
@@ -40,7 +39,7 @@ else:
 
 
 
-Vbd = 35 # [V]
+Vbd = Q_(35.0, 'V') # [V]
 max_overbias = 10 # [%]
 step_overbias = 0.5 # [%] Each step 1% more overbias
 
@@ -78,7 +77,7 @@ def open_FreqCounter():
 def take_measure(COUNTER, SOURCEMETER, Vbias, Vthres):
     # Set voltage to Vbias
     SOURCEMETER.set_voltage(Q_(Vbias, 'V'))
-    time.sleep(0.5)
+    time.sleep(1.0)
 
     COUNTER.write('INP1:LEV {}'.format(Vthres)) # Set threshold
     res = 0
@@ -94,17 +93,22 @@ def take_measure(COUNTER, SOURCEMETER, Vbias, Vthres):
 
 # Collect dark counts at different trigger levels until no count is registered
 def sweep_threshold(COUNTER, SOURCEMETER, Vbias):
-	Vthresh = 0.025 # Start with -2.5 mV threshold
+	# Vthresh = [-0.025, -0.05, -0.075]
+
+	# for V in Vthresh:
+	Vthresh = -0.025 # Start with -25 mV threshold
 	counts = [take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh)]
 
-	Vthresh = 0.050
+	return [Vthresh, counts]
+'''
+	Vthresh = -0.050
+	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
+	# return [Vthresh, counts]
+
+	Vthresh = -0.075
 	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
 	return [Vthresh, counts]
 
-	Vthresh = 0.075
-	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
-	return [Vthresh, counts]
-'''
 	Vthresh = Vthresh + delta_thres
 	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
 
@@ -128,7 +132,19 @@ def sweep_threshold(COUNTER, SOURCEMETER, Vbias):
 # Open the instruments
 rm = pyvisa.ResourceManager()
 COUNTER = open_FreqCounter()
-SOURCEMETER = Keithley_2400(visa_address='GPIB0::15::INSTR')
+try:
+	from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
+
+	SOURCEMETER = HP_4156C(visa_address='GPIB0::17::INSTR')
+except:
+	from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+	SOURCEMETER = Keithley_2400(visa_address='GPIB0::15::INSTR')
+else:
+	print('HP opened')
+	SOURCEMETER.set_channel(channel=2)
+
+
+
 SOURCEMETER.set_current_compliance(Q_(100e-6, 'A'))
 bring_to_breakdown(SOURCEMETER, Vbd)
 
@@ -149,7 +165,7 @@ for i in range (0, num_measures):
 print('Dark counts measurement finished...')
 
 # Save results
-with open("od10_last_new2_W12-26_PD4A_16_CE_Vbd_{}_{}max_{}step_NB2.csv".format(Vbd, max_overbias, step_overbias), "w", newline="\n") as file:
+with open("light-TC1_W2-16_PD4A-16um_Vbd_{}_{}max_{}step_Vth-0.25mV_OD5+3.csv".format(Vbd, max_overbias, step_overbias), "w", newline="\n") as file:
     #writer = csv.writer(file)
 
     file.write('Light counts'  + "\n")
