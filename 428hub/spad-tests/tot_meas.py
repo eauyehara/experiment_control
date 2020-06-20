@@ -158,8 +158,25 @@ def meas_laser_counts(COUNTER, SOURCEMETER, Vbias, limit_thres):
 # Open the instruments
 rm = pyvisa.ResourceManager()
 COUNTER = open_FreqCounter()
-SOURCEMETER = open_SourceMeter()
+try:
+	from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
 
+	SOURCEMETER = HP_4156C(visa_address='GPIB0::17::INSTR')
+except:
+	try:
+		from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+		SOURCEMETER = Keithley_2400(visa_address='GPIB0::15::INSTR')
+	except:
+		print('no sourcemeter available. exiting.')
+		exit()
+	else:
+		print('Keithley connected.')
+else:
+	print('HP opened')
+	SOURCEMETER.set_channel(channel=2)
+
+
+SOURCEMETER.set_current_compliance(Q_(100e-6, 'A'))
 bring_to_breakdown(SOURCEMETER, Vbd)
 
 
