@@ -793,8 +793,11 @@ class Window(QtGui.QMainWindow):
                     except:
                         print('winsound not available no beeping')
 
-                    meas_wl = self.goto_wavelength(wl)
-                    # meas_wl = wl
+                    # only move when we are doing more than 1 step measurement
+                    if np.abs((self.wavelength_stop-wl)/self.wavelength_step)>1:
+                        meas_wl = self.goto_wavelength(wl)
+                    else:
+                        meas_wl = wl
 
                     self.pm.wavelength = meas_wl
                     self.pm_tap.wavelength = meas_wl
