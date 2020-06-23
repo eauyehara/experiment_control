@@ -1,2 +1,6 @@
 
 *.pyc
+
+# Data files
+*.csv
+*.png
