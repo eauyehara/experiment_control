@@ -31,6 +31,7 @@ import matplotlib.pyplot as plt
 import pickle
 from instrumental import Q_
 from instrumental.drivers.util import visa_timeout_context
+from textwrap import wrap
 
 
 def main():
@@ -250,11 +251,15 @@ def main():
 
 		experiment_info = experiment_info + ', {}nm'.format(wavelength.value)
 
-		# data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, tap_avg_measurements), axis=1)
-		# data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, tap_avg_measurements, tap_std_measurements), axis=1)
-		# data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, tap_avg_measurements, tap_std_measurements, actual_power), axis=1)
-		# data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps), axis=1)
 		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_measurements, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps, pdp), axis=1)
+
+		plt.figure()
+		plt.title("\n".join(wrap(experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
+		plt.semilogy(vec_overbias.magnitude, pdp, 'o-') # plot first threshold data
+		plt.xlabel('Bias [V]')
+		plt.ylabel('Counts [cps]')
+		plt.grid(True, which='both', linestyle=':', linewidth=0.3)
+		plt.savefig(imgname+'.csv', dpi=300, bbox_inches='tight')
 
 		print(data_out)
 		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info)
@@ -262,8 +267,6 @@ def main():
 	bring_down_from_breakdown(SOURCEMETER, Vbd)
 
 	plt.figure()
-
-	from textwrap import wrap
 	plt.title("\n".join(wrap(experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
 
 	plt.semilogy(vec_overbias.magnitude, count_measurements[:,0], 'o-') # plot first threshold data
