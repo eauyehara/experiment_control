@@ -1,4 +1,4 @@
-from pint import Quantity as Q_
+from instrumental import Q_
 import time
 
 # Bring the SPAD from 0V to Vbias at Vbias V/step
