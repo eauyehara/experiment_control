@@ -70,13 +70,18 @@ class Window(QtGui.QMainWindow):
         self.Kp =100.0
         self.Ki = 0.0 # 10.0
         self.Kd = 0.0 #10.0
-        self.feedback_timeout = 20.0
+        self.feedback_timeout = 60.0
 
-        self.target_wl = Q_(650.0, 'nm')
+        self.target_wl = Q_(840.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
         self.smu_channel = 2
         self.smu_bias = Q_(0, 'V')
         self.motor_steps = 0
+
+        self.wavelength_start = Q_(840.0, 'nm')
+        self.wavelength_stop = Q_(860.0, 'nm')
+        self.wavelength_step = Q_(5.0, 'nm')
+        self.exp_N = 500
 
         self.initialize_instruments()
 
@@ -536,7 +541,8 @@ class Window(QtGui.QMainWindow):
                 self.smu.set_integration_time('short')
 
                 #  Load measurement parameters
-                wl = self.wavelength_start
+                wl = self.target_wl
+                # self.goto_wavelength(wavelength = wl)
 
                 data_x = []
                 data_y = []
@@ -548,24 +554,29 @@ class Window(QtGui.QMainWindow):
 
                 data_row = []
                 data_row2 = []
+                data_row3 = []
                 for n in range(self.exp_N):
                     data_row.append(self.smu.measure_current())
-                    data_row2.append(self.pm_tap.power)
-                    print('   Sample {} at {}: {}  with {}'.format(n, wl, data_row[-1], data_row2[-1]))
+                    data_row2.append(self.pm.power())
+                    data_row3.append(self.pm_tap.power)
+                    print('   Sample {} at {}: {}  with {}, tap {}'.format(n, wl, data_row[-1], data_row2[-1], data_row3[-1]))
                 # Append average and stdev
                 data_mean = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row]))
                 data_std = np.std(np.array([measure.to_base_units().magnitude for measure in data_row]))
                 data_mean2 = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row2]))
                 data_std2 = np.std(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+                data_mean3 = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row3]))
+                data_std3 = np.std(np.array([measure.to_base_units().magnitude for measure in data_row3]))
+
 
                 # data_row.extend([Q_(data_mean, 'A'), Q_(data_std, 'A')])
                 # data_row = [data_row[i-2] for i in range(len(data_row))]
                 # data_y.append(data_row)
 
-                data_y.append([Q_(data_mean, 'A'), Q_(data_std, 'A'), Q_(data_mean2, 'W'), Q_(data_std2, 'W')])
+                data_y.append([Q_(data_mean, 'A'), Q_(data_std, 'A'), Q_(data_mean2, 'W'), Q_(data_std2, 'W'), Q_(data_mean3, 'W'), Q_(data_std3, 'W')])
 
                 # fields = ['Wavelength [nm]'] + ['Avg. Power [A]', 'Std Dev [A]'] + ['Photocurrent {} [A]'.format(n) for n in range(self.exp_N)]
-                fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]']
+                fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Avg. Tap Power [W]', 'Std Dev [W]']
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
                 # return source meter to fast sampling
@@ -751,7 +762,7 @@ class Window(QtGui.QMainWindow):
                 errP = -self.Kp*error.magnitude
                 drive = np.clip(int(errP), -5000, 5000)
 
-                print("adusting feedback drive steps: {}".format(drive))
+                print("Current wavelength {}, error {},  feedback drive steps: {}".format(self.current_wl, error, drive))
                 if drive != 0:
                     self.mc.go_steps(N=drive)
                     sleep(abs(drive)/500)
@@ -773,7 +784,7 @@ class Window(QtGui.QMainWindow):
 
                 data_x = []
                 data_y = []
-                while wl <= self.wavelength_stop:
+                while (wl <= self.wavelength_stop and self.wavelength_step>0.0) or (wl >= self.wavelength_stop and self.wavelength_step<0.0):
                     print('Measuring {}'.format(wl.to_compact()))
 
                     try:
@@ -782,8 +793,11 @@ class Window(QtGui.QMainWindow):
                     except:
                         print('winsound not available no beeping')
 
-                    meas_wl = self.goto_wavelength(wl)
-                    # meas_wl = wl
+                    # only move when we are doing more than 1 step measurement
+                    if np.abs((self.wavelength_stop-wl)/self.wavelength_step)>1:
+                        meas_wl = self.goto_wavelength(wl)
+                    else:
+                        meas_wl = wl
 
                     self.pm.wavelength = meas_wl
                     self.pm_tap.wavelength = meas_wl
@@ -861,7 +875,7 @@ class Window(QtGui.QMainWindow):
 
                 data_x = []
                 data_y = []
-                while wl <= self.wavelength_stop:
+                while (wl <= self.wavelength_stop and self.wavelength_step>0.0) or (wl >= self.wavelength_stop and self.wavelength_step<0.0):
                     print('Measuring {}'.format(wl.to_compact()))
 
                     meas_wl = self.goto_wavelength(wl)
@@ -913,6 +927,75 @@ class Window(QtGui.QMainWindow):
             else:
                 self.statusBar().showMessage('Canceled Photocurrent Experiment', 1000)
 
+    def exp_iv(self):
+        pass
+        with visa_timeout_context(self.smu._rsrc, 5000):
+            print('Measuring IV curve')
+            saveDirectory, measDescription, fullpath = self.get_filename()
+
+            if len(measDescription)>0:
+                try:
+                    import winsound
+                    winsound.Beep(2200, 1000)
+                except:
+                    print('winsound not available no beeping')
+
+                start = time.time()
+
+                # prepare source meter
+                self.set_smu_params()
+                self.smu.set_integration_time('long')
+
+                #  Load measurement parameters
+                bias = self.bias_start
+
+                data_x = []
+                data_y = []
+                while bias <= self.bias_stop:
+                    print('Measuring current at bias {}'.format(bias.to_compact()))
+
+                    self.smu.set_voltage(bias)
+
+                    data_x.append(bias.magnitude)
+
+                    data_row = []
+                    data_row2 = []
+                    for n in range(self.exp_N):
+                        data_row.append(self.smu.measure_current())
+                        data_row2.append(self.pm_tap.power)
+                        print('   Sample {} at {}: {}  with {}'.format(n, meas_wl, data_row[-1], data_row2[-1]))
+                    # Append average and stdev
+                    data_mean = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row]))
+                    data_std = np.std(np.array([measure.to_base_units().magnitude for measure in data_row]))
+                    data_mean2 = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+                    data_std2 = np.std(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+
+                    # data_row.extend([Q_(data_mean, 'A'), Q_(data_std, 'A')])
+                    # data_row = [data_row[i-2] for i in range(len(data_row))]
+                    # data_y.append(data_row)
+
+                    data_y.append([Q_(data_mean, 'A'), Q_(data_std, 'A'), Q_(data_mean2, 'W'), Q_(data_std2, 'W')])
+
+                    self.refresh_live_spectra()
+
+                    wl = wl + self.wavelength_step
+
+                # fields = ['Wavelength [nm]'] + ['Avg. Power [A]', 'Std Dev [A]'] + ['Photocurrent {} [A]'.format(n) for n in range(self.exp_N)]
+                fields = ['Voltage [V]'] + ['Current [A]']
+                self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
+
+                # return source meter to fast sampling
+                self.smu.set_integration_time('short')
+
+                print('Experiment lasted {} seconds'.format(time.time()-start))
+
+                try:
+                    import winsound
+                    winsound.Beep(2500, 1000)
+                except:
+                    print('winsound not available no beeping')
+            else:
+                self.statusBar().showMessage('Canceled IV Experiment', 1000)
 
     def close_application(self):
         sys.exit()

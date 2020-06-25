@@ -6,6 +6,7 @@ Not tried yet.
 Instruments:
 	Frequency counter Keysight 53220A
     SMU Keysight B2902A
+	or HP Parameter Analyzer
 
 Description
 	Collects dark counts and laser counts for different bias voltages.
@@ -18,21 +19,19 @@ Description
 
 '''
 
-
 import sys
 import pyvisa
 import numpy as np
 import time
 import csv
-import matplotlib.pyplot as plt
-#from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+#import matplotlib.pyplot as plt
 from pint import Quantity as Q_
 from utils import *
 
 USB_adress_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
-USB_adress_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
+#USB_adress_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
 
-if length(sys.argv)>1:
+if len(sys.argv)>1:
 	Die = sys.argv[1]
 else:
 	Die = ''
@@ -40,26 +39,18 @@ else:
 
 
 
-Vbd = 24.2 # [V]
+Vbd = Q_(35.0, 'V') # [V]
 max_overbias = 10 # [%]
-step_overbias = 1 # [%] Each step 1% more overbias
+step_overbias = 0.5 # [%] Each step 1% more overbias
 
 
 # Frequency measurements settings
-slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
+slope = 'POS' # Positive('POS')/ Negative('NEG') slope trigger
 delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
 
 
 
 
-# Open Source Meter
-def open_SourceMeter():
-    SOURCEMETER = rm.open_resource(USB_adress_SOURCEMETER)
-    SOURCEMETER.write('*RST') # Reset to default settings
-    SOURCEMETER.write(':SOUR1:FUNC:MODE VOLT')
-    SOURCEMETER.write(':SENS1:CURR:PROT 100E-06') # Set compliance at 100 uA
-
-    return SOURCEMETER
 
 # Open Frequency Counter and set it to count measurement
 def open_FreqCounter():
@@ -77,78 +68,61 @@ def open_FreqCounter():
 
 	return COUNTER
 
-# Bring progressively to breakdown
-def bring_to_breakdown(SOURCEMETER, Vbd):
-    Vinit = 0
-    Vstep = 0.25
-
-    while (Vinit < Vbd):
-        SOURCEMETER.write(':SOUR1:VOLT {}'.format(Vinit))
-        SOURCEMETER.write(':OUTP ON')
-        #SOURCEMETER.set_voltage(Q_(Vinit, 'V'))
-        Vinit = Vinit + Vstep
-        time.sleep(0.25)
-
-    SOURCEMETER.write(':SOUR1:VOLT {}'.format(Vbd))
-	SOURCEMETER.write(':OUTP ON')
-
-	print('Sourcemeter at breakdown: {} V'.format(Vbd))
 
 
-# Bring progressively to 0 bias
-def bring_down_from_breakdown(SOURCEMETER, Vcurrent):
-    Vstep = 0.25
-    Vcurrent = Vcurrent - Vstep
 
-    while (Vcurrent > 0):
-        SOURCEMETER.write(':SOUR1:VOLT {}'.format(Vcurrent))
-        SOURCEMETER.write(':OUTP ON')
-        #SOURCEMETER.set_voltage(Q_(Vinit, 'V'))
-        Vinit = Vinit - Vstep
-        time.sleep(0.25)
-
-    SOURCEMETER.write(':SOUR1:VOLT 0')
-	SOURCEMETER.write(':OUTP ON')
-    print('Sourcemeter at 0 V')
 
 
 # Set bias at Vbias and collect counts during 1 sec
 def take_measure(COUNTER, SOURCEMETER, Vbias, Vthres):
     # Set voltage to Vbias
-    SOURCEMETER.write(':SOUR1:VOLT {}'.format(Vbias))
-    SOURCEMETER.write(':OUTP ON')
     SOURCEMETER.set_voltage(Q_(Vbias, 'V'))
-    time.sleep(0.5)
+    time.sleep(1.0)
 
-    # Initiate couting
-	COUNTER.write('INP1:LEV {}'.format(Vthres)) # Set threshold
-    COUNTER.write('INIT') # Initiate couting
-    COUNTER.write('*WAI')
-    num_counts = COUNTER.query_ascii_values('FETC?')
-    return num_counts[0]
+    COUNTER.write('INP1:LEV {}'.format(Vthres)) # Set threshold
+    res = 0
+    reps = 1
+    for i in range(0, reps):
+        COUNTER.write('INIT') # Initiate couting
+        COUNTER.write('*WAI')
+        num_counts = COUNTER.query_ascii_values('FETC?')
+        res = res + num_counts[0]
+
+    return res/reps
 
 
 # Collect dark counts at different trigger levels until no count is registered
 def sweep_threshold(COUNTER, SOURCEMETER, Vbias):
-	Vthresh = delta_thres # Start with -2.5 mV threshold
-	counts = [take_measure(COUNTER, SOURCEMETER, Vbias, -Vthresh)]
+	# Vthresh = [-0.025, -0.05, -0.075]
 
-	while (counts[-1] != 0):
-		Vthresh = Vthresh + delta_thres
-		counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, -Vthresh))
+	# for V in Vthresh:
+	Vthresh = -0.025 # Start with -25 mV threshold
+	counts = [take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh)]
 
 	return [Vthresh, counts]
+'''
+	Vthresh = -0.050
+	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
+	# return [Vthresh, counts]
 
+	Vthresh = -0.075
+	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
+	return [Vthresh, counts]
 
-# Collect laser counts at trigger levels for which we had dark counts
-def meas_laser_counts(COUNTER, SOURCEMETER, Vbias, limit_thres):
-	num_thres = int(limit_thres / delta_thres)
-	counts = np.empty(num_thres)
+	Vthresh = Vthresh + delta_thres
+	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
 
-	for i in range (0:num_thres):
-		counts[i] = take_measure(COUNTER, SOURCEMETER, Vbias, -(i + 1)*delta_thres)
+	Vthresh = Vthresh + delta_thres
+	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
 
-	return counts
+	Vthresh = Vthresh + delta_thres
+	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
+
+	while (counts[-1] != 0):
+		Vthresh = Vthresh + 0.05
+		counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
+'''
+
 
 
 
@@ -183,59 +157,34 @@ bring_to_breakdown(SOURCEMETER, Vbd)
 # Start with dark measurements
 num_measures = int(max_overbias/step_overbias) + 1 # 0% and max_overbias% included
 vec_overbias = Vbd + Vbd/100 * np.linspace(0, max_overbias, num = num_measures)
-dark_counts = np.empty(num_measures)
+dark_counts = []
 max_threshold = np.empty(num_measures) # Max threshold to measure counts (peak's height)
 
 print('Performing Dark counts measurement...')
 
 for i in range (0, num_measures):
-	result = sweep_threshold(COUNTER, SOURCEMETER, vec_overbias[i])
-	max_threshold[i] = result[0]
-    dark_counts[i] = result[1]
+    result = sweep_threshold(COUNTER, SOURCEMETER, vec_overbias[i])
+    max_threshold[i] = result[0]
+    dark_counts.append(result[1])
 
 print('Dark counts measurement finished...')
 
-
-# Continue with laser measurements with laser on
-input("Press Enter once laser is on...")
-
-
-
-print('Performing Laser counts measurement...')
-laser_counts = np.empty(num_measures)
-
-for i in range (0, num_measures):
-	laser_counts[i] = meas_laser_counts(COUNTER, SOURCEMETER, vec_overbias[i], max_threshold[i])
-
-print('Laser counts measurement finished...')
-
-bring_down_from_breakdown(SOURCEMETER, vec_overbias[-1])
-
-
-# Calculate PDE or any other figure of merit (fm)
-fm = np.empty(num_measures)
-for i in range (0, num_measures):
-	fmi = np.empty(len(laser_counts[i]))
-	for j in range (0 : len(laser_counts[i])):
-		fmi[j] = (laser_counts[i][j] - dark_counts[i][j])/laser_counts[i][j]
-
-
 # Save results
-with open("{}-dark_counts_vs_overbias_Vbd_{}_{}max_{}step.csv".format(Die, Vbd.magnitude, max_overbias, step_overbias), "w", newline="") as file:
-    writer = csv.writer(file, dialect='excel')
+with open("light-TC1_W2-16_PD4A-16um_Vbd_{}_{}max_{}step_Vth-0.25mV_OD5+3.csv".format(Vbd, max_overbias, step_overbias), "w", newline="\n") as file:
+    #writer = csv.writer(file)
 
-	writer.writerows('Dark counts')
-	for i in range (0: num_measures):
-		writer.writerows(str(vec_overbias[i]) + '  ' + ','.join(map(str, dark_counts[i])))
+    file.write('Light counts'  + "\n")
+    for i in range (0, num_measures):
+        file.write(str(vec_overbias[i]) + ',  ' + ','.join(map(str, dark_counts[i])) + "\n")
+'''
+    writer.writerows('Laser counts' + "\n")
+    for i in range (0, num_measures):
+        writer.writerows(str(vec_overbias[i]) + ',  ' + ','.join(map(str, laser_counts[i])) + "\n")
 
-	writer.writerows('Laser counts')
-	for i in range (0: num_measures):
-		writer.writerows(str(vec_overbias[i]) + '  ' + ','.join(map(str, laser_counts[i])))
-
-    writer.writerows('Figure of merit')
-    for i in range (0: num_measures):
-		writer.writerows(str(vec_overbias[i]) + '  ' + ','.join(map(str, fm[i])))
-
-
+    writer.writerows('Figure of merit' + "\n")
+    for i in range (0, num_measures):
+        writer.writerows(str(vec_overbias[i]) + ',  ' + ','.join(map(str, fm[i])) + "\n")
+'''
+bring_down_from_breakdown(SOURCEMETER, Vbd)
 COUNTER.close()
-SOURCEMETER.close()
+#SOURCEMETER.close()
