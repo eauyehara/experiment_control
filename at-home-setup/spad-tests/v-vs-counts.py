@@ -45,6 +45,14 @@ def main():
 	integration_time = 10.0 # sec
 	bias_settle_time = 3.0 # sec
 
+# # for testing
+# 	Vbd = Q_(1.0, 'V') # [V]
+# 	max_overbias = 10.0 # [%]
+# 	step_overbias = 5.0 # [%] Each step 1% more overbias
+# 	integration_time = 1.0 # sec
+# 	bias_settle_time = 1.0 # sec
+
+
 	# Frequency measurements settings
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
 	delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
@@ -70,7 +78,8 @@ def main():
 
 
 	# ND filter calibration values -
-	nd_cfg = ["NE10B"]
+	# nd_cfg = ["NE10B"]
+	nd_cfg = []
 	try:
 		pickle_in = open("nd_cal.pickle", "rb")
 		nd_filters = pickle.load(pickle_in)
@@ -97,6 +106,7 @@ def main():
 		pickle_out.close()
 	else:
 		print('ND calibration values loaded from nd_cal.pickle file')
+		print(nd_filters)
 
 	# Global instrument variables
 	COUNTER = None
@@ -172,7 +182,7 @@ def main():
 		dark_data = np.genfromtxt(dark_fname, delimiter=',', skip_header=1)
 		vec_overbias = Q_(dark_data[:,0], 'V')
 		num_measures = len(vec_overbias)
-		dark_counts= dark_data[:,1]
+		dark_counts= dark_data[:,1].reshape((num_measures,len(thresholds)))
 		# print(dark_counts)
 	else:
 		print('Choose Dark or Light for which_measurement, currently: {}'.format(which_measurement))
@@ -223,9 +233,10 @@ def main():
 
 		# compute things
 		actual_power = tap_avg_measurements*tap_to_incident
+		print(tap_to_incident)
 		for nd_filter in nd_cfg: # attenuate
 			actual_power = actual_power*nd_filters[nd_filter]
-		incident_cps = actual_power/(6.62607015E-34*299792458/(wavelength*1e-9))
+		incident_cps = actual_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
 		pdp = np.divide((count_measurements-dark_counts), incident_cps, out=np.zeros_like(incident_cps), where=incident_cps!=0)
 
 		# Assemble data
@@ -237,10 +248,15 @@ def main():
 			['Incident cps @ vth={}'.format(vth) for vth in thresholds] +
 			['PDP[%] @ vth={}'.format(vth) for vth in thresholds] )
 
-		experiment_info = experiment_info + ', {}nm'.format(wavelength)
+		experiment_info = experiment_info + ', {}nm'.format(wavelength.value)
 
-		data_out = np.concatenate((vec_overbias, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps, pdp), axis=1)
+		# data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, tap_avg_measurements), axis=1)
+		# data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, tap_avg_measurements, tap_std_measurements), axis=1)
+		# data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, tap_avg_measurements, tap_std_measurements, actual_power), axis=1)
+		# data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps), axis=1)
+		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_measurements, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps, pdp), axis=1)
 
+		print(data_out)
 		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info)
 
 	bring_down_from_breakdown(SOURCEMETER, Vbd)
