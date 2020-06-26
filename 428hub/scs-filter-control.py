@@ -53,7 +53,7 @@ rescale = True
 
 # GUI
 class Window(QtGui.QMainWindow):
-    # Initialize class variables
+    # ize class variables
     timer_factor = 1.2e-3
 
     def __init__(self):
@@ -72,14 +72,14 @@ class Window(QtGui.QMainWindow):
         self.Kd = 0.0 #10.0
         self.feedback_timeout = 60.0
 
-        self.target_wl = Q_(840.0, 'nm')
+        self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
         self.smu_channel = 2
         self.smu_bias = Q_(0, 'V')
         self.motor_steps = 0
 
-        self.wavelength_start = Q_(840.0, 'nm')
-        self.wavelength_stop = Q_(860.0, 'nm')
+        self.wavelength_start = Q_(550.0, 'nm')
+        self.wavelength_stop = Q_(554.0, 'nm')
         self.wavelength_step = Q_(5.0, 'nm')
         self.exp_N = 500
 
@@ -404,30 +404,44 @@ class Window(QtGui.QMainWindow):
             self.pm_tap.num_averaged = 1
 
         # Initialize Source meter
+        # try:
+        #     from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
+        #
+        #     self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
+        # except:
+        #     print('HP 4156C Parameter Analyzer not connected. Trying Keithley 2400...', sys.exc_info()[0])
+        #
+        #     # Try connecting to Keithley source meter instead
+        #     try:
+        #         from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+        #         self.smu = Keithley_2400(visa_address='GPIB0::15::INSTR')
+        #     except:
+        #         print('Keithley 2400 Sourcemeter not connected. ', sys.exc_info()[0])
+        #         self.smu = None
+        #     else:
+        #         # Set default settings for smu
+        #         self.smu_channel = None
+        #         self.smu.set_voltage(voltage=self.smu_bias)
+        #         self.smu.set_integration_time('short')
+        # else:
+        #     # Set default settings for smu
+        #     self.smu.set_channel(channel=self.smu_channel)
+        #     self.smu.set_voltage(voltage=self.smu_bias)
+        #     self.smu.set_integration_time('short')
+
+        # initialize source meter
         try:
-            from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
-
-            self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
+            from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+            self.smu = Keithley_2400(visa_address='GPIB0::26::INSTR')
         except:
-            print('HP 4156C Parameter Analyzer not connected. Trying Keithley 2400...', sys.exc_info()[0])
-
-            # Try connecting to Keithley source meter instead
-            try:
-                from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
-                self.smu = Keithley_2400(visa_address='GPIB0::15::INSTR')
-            except:
-                print('Keithley 2400 Sourcemeter not connected. ', sys.exc_info()[0])
-                self.smu = None
-            else:
-                # Set default settings for smu
-                self.smu_channel = None
-                self.smu.set_voltage(voltage=self.smu_bias)
-                self.smu.set_integration_time('short')
+            print('no sourcemeter available. exiting.')
+            exit()
         else:
+            print('Keithley connected.')
             # Set default settings for smu
-            self.smu.set_channel(channel=self.smu_channel)
+            self.smu_channel = None
             self.smu.set_voltage(voltage=self.smu_bias)
-            self.smu.set_integration_time('short')
+            # self.smu.set_integration_time('short')
 
 
     # UI Event handlers
@@ -538,7 +552,11 @@ class Window(QtGui.QMainWindow):
 
                 # prepare source meter
                 self.set_smu_params()
-                self.smu.set_integration_time('short')
+                # Keithley
+                if self.smu_channel== None:
+                    self.smu.set_integration_time(0.2)
+                else:
+                    self.smu.set_integration_time('short')
 
                 #  Load measurement parameters
                 wl = self.target_wl
@@ -580,7 +598,11 @@ class Window(QtGui.QMainWindow):
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
                 # return source meter to fast sampling
-                self.smu.set_integration_time('short')
+                # Keithley
+                if self.smu_channel== None:
+                    self.smu.set_integration_time(0.2)
+                else:
+                    self.smu.set_integration_time('short')
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
             else:
@@ -683,7 +705,11 @@ class Window(QtGui.QMainWindow):
         if self.check_smu.checkState() == 0:
             self.label_photocurrent.setStyleSheet("font: bold 10pt Arial; color: gray")
         else:
-            self.smu.set_integration_time('medium')
+            # Keithley
+            if self.smu_channel== None:
+                self.smu.set_integration_time(0.5)
+            else:
+                self.smu.set_integration_time('medium')
             self.label_photocurrent.setStyleSheet("font: bold 10pt Arial")
             self.current_data = []
             self.current_data_timestamps = []
@@ -868,7 +894,11 @@ class Window(QtGui.QMainWindow):
 
                 # prepare source meter
                 self.set_smu_params()
-                self.smu.set_integration_time('short')
+                # Keithley
+                if self.smu_channel== None:
+                    self.smu.set_integration_time(0.2)
+                else:
+                    self.smu.set_integration_time('short')
 
                 #  Load measurement parameters
                 wl = self.wavelength_start
@@ -912,7 +942,11 @@ class Window(QtGui.QMainWindow):
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
                 # return source meter to fast sampling
-                self.smu.set_integration_time('short')
+                # Keithley
+                if self.smu_channel== None:
+                    self.smu.set_integration_time(0.2)
+                else:
+                    self.smu.set_integration_time('short')
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
 
@@ -944,7 +978,11 @@ class Window(QtGui.QMainWindow):
 
                 # prepare source meter
                 self.set_smu_params()
-                self.smu.set_integration_time('long')
+                # Keithley
+                if self.smu_channel== None:
+                    self.smu.set_integration_time(1.0)
+                else:
+                    self.smu.set_integration_time('long')
 
                 #  Load measurement parameters
                 bias = self.bias_start
@@ -985,7 +1023,11 @@ class Window(QtGui.QMainWindow):
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
                 # return source meter to fast sampling
-                self.smu.set_integration_time('short')
+                # Keithley
+                if self.smu_channel== None:
+                    self.smu.set_integration_time(0.2)
+                else:
+                    self.smu.set_integration_time('short')
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
 

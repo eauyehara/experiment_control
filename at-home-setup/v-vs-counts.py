@@ -249,7 +249,7 @@ def main():
 			['Incident cps @ vth={}'.format(vth) for vth in thresholds] +
 			['PDP[%] @ vth={}'.format(vth) for vth in thresholds] )
 
-		experiment_info = experiment_info + ', {}nm'.format(wavelength.value)
+		experiment_info = experiment_info + ', {}nm'.format(wavelength.magnitude)
 
 		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_measurements, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps, pdp), axis=1)
 
@@ -259,7 +259,7 @@ def main():
 		plt.xlabel('Bias [V]')
 		plt.ylabel('Counts [cps]')
 		plt.grid(True, which='both', linestyle=':', linewidth=0.3)
-		plt.savefig(imgname+'.csv', dpi=300, bbox_inches='tight')
+		plt.savefig(imgname+'.png', dpi=300, bbox_inches='tight')
 
 		print(data_out)
 		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info)

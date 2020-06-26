@@ -26,6 +26,7 @@ from datetime import datetime
 
 import matplotlib.pyplot as plt
 from textwrap import wrap
+from utils.progress import progress
 
 from instrumental import Q_
 from instrumental.drivers.util import visa_timeout_context
@@ -37,41 +38,42 @@ def main():
 	##############################################################################
 	## Variables to set
 	##############################################################################
-	which_measurement = "Light" # "Dark" or "Light"
+	which_measurement = "Dark" # "Dark" or "Light"
 
-	Vbd = Q_(35.0, 'V') # [V]
+	Vbd = Q_(24, 'V') # [V]
 	max_overbias = 10 # [%]
-	step_overbias = 0.5 # [%] Each step 1% more overbias
-	integration_time = 10.0 # sec
+	step_overbias = 1.0 # [%] Each step 1% more overbias
+	integration_time = 5.0 # sec
 	bias_settle_time = 3.0 # sec
 
 # # for testing
-# 	Vbd = Q_(1.0, 'V') # [V]
-# 	max_overbias = 10.0 # [%]
-# 	step_overbias = 5.0 # [%] Each step 1% more overbias
-# 	integration_time = 1.0 # sec
-# 	bias_settle_time = 1.0 # sec
+	if False:
+		which_measurement = "Dark" # "Dark" or "Light"
+		Vbd = Q_(1.0, 'V') # [V]
+		max_overbias = 10.0 # [%]
+		step_overbias = 5.0 # [%] Each step 1% more overbias
+		integration_time = 1.0 # sec
+		bias_settle_time = 1.0 # sec
 
 
 	# Frequency measurements settings
-	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
+	slope = 'POS' # Positive('POS')/ Negative('NEG') slope trigger
 	delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
 	# thresholds = np.arange(-0.005, -0.095, -0.01) # V
 	# thresholds = [-0.025, -0.05, -0.075]
-	thresholds = [-0.015] # V
+	thresholds = [0.025] # V
 
 	# Filenames
 	timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
-	fname = 'TC2_W4-x_PD4A-30um'
+	fname = 'TC2_W4-9_PD6D-30um'
 	csvname = './output/'+timestamp_str+ fname+'-{}.csv'.format(which_measurement)
 	imgname = './output/'+timestamp_str+ fname+ '-{}.png'.format(which_measurement)
 	temperature = 25.0
 
 	experiment_info = '{}-integration {} sec, slope {}, bias settle time {} sec'.format(which_measurement, integration_time, slope, bias_settle_time)
 
-
 	# Tap power to Incident Power coefficient
-	power_measurement = np.genfromtxt('./output/Pi-NE10B.csv', delimiter=',', skip_header=1)
+	power_measurement = np.genfromtxt('./output/550-cal.csv', delimiter=',', skip_header=1)
 	wavelength = Q_(float(np.round(power_measurement[0])), 'nm')
 	print(wavelength)
 	tap_to_incident = power_measurement[5]
@@ -79,7 +81,12 @@ def main():
 
 	# ND filter calibration values -
 	# nd_cfg = ["NE10B"]
-	nd_cfg = []
+	nd_cfg = ["NE40B", "NE20B"]
+	nd_cfg = ["NE40B", "NE20B", "NE10B"]
+	nd_cfg = ["NE50A-A", "NE30B"]
+	if which_measurement=="Light":
+		experiment_info = experiment_info + ', ND filters: {}'.format(nd_cfg)
+
 	try:
 		pickle_in = open("nd_cal.pickle", "rb")
 		nd_filters = pickle.load(pickle_in)
@@ -106,7 +113,7 @@ def main():
 		pickle_out.close()
 	else:
 		print('ND calibration values loaded from nd_cal.pickle file')
-		print(nd_filters)
+		# print(nd_filters)
 
 	# Global instrument variables
 	COUNTER = None
@@ -115,15 +122,14 @@ def main():
 
 	USB_address_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
 	USB_address_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
-	USB_address_POWERMETER = 'USB0::0x1313::0x8079::P1001951::INSTR'
-	GPIB_address_SOURCEMETER = 'GPIB1::15::INSTR'
+	USB_address_POWERMETER = 'USB0::0x1313::0x8079::P1001952::INSTR'
 	#---------------------------------------------------------------------------------------
 
 	# Initialize tap Power meter
 	try:
 		from instrumental.drivers.powermeters.thorlabs import PM100A
-		# POWERMETER = PM100A(visa_address=USB_address_POWERMETER)'USB0::0x1313::0x8079::P1001951::INSTR'
-		POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
+		POWERMETER = PM100A(visa_address=USB_address_POWERMETER)
+		#POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
 	except:
 		print('no powermeter available. exiting.')
 		exit()
@@ -152,16 +158,30 @@ def main():
 			print('temp is {}'.format(temperature))
 			experiment_info = experiment_info + ', T={} C'.format(temperature.magnitude)
 
+			COUNTER.display = 'OFF'
+
+	# initialize source meter
+	# try:
+	# 	from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
+	# 	SOURCEMETER = HP_4156C(visa_address='GPIB0::17::INSTR')
+	# except:
+	# 	print('no sourcemeter available. exiting.')
+	# 	exit()
+	# else:
+	# 	print('HP opened')
+	# 	SOURCEMETER.set_channel(channel=2)
+	#
+	# SOURCEMETER.set_current_compliance(Q_(1e-3, 'A'))
+	# bring_to_breakdown(SOURCEMETER, Vbd)
 	# initialize source meter
 	try:
-		from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
-		SOURCEMETER = HP_4156C(visa_address='GPIB0::17::INSTR')
+		from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+		SOURCEMETER = Keithley_2400(visa_address='GPIB0::26::INSTR')
 	except:
 		print('no sourcemeter available. exiting.')
 		exit()
 	else:
-		print('HP opened')
-		SOURCEMETER.set_channel(channel=2)
+		print('Keithley connected.')
 
 	SOURCEMETER.set_current_compliance(Q_(1e-3, 'A'))
 	bring_to_breakdown(SOURCEMETER, Vbd)
@@ -175,6 +195,7 @@ def main():
 		import glob
 		# get latest Dark count data file name
 		dark_fname = glob.glob('./output/*'+fname+'-Dark.csv')[-1]
+		print(dark_fname)
 		# or manually specify
 		# dark_fname = './output/'
 
@@ -190,9 +211,10 @@ def main():
 	tap_avg_measurements = []
 	tap_std_measurements = []
 
-	print('Performing measurement...')
+	print('Performing {} measurement...'.format(which_measurement))
 
 	for i in range(num_measures):
+		print('{} out of {}'.format(i+1, num_measures))
 		SOURCEMETER.set_voltage(vec_overbias[i])
 		time.sleep(bias_settle_time)
 
@@ -201,12 +223,24 @@ def main():
 		power_std = []
 
 		for Vthresh in thresholds:
-			print('Counting at Vth = {} V'.format(Vthresh))
+			print('     Counting at Vth = {} V'.format(Vthresh))
 
 			measured = take_measure(COUNTER, POWERMETER, Vthresh, integration_time)
 			counts.append(measured[0])
 			power.append(measured[1].value.magnitude)
 			power_std.append(measured[1].error.magnitude)
+
+			if which_measurement=="Light":
+				act_power = power[-1]*tap_to_incident
+				for nd_filter in nd_cfg: # attenuate
+					act_power = act_power*nd_filters[nd_filter]
+				inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
+				pdpp = np.divide((counts[-1]-dark_counts[i]), inc_cps, where=inc_cps!=0)
+
+				print('     Counts: {}, dark cps: {}, Power avg: {:.2g}, Power std: {:.2g}, pdp={}'.format(measured[0], dark_counts[i], measured[1].value.magnitude, measured[1].error.magnitude, pdpp))
+			else:
+				print('     Counts: {}, Power avg: {:.2g}, Power std: {:.2g}'.format(measured[0], measured[1].value.magnitude, measured[1].error.magnitude))
+
 		count_measurements.append(counts)
 		tap_avg_measurements.append(power)
 		tap_std_measurements.append(power_std)
@@ -215,7 +249,7 @@ def main():
 	tap_avg_measurements = np.array(tap_avg_measurements)
 	tap_std_measurements = np.array(tap_std_measurements)
 
-	print(count_measurements)
+	# print(count_measurements)
 	print('Measurement finished...')
 
 	# Save results
@@ -244,25 +278,27 @@ def main():
 			['Incident cps @ vth={}'.format(vth) for vth in thresholds] +
 			['PDP[%] @ vth={}'.format(vth) for vth in thresholds] )
 
-		experiment_info = experiment_info + ', {}nm'.format(wavelength.value)
+		experiment_info = experiment_info + ', {}nm'.format(wavelength.magnitude)
 
 		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_measurements, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps, pdp), axis=1)
 
 		plt.figure()
-		plt.title("\n".join(wrap(experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
-		plt.semilogy(vec_overbias.magnitude, pdp, 'o-') # plot first threshold data
+		plt.title("\n".join(wrap('PDP '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
+		plt.plot(vec_overbias.magnitude, pdp, 'o-') # plot first threshold data
 		plt.xlabel('Bias [V]')
-		plt.ylabel('Counts [cps]')
+		plt.ylabel('PDP [%]')
+		plt.ylim([0,1.0])
 		plt.grid(True, which='both', linestyle=':', linewidth=0.3)
-		plt.savefig(imgname+'.csv', dpi=300, bbox_inches='tight')
+		plt.savefig(imgname+'PDP.png', dpi=300, bbox_inches='tight')
 
 		print(data_out)
 		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info)
 
 	bring_down_from_breakdown(SOURCEMETER, Vbd)
+	COUNTER.display = 'ON'
 
 	plt.figure()
-	plt.title("\n".join(wrap(experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
+	plt.title("\n".join(wrap('Counts '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
 
 	plt.semilogy(vec_overbias.magnitude, count_measurements[:,0], 'o-') # plot first threshold data
 

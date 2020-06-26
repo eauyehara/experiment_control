@@ -16,10 +16,10 @@ from datetime import datetime
 import csv
 #import matplotlib.pyplot as plt
 from pint import Quantity as Q_
-from utils import *
+from utils.utils import *
 import matplotlib.pyplot as plt
 from textwrap import wrap
-from progress import progress
+from utils.progress import progress
 
 USB_adress_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
 #USB_adress_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
@@ -29,10 +29,10 @@ if len(sys.argv)>1:
 else:
 	Die = ''
 
-Vbd = Q_(40.0, 'V') # [V]
+Vbd = Q_(38.0, 'V') # [V]
 num_measures = 100
 time_interval = 1.0 # sec
-integration_time = 1.0 # sec
+integration_time = 10.0 # sec
 bias_settle_time = 1.0 # sec
 
 # Frequency measurements settings
@@ -42,9 +42,9 @@ slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
 thresholds = [-0.015] # V
 
 timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
-fname = 'TC2_W3-5_PD4A-30um'
-csvname = timestamp_str+ fname+  '.csv'
-imgname = timestamp_str+ fname+  '.png'
+fname = 'TC2_W3-23_PD4A-30um'
+csvname = './output/'+timestamp_str+ fname+  '.csv'
+imgname = './output/'+timestamp_str+ fname+  '.png'
 
 second_plot = 'bias_current' # 'levels' or 'temp' or 'bias_current'
 temperature = 25.0
@@ -62,6 +62,7 @@ def open_FreqCounter():
 	COUNTER.write('INP1:COUP DC') # DC coupled
 	COUNTER.write('INP1:IMP 50') # 50 ohm imput impedance
 	COUNTER.write('INP1:SLOP {}'.format(slope)) # Set slope trigger
+	COUNTER.write('DISP OFF')
 	COUNTER.timeout = 600000 # Timeout of 60000 msec
 	time.sleep(1)
 
@@ -203,6 +204,6 @@ plt.title("\n".join(wrap(experiment_info+stats, 60)))
 plt.savefig(imgname, dpi=300, bbox_inches='tight')
 plt.show()
 
-
+COUNTER.write('DISP ON')
 COUNTER.close()
 # SOURCEMETER.close()
