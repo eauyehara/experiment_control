@@ -21,18 +21,19 @@ Description
 
 # from utils import *
 import sys
-import pyvisa
 import numpy as np
 import time
 from datetime import datetime
-import csv
-#import matplotlib.pyplot as plt
+
 import matplotlib.pyplot as plt
-import pickle
+from textwrap import wrap
+from utils.progress import progress
+
 from instrumental import Q_
 from instrumental.drivers.util import visa_timeout_context
-from textwrap import wrap
 
+import csv
+import pickle
 
 def main():
 	##############################################################################
@@ -47,11 +48,13 @@ def main():
 	bias_settle_time = 3.0 # sec
 
 # # for testing
-# 	Vbd = Q_(1.0, 'V') # [V]
-# 	max_overbias = 10.0 # [%]
-# 	step_overbias = 5.0 # [%] Each step 1% more overbias
-# 	integration_time = 1.0 # sec
-# 	bias_settle_time = 1.0 # sec
+	if False:
+		which_measurement = "Dark" # "Dark" or "Light"
+		Vbd = Q_(1.0, 'V') # [V]
+		max_overbias = 10.0 # [%]
+		step_overbias = 5.0 # [%] Each step 1% more overbias
+		integration_time = 1.0 # sec
+		bias_settle_time = 1.0 # sec
 
 
 	# Frequency measurements settings
@@ -80,7 +83,11 @@ def main():
 
 	# ND filter calibration values -
 	# nd_cfg = ["NE10B"]
-	nd_cfg = []
+		nd_cfg = ["NE40B", "NE20B"]
+		nd_cfg = ["NE40B", "NE20B", "NE10B"]
+		nd_cfg = ["NE50A-A", "NE30B"]
+		if which_measurement=="Light":
+			experiment_info = experiment_info + ', ND filters: {}'.format(nd_cfg)
 	try:
 		pickle_in = open("nd_cal.pickle", "rb")
 		nd_filters = pickle.load(pickle_in)
@@ -107,7 +114,7 @@ def main():
 		pickle_out.close()
 	else:
 		print('ND calibration values loaded from nd_cal.pickle file')
-		print(nd_filters)
+		# print(nd_filters)
 
 	# Global instrument variables
 	COUNTER = None
@@ -123,15 +130,13 @@ def main():
 	# Initialize tap Power meter
 	try:
 		from instrumental.drivers.powermeters.thorlabs import PM100A
-		# POWERMETER = PM100A(visa_address=USB_address_POWERMETER)'USB0::0x1313::0x8079::P1001951::INSTR'
-		POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
+		POWERMETER = PM100A(visa_address=USB_address_POWERMETER)
+
 	except:
 		print('no powermeter available. exiting.')
 		exit()
 	else:
 		print('powermeter opened')
-		# # print(wavelength)
-		# print(POWERMETER.wavelength)
 		POWERMETER.wavelength = wavelength
 		POWERMETER.auto_range = 1
 
@@ -165,7 +170,7 @@ def main():
 	else:
 		print('Keithley connected.')
 
-	SOURCEMETER.set_current_compliance(Q_(100e-6, 'A'))
+	SOURCEMETER.set_current_compliance(Q_(1e-3, 'A'))
 	bring_to_breakdown(SOURCEMETER, Vbd)
 
 	# Start with dark measurements
@@ -193,10 +198,10 @@ def main():
 	tap_avg_measurements = []
 	tap_std_measurements = []
 
-	print('Performing measurement...')
+	print('Performing {} measurement...'.format(which_measurement))
 
 	for i in range(num_measures):
-		# (counts, power) = sweep_threshold(COUNTER, SOURCEMETER, POWERMETER, vec_overbias[i], bias_settle_time)
+		print('{} out of {}'.format(i+1, num_measures))
 		SOURCEMETER.set_voltage(vec_overbias[i])
 		time.sleep(bias_settle_time)
 
@@ -205,22 +210,33 @@ def main():
 		power_std = []
 
 		for Vthresh in thresholds:
-			print('Counting at Vth = {} V'.format(Vthresh))
+			print('     Counting at Vth = {} V'.format(Vthresh))
 
 			measured = take_measure(COUNTER, POWERMETER, Vthresh, integration_time)
 			counts.append(measured[0])
 			power.append(measured[1].value.magnitude)
 			power_std.append(measured[1].error.magnitude)
+
+			if which_measurement=="Light":
+				act_power = power[-1]*tap_to_incident
+				for nd_filter in nd_cfg: # attenuate
+					act_power = act_power*nd_filters[nd_filter]
+				inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
+				pdpp = np.divide((counts[-1]-dark_counts[i]), inc_cps, where=inc_cps!=0)
+
+				print('     Counts: {}, dark cps: {}, Power avg: {:.2g}, Power std: {:.2g}, pdp={}'.format(measured[0], dark_counts[i], measured[1].value.magnitude, measured[1].error.magnitude, pdpp))
+			else:
+				print('     Counts: {}, Power avg: {:.2g}, Power std: {:.2g}'.format(measured[0], measured[1].value.magnitude, measured[1].error.magnitude))
+
 		count_measurements.append(counts)
 		tap_avg_measurements.append(power)
 		tap_std_measurements.append(power_std)
-		# print(power)
 
 	count_measurements = np.array(count_measurements)
 	tap_avg_measurements = np.array(tap_avg_measurements)
 	tap_std_measurements = np.array(tap_std_measurements)
 
-	print(count_measurements)
+	# print(count_measurements)
 	print('Measurement finished...')
 
 	# Save results
@@ -254,20 +270,21 @@ def main():
 		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_measurements, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps, pdp), axis=1)
 
 		plt.figure()
-		plt.title("\n".join(wrap(experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
-		plt.semilogy(vec_overbias.magnitude, pdp, 'o-') # plot first threshold data
+		plt.title("\n".join(wrap('PDP '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
+		plt.plot(vec_overbias.magnitude, pdp, 'o-') # plot first threshold data
 		plt.xlabel('Bias [V]')
-		plt.ylabel('Counts [cps]')
+		plt.ylabel('PDP [%]')
+		plt.ylim([0,1.0])
 		plt.grid(True, which='both', linestyle=':', linewidth=0.3)
-		plt.savefig(imgname+'.png', dpi=300, bbox_inches='tight')
+		plt.savefig(imgname+'PDP.png', dpi=300, bbox_inches='tight
 
 		print(data_out)
 		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info)
 
 	bring_down_from_breakdown(SOURCEMETER, Vbd)
-
+	COUNTER.display = 'ON'
 	plt.figure()
-	plt.title("\n".join(wrap(experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
+	plt.title("\n".join(wrap('Counts '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
 
 	plt.semilogy(vec_overbias.magnitude, count_measurements[:,0], 'o-') # plot first threshold data
 
@@ -277,8 +294,6 @@ def main():
 	plt.savefig(imgname, dpi=300, bbox_inches='tight')
 	# plt.show()
 
-	# COUNTER.close()
-	# SOURCEMETER.close()
 
 
 #############################################################################
@@ -341,30 +356,6 @@ def take_measure(COUNTER, POWERMETER, Vthresh, integration_time):
 		cps = num_counts/integration_time
 
 	return (cps, power)
-
-
-# Collect dark counts at different trigger levels until no count is registered
-def sweep_threshold(COUNTER, SOURCEMETER, POWERMETER, Vbias, bias_settle_time):
-	'''
-	Sweeps threshold values for the frequency counter and takes measurements
-
-	returns
-	'''
-	SOURCEMETER.set_voltage(Vbias)
-	time.sleep(bias_settle_time)
-
-	counts = []
-	power = []
-
-	for Vthresh in thresholds:
-		print('Counting at Vth = {} V'.format(Vthresh))
-
-		measured = take_measure(COUNTER, POWERMETER, Vthresh)
-		counts.append(measured[0])
-		power.append(measured[1])
-
-	return (counts, power)
-
 
 if __name__ == '__main__':
 	main()
