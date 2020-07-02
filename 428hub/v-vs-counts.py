@@ -65,6 +65,7 @@ def main():
 	# thresholds = [-0.025, -0.05, -0.1, -0.15, -0.2] # V
 	# thresholds = [-0.05, -0.5, -1, -1.5, -2] # V
 	thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
+	light_threshold = 2.5
 
 	# Filenames
 	timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
@@ -90,7 +91,6 @@ def main():
 	#nd_cfg = ["NE50A-A", "NE30B"]
 	if which_measurement=="Light":
 		experiment_info = experiment_info + ', ND filters: {}'.format(nd_cfg)
-
 	try:
 		pickle_in = open("nd_cal.pickle", "rb")
 		nd_filters = pickle.load(pickle_in)
@@ -136,7 +136,7 @@ def main():
 		#POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
 	except:
 		print('no powermeter available. exiting.')
-		exit()
+		POWERMETER=None
 	else:
 		print('powermeter opened')
 		POWERMETER.wavelength = wavelength
@@ -201,18 +201,29 @@ def main():
 		# load latest dark measurements
 		import glob
 		# get latest Dark count data file name
-		dark_fname = glob.glob('./output/*'+fname+'-Dark.csv')[-1]
-		print(dark_fname)
+		try:
+			dark_fname = glob.glob('./output/*'+fname+'-Dark.csv')[-1]
+		except:
+			print('Dark results not available, run Dark measurement first.')
+			exit()
+		else:
+			print(dark_fname)
 		# or manually specify
 		# dark_fname = './output/'
 
-		dark_data = np.genfromtxt(dark_fname, delimiter=',', skip_header=1)
+		dark_data = np.genfromtxt(dark_fname, delimiter=',', skip_header=1, skip_footer=1)
 		vec_overbias = Q_(dark_data[:,0], 'V')
 		num_measures = len(vec_overbias)
-		dark_counts= dark_data[:,1].reshape((num_measures,len(thresholds)))
+		dark_counts= dark_data[:,thresholds.index(light_threshold)+1].reshape((num_measures,1))
 	else:
 		print('Choose Dark or Light for which_measurement, currently: {}'.format(which_measurement))
 		exit()
+
+	# truncate voltages beyond 2.5V above breakdown
+	if pqc=='chip':
+		vec_overbias = vec_overbias[vec_overbias < Vbd+Q_(2.5, 'V')]
+		num_measures = len(vec_overbias)
+		print('Adjusting bias range to {} to {} to protect on chip quench circuit'.format(vec_overbias[0], vec_overbias[-1]))
 
 	count_measurements = []
 	tap_avg_measurements = []
@@ -262,9 +273,9 @@ def main():
 	# Save results
 	if which_measurement == "Dark":
 		header = 'Bias [V],'+','.join(['cps @ vth={}'.format(vth) for vth in thresholds])
-		data_out = np.array(list(zip(vec_overbias.magnitude, count_measurements)))
-
-		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info)
+		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_measurements), axis=1)
+		# print(data_out)
+		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
 	elif which_measurement == "Light":
 		print('Checking shape of arrays: dark - {}, light- {}'.format(dark_counts.shape, count_measurements.shape))
 
@@ -299,11 +310,10 @@ def main():
 		plt.savefig(imgname+'PDP.png', dpi=300, bbox_inches='tight')
 
 		print(data_out)
-		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info)
+		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
 
 	bring_down_from_breakdown(SOURCEMETER, Vbd)
 	COUNTER.display = 'ON'
-
 	plt.figure()
 	plt.title("\n".join(wrap('Counts '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
 
@@ -369,13 +379,15 @@ def take_measure(COUNTER, POWERMETER, Vthresh, integration_time):
 		COUNTER.write('INIT') # Initiate couting
 		COUNTER.write('*WAI')
 
-		power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
+		if POWERMETER is not None:
+			power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
+		else:
+			power = Q_(0.0, 'W').plus_minus(Q_(0.0, 'W'))
 		num_counts = float(COUNTER.query('FETC?'))
 
 		cps = num_counts/integration_time
 
 	return (cps, power)
-
 
 if __name__ == '__main__':
 	main()
