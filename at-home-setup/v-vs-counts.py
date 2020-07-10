@@ -48,8 +48,8 @@ def main():
 	bias_settle_time = 3.0 # sec
 
 # # for testing
-	if False:
-		which_measurement = "Light" # "Dark" or "Light"
+	if True:
+		which_measurement = "Dark" # "Dark" or "Light"
 		Vbd = Q_(1.0, 'V') # [V]
 		max_overbias = 10.0 # [%]
 		step_overbias = 5.0 # [%] Each step 1% more overbias
@@ -127,7 +127,7 @@ def main():
 	USB_address_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
 	USB_address_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
 	USB_address_POWERMETER = 'USB0::0x1313::0x8079::P1001951::INSTR'
-	GPIB_address_SOURCEMETER = 'GPIB1::15::INSTR'
+	GPIB_address_SOURCEMETER = 'GPIB0::15::INSTR'
 	#---------------------------------------------------------------------------------------
 
 	# Initialize tap Power meter

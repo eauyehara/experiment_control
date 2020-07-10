@@ -48,7 +48,7 @@ def main():
 	bias_settle_time = 30.0 # sec
 
 	# Frequency counter settings
-	num_samples = 50000
+	num_samples = 1000
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
 	threshold = -0.050 # V
 

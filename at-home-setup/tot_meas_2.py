@@ -6,7 +6,6 @@ Not tried yet.
 Instruments:
 	Frequency counter Keysight 53220A
     SMU Keysight B2902A
-	or HP Parameter Analyzer
 
 Description
 	Collects dark counts and laser counts for different bias voltages.
@@ -19,17 +18,16 @@ Description
 
 '''
 
+
 import sys
 import pyvisa
 import numpy as np
 import time
-from datetime import datetime
 import csv
 #import matplotlib.pyplot as plt
+from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
 from pint import Quantity as Q_
-from utils.utils import *
-#from utils.progress import progress
-import matplotlib.pyplot as plt
+from utils import *
 
 USB_adress_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
 #USB_adress_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
@@ -39,28 +37,21 @@ if len(sys.argv)>1:
 else:
 	Die = ''
 
-Vbd = Q_(36.0, 'V') # [V]
+
+
+
+Vbd = 35 # [V]
 max_overbias = 10 # [%]
 step_overbias = 0.5 # [%] Each step 1% more overbias
-integration_time = 5.0 # sec
-bias_settle_time = 3.0 # sec
+
 
 # Frequency measurements settings
 slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
 delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
-# thresholds = np.arange(-0.005, -0.095, -0.01) # V
-# thresholds = [-0.025, -0.05, -0.075]
-thresholds = [-0.015] # V
 
 
 
-timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
-fname = 'TC1_W15-17_PD4A-20um'
-csvname = timestamp_str+ fname+  '.csv'
-imgname = timestamp_str+ fname+  '.png'
-temperature = 25.0
 
-experiment_info = 'Dark-integration {} sec, slope {}, bias settle time {} sec'.format(integration_time, slope, bias_settle_time)
 
 # Open Frequency Counter and set it to count measurement
 def open_FreqCounter():
@@ -68,7 +59,7 @@ def open_FreqCounter():
 
 	COUNTER.write('*RST') # Reset to default settings
 
-	COUNTER.write('CONF:TOT:TIM {}'.format(integration_time)) # Collect the number of events in 1 sec
+	COUNTER.write('CONF:TOT:TIM 1') # Collect the number of events in 1 sec
 
 	COUNTER.write('INP1:COUP DC') # DC coupled
 	COUNTER.write('INP1:IMP 50') # 50 ohm imput impedance
@@ -80,8 +71,14 @@ def open_FreqCounter():
 
 
 
-# Collect counts during 1 sec
+
+
+
+# Set bias at Vbias and collect counts during 1 sec
 def take_measure(COUNTER, SOURCEMETER, Vbias, Vthres):
+    # Set voltage to Vbias
+    SOURCEMETER.set_voltage(Q_(Vbias, 'V'))
+    time.sleep(0.5)
 
     COUNTER.write('INP1:LEV {}'.format(Vthres)) # Set threshold
     res = 0
@@ -92,24 +89,38 @@ def take_measure(COUNTER, SOURCEMETER, Vbias, Vthres):
         num_counts = COUNTER.query_ascii_values('FETC?')
         res = res + num_counts[0]
 
-    return res/reps/integration_time
+    return res/reps
 
 
 # Collect dark counts at different trigger levels until no count is registered
 def sweep_threshold(COUNTER, SOURCEMETER, Vbias):
-	SOURCEMETER.set_voltage(Vbias)
-	time.sleep(bias_settle_time)
+	Vthresh = -0.025 # Start with -2.5 mV threshold
+	counts = [take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh)]
 
-	counts = []
-	for Vthresh in thresholds:
-		print('Counting at Vth = {} V'.format(Vthresh))
-		counts.append(take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
+	Vthresh = -0.050
+	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
+	return [Vthresh, counts]
 
-	return counts
+	Vthresh = -0.075
+	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
+	return [Vthresh, counts]
+'''
+	Vthresh = Vthresh + delta_thres
+	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
 
+	Vthresh = Vthresh + delta_thres
+	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
 
+	Vthresh = Vthresh + delta_thres
+	counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
+
+	while (counts[-1] != 0):
+		Vthresh = Vthresh + 0.05
+		counts = np.append(counts, take_measure(COUNTER, SOURCEMETER, Vbias, Vthresh))
+'''
 
 def bring_to_breakdown(SOURCEMETER, Vbd):
+    Vbd = Q_(Vbd, 'V')
     Vinit = Q_(0, 'V')
     Vstep = Q_(5.0, 'V')
 
@@ -126,6 +137,7 @@ def bring_to_breakdown(SOURCEMETER, Vbd):
 
 # Bring the SPAD from breakdown to 0V at Vstep V/step
 def bring_down_from_breakdown(SOURCEMETER, Vbd):
+    Vbd = Q_(Vbd, 'V')
     Vstep = Q_(5.0, 'V')
     Vinit = Vbd-Vstep
 
@@ -139,70 +151,49 @@ def bring_down_from_breakdown(SOURCEMETER, Vbd):
     SOURCEMETER.set_voltage(Q_(0, 'V'))
     print('Sourcemeter at 0V')
 
+
 #---------------------------------------------------------------------------------------
 
 
 # Open the instruments
 rm = pyvisa.ResourceManager()
-try:
-	COUNTER = open_FreqCounter()
-except:
-	print('no frequency counter available. exiting.')
-	exit()
-else:
-	print('frequency counter connected.')
-	temperature = COUNTER.query_ascii_values('SYST:TEMP?')[0]
-	print('temp is {}'.format(temperature))
-	experiment_info = experiment_info + ', T={} C'.format(temperature)
-
-try:
-	from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
-	SOURCEMETER = Keithley_2400(visa_address='GPIB0::15::INSTR')
-except:
-	print('no sourcemeter available. exiting.')
-	exit()
-else:
-	print('Keithley connected.')
-
+COUNTER = open_FreqCounter()
+SOURCEMETER = Keithley_2400(visa_address='GPIB0::15::INSTR')
 SOURCEMETER.set_current_compliance(Q_(100e-6, 'A'))
 bring_to_breakdown(SOURCEMETER, Vbd)
+
 
 # Start with dark measurements
 num_measures = int(max_overbias/step_overbias) + 1 # 0% and max_overbias% included
 vec_overbias = Vbd + Vbd/100 * np.linspace(0, max_overbias, num = num_measures)
-measurements = []
+dark_counts = []
 max_threshold = np.empty(num_measures) # Max threshold to measure counts (peak's height)
 
-print('Performing measurement...')
+print('Performing Dark counts measurement...')
 
-for i in range(num_measures):
-	result = sweep_threshold(COUNTER, SOURCEMETER, vec_overbias[i])
-	measurements.append(result)
+for i in range (0, num_measures):
+    result = sweep_threshold(COUNTER, SOURCEMETER, vec_overbias[i])
+    max_threshold[i] = result[0]
+    dark_counts.append(result[1])
 
-print('Measurement finished...')
+print('Dark counts measurement finished...')
 
 # Save results
+with open("od10_last_new2_W12-26_PD4A_16_CE_Vbd_{}_{}max_{}step_NB2.csv".format(Vbd, max_overbias, step_overbias), "w", newline="\n") as file:
+    #writer = csv.writer(file)
 
-with open(csvname, 'w', newline='') as csvfile:
-	csvwriter = csv.writer(csvfile, dialect='excel')
-	csvwriter.writerow([experiment_info])
-	csvwriter.writerow(['', 'Threshold Voltages [V]'])
-	csvwriter.writerow(['Bias [V]'] + [str(vth) for vth in thresholds])
+    file.write('Light counts'  + "\n")
+    for i in range (0, num_measures):
+        file.write(str(vec_overbias[i]) + ',  ' + ','.join(map(str, dark_counts[i])) + "\n")
+'''
+    writer.writerows('Laser counts' + "\n")
+    for i in range (0, num_measures):
+        writer.writerows(str(vec_overbias[i]) + ',  ' + ','.join(map(str, laser_counts[i])) + "\n")
 
-	for i in range(num_measures):
-		csvwriter.writerow([str(vec_overbias[i].magnitude)] + [str(count) for count in measurements[i]])
-
+    writer.writerows('Figure of merit' + "\n")
+    for i in range (0, num_measures):
+        writer.writerows(str(vec_overbias[i]) + ',  ' + ','.join(map(str, fm[i])) + "\n")
+'''
 bring_down_from_breakdown(SOURCEMETER, Vbd)
-
-plt.figure()
-plt.semilogy([vbias.magnitude for vbias in vec_overbias], np.array(measurements)[:,0], 'o-') # plot first threshold data
-plt.title(experiment_info)
-plt.xlabel('Bias [V]')
-plt.ylabel('Counts [cps]')
-plt.grid(True, which='both', linestyle=':', linewidth=0.3)
-plt.savefig(imgname, dpi=300)
-plt.show()
-
-
 COUNTER.close()
-# SOURCEMETER.close()
+#SOURCEMETER.close()
