@@ -125,7 +125,7 @@ else:
 
 try:
 	from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
-	SOURCEMETER = Keithley_2400(visa_address='GPIB1::15::INSTR')
+	SOURCEMETER = Keithley_2400(visa_address='GPIB0::15::INSTR')
 except:
 	print('no sourcemeter available. exiting.')
 	exit()

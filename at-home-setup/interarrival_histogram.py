@@ -98,7 +98,7 @@ def main():
 	USB_address_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
 	USB_address_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
 	USB_address_POWERMETER = 'USB0::0x1313::0x8079::P1001951::INSTR'
-	GPIB_address_SOURCEMETER = 'GPIB1::15::INSTR'
+	GPIB_address_SOURCEMETER = 'GPIB0::15::INSTR'
 	#---------------------------------------------------------------------------------------
 
 	# Initialize tap Power meter
