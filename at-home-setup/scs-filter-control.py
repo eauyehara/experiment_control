@@ -352,31 +352,35 @@ class Window(QtGui.QMainWindow):
 
     def initialize_instruments(self):
         # Initialize HR4000 Spectrometer
-        try:
-            import seabreeze.spectrometers as sb
+        # try:
+        #     import seabreeze.spectrometers as sb
+        #
+        #     self.hr4000_params={'IntegrationTime_micros':200000}
+        #
+        #     devices = sb.list_devices()
+        #     self.spec = sb.Spectrometer(devices[0])
+        # except:
+        #     print('HR4000 Spectrometer not connected')
+        #     self.spec = None
+        # else:
+        #     self.spec.integration_time_micros(self.hr4000_params['IntegrationTime_micros'])
+        print('No spectrometer in at home setup')
+        self.spec = None
 
-            self.hr4000_params={'IntegrationTime_micros':200000}
-
-            devices = sb.list_devices()
-            self.spec = sb.Spectrometer(devices[0])
-        except:
-            print('HR4000 Spectrometer not connected')
-            self.spec = None
-        else:
-            self.spec.integration_time_micros(self.hr4000_params['IntegrationTime_micros'])
-
-        # Initialize Motor controller
-        try:
-            from instrumental.drivers.motion.klinger import KlingerMotorController
-
-            self.mc = KlingerMotorController(visa_address='GPIB0::8::INSTR')
-
-            # Set motor at high speed
-            # self.mc.set_steprate(R=245, S=1, F=20)
-            self.mc.set_steprate(R=250, S=1, F=20)
-        except:
-            print('Klinger Motor controller not connected')
-            self.mc = None
+        # # Initialize Motor controller
+        # try:
+        #     from instrumental.drivers.motion.klinger import KlingerMotorController
+        #
+        #     self.mc = KlingerMotorController(visa_address='GPIB0::8::INSTR')
+        #
+        #     # Set motor at high speed
+        #     # self.mc.set_steprate(R=245, S=1, F=20)
+        #     self.mc.set_steprate(R=250, S=1, F=20)
+        # except:
+        #     print('Klinger Motor controller not connected')
+        #     self.mc = None
+        print('No motor controller in at home setup')
+        self.mc = None
 
         # Initialize Power meter
         try:
@@ -387,6 +391,7 @@ class Window(QtGui.QMainWindow):
             print('OMM-6810B Power meter not connected. ', sys.exc_info()[0])
             self.pm = None
         else:
+            print('Main power meter connected')
             self.pm.wavelength = self.target_wl
             self.pm.set_no_filter()
 
@@ -400,49 +405,50 @@ class Window(QtGui.QMainWindow):
             print('PM100A Thorlabs Power meter not connected. ', sys.exc_info()[0])
             self.pm_tap = None
         else:
+            print('Tap power meter connected')
             self.pm_tap.wavelength = self.target_wl
             self.pm_tap.num_averaged = 1
 
         # Initialize Source meter
-        try:
-            from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
-
-            self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
-        except:
-            print('HP 4156C Parameter Analyzer not connected. Trying Keithley 2400...', sys.exc_info()[0])
-
-            # Try connecting to Keithley source meter instead
-            try:
-                from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
-                self.smu = Keithley_2400(visa_address='GPIB0::26::INSTR')
-            except:
-                print('Keithley 2400 Sourcemeter not connected. ', sys.exc_info()[0])
-                self.smu = None
-            else:
-                # Set default settings for smu
-                self.smu_channel = None
-                self.smu.set_voltage(voltage=self.smu_bias)
-                self.smu.set_integration_time('short')
-        else:
-            # Set default settings for smu
-            self.smu.set_channel(channel=self.smu_channel)
-            self.smu.set_voltage(voltage=self.smu_bias)
-            self.smu.set_integration_time('short')
-
-        # # # initialize source meter
         # try:
-        #     from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
-        #     self.smu = Keithley_2400(visa_address='GPIB0::26::INSTR')
+        #     from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
+        #
+        #     self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
         # except:
-        #     print('no sourcemeter available. exiting.')
-        #     exit()
+        #     print('HP 4156C Parameter Analyzer not connected. Trying Keithley 2400...', sys.exc_info()[0])
+        #
+        #     # Try connecting to Keithley source meter instead
+        #     try:
+        #         from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+        #         self.smu = Keithley_2400(visa_address='GPIB0::26::INSTR')
+        #     except:
+        #         print('Keithley 2400 Sourcemeter not connected. ', sys.exc_info()[0])
+        #         self.smu = None
+        #     else:
+        #         # Set default settings for smu
+        #         self.smu_channel = None
+        #         self.smu.set_voltage(voltage=self.smu_bias)
+        #         self.smu.set_integration_time('short')
         # else:
-        #     print('Keithley connected.')
         #     # Set default settings for smu
-        #     self.smu_channel = None
+        #     self.smu.set_channel(channel=self.smu_channel)
         #     self.smu.set_voltage(voltage=self.smu_bias)
-        #     self.smu.set_current_compliance(compliance=Q_(1e-3, 'A'))
-        #     # self.smu.set_integration_time('short')
+        #     self.smu.set_integration_time('short')
+
+        # # initialize source meter
+        try:
+            from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+            self.smu = Keithley_2400(visa_address='GPIB0::15::INSTR')
+        except:
+            print('no sourcemeter available. exiting.')
+            exit()
+        else:
+            print('Keithley connected.')
+            # Set default settings for smu
+            self.smu_channel = None
+            self.smu.set_voltage(voltage=self.smu_bias)
+            self.smu.set_current_compliance(compliance=Q_(1e-3, 'A'))
+            # self.smu.set_integration_time('short')
 
 
     # UI Event handlers
