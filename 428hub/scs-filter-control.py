@@ -393,9 +393,14 @@ class Window(QtGui.QMainWindow):
 
         # Initialize tap Power meter
         try:
-            from instrumental.drivers.powermeters.thorlabs import PM100A
+            # from instrumental.drivers.powermeters.thorlabs import PM100A
+            #
+            # self.pm_tap = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
 
-            self.pm_tap = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
+            # Borrowed from spec lab
+            from instrumental.drivers.powermeters.thorlabs import PM100D
+
+            self.pm_tap = PM100D(visa_address='USB0::0x1313::0x8078::P0007034::0::INSTR')
         except:
             print('PM100A Thorlabs Power meter not connected. ', sys.exc_info()[0])
             self.pm_tap = None
@@ -821,11 +826,12 @@ class Window(QtGui.QMainWindow):
                         print('winsound not available no beeping')
 
                     # only move when we are doing more than 1 step measurement
-                    if np.abs((self.wavelength_stop-wl)/self.wavelength_step)>1:
+                    if np.abs((self.wavelength_stop-self.wavelength_start)/self.wavelength_step)>1:
                         meas_wl = self.goto_wavelength(wl)
                     else:
                         meas_wl = wl
 
+                    sleep(5.0)
                     self.pm.wavelength = meas_wl
                     self.pm_tap.wavelength = meas_wl
                     data_x.append(meas_wl.magnitude)
@@ -910,11 +916,12 @@ class Window(QtGui.QMainWindow):
                     print('Measuring {}'.format(wl.to_compact()))
 
                     # only move when we are doing more than 1 step measurement
-                    if np.abs((self.wavelength_stop-wl)/self.wavelength_step)>1:
+                    if np.abs((self.wavelength_stop-self.wavelength_start)/self.wavelength_step)>1:
                         meas_wl = self.goto_wavelength(wl)
                     else:
                         meas_wl = wl
 
+                    sleep(5.0)
                     # self.pm.wavelength = meas_wl
                     self.pm_tap.wavelength = meas_wl
                     data_x.append(meas_wl.magnitude)
