@@ -70,7 +70,10 @@ class Window(QtGui.QMainWindow):
 
         self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
+        
         self.smu_channel = 2
+        self.smu_settle_time = 1.0 # seconds
+
         self.smu_bias = Q_(0, 'V')
         self.motor_steps = 0
 
@@ -309,6 +312,15 @@ class Window(QtGui.QMainWindow):
             self.edit_bias = QtGui.QLineEdit('{:.4g}'.format(self.smu_bias.magnitude))
             self.edit_bias.editingFinished.connect(self.set_smu_params)
             self.layout.addWidget(self.edit_bias, row, col,  1,1)
+
+            col = col+1
+            
+            self.layout.addWidget(QtGui.QLabel('SMU settle time [sec]'), row,col,  1,1)
+            col = col+1
+            
+            self.edit_bias_settle_time = QtGui.QLineEdit('{:.4g}'.format(self.smu_settle_time))
+            self.edit_bias_settle_time.editingFinished.connect(self.set_smu_params)
+            self.layout.addWidget(self.edit_bias_settle_time, row, col,  1,1)
             row = row+1
 
             # LI experiment related elements
@@ -404,42 +416,42 @@ class Window(QtGui.QMainWindow):
 
     def initialize_instruments(self):
         # Initialize HR4000 Spectrometer
-        try:
-            import seabreeze.spectrometers as sb
+        # try:
+        #     import seabreeze.spectrometers as sb
 
-            self.hr4000_params={'IntegrationTime_micros':200000}
+        #     self.hr4000_params={'IntegrationTime_micros':200000}
 
-            devices = sb.list_devices()
-            self.spec = sb.Spectrometer(devices[0])
-        except:
-            print('HR4000 Spectrometer not connected')
-            self.spec = None
-        else:
-            self.spec.integration_time_micros(self.hr4000_params['IntegrationTime_micros'])
+        #     devices = sb.list_devices()
+        #     self.spec = sb.Spectrometer(devices[0])
+        # except:
+        print('HR4000 Spectrometer not connected')
+        self.spec = None
+        # else:
+        #     self.spec.integration_time_micros(self.hr4000_params['IntegrationTime_micros'])
 
         # Initialize Motor controller
-        try:
-            from instrumental.drivers.motion.klinger import KlingerMotorController
+        # try:
+        #     from instrumental.drivers.motion.klinger import KlingerMotorController
 
-            self.mc = KlingerMotorController(visa_address='GPIB0::8::INSTR')
+        #     self.mc = KlingerMotorController(visa_address='GPIB0::8::INSTR')
 
-            # Set motor at high speed
-            # self.mc.set_steprate(R=245, S=1, F=20)
-            self.mc.set_steprate(R=250, S=1, F=20)
-        except:
-            print('Klinger Motor controller not connected')
-            self.mc = None
+        #     # Set motor at high speed
+        #     # self.mc.set_steprate(R=245, S=1, F=20)
+        #     self.mc.set_steprate(R=250, S=1, F=20)
+        # except:
+        print('Klinger Motor controller not connected')
+        self.mc = None
 
         # Initialize Power meter
         try:
             from instrumental.drivers.powermeters.hp import HP_8153A
-            self.pm = HP_8153A(visa_address='GPIB0::15::INSTR')
+            self.pm = HP_8153A(visa_address='GPIB0::19::INSTR')
         except:
             print('HP Lightwave 8153A Power meter not connected. ', sys.exc_info()[0])
             self.pm = None
         else:
-            self.pm.wavelength = self.target_wl
-            self.pm.set_no_filter()
+            self.pm.wavelength1 = self.target_wl
+            # self.pm.set_no_filter()
 
 
         # Initialize tap Power meter
@@ -483,7 +495,8 @@ class Window(QtGui.QMainWindow):
         # initialize source meter
         try:
             from instrumental.drivers.sourcemeasureunit.keysight import B2902A
-            self.smu = B2902A(visa_address='USB0::0x0957::0x8C18::MY51141236::INSTR')
+            # self.smu = B2902A(visa_address='USB0::0x0957::0x8C18::MY51141236::INSTR')
+            self.smu = B2902A(visa_address='GPIB0::23::INSTR')
         except:
             print('no sourcemeter available.')
             self.smu = None
@@ -692,6 +705,21 @@ class Window(QtGui.QMainWindow):
 
             self.smu.set_voltage(voltage=self.smu_bias)
             self.statusBar().showMessage('Setting SMU channel {} to {:.4g~}'.format(self.smu_channel, self.smu_bias), 3000)
+
+        try:
+            self.smu_settle_time = float(self.edit_bias_settle_time.text())
+        except:
+            self.statusBar().showMessage('Invalid input for SMU settle time', 3000)
+            self.smu_settle_time = 1.0
+            self.edit_bias_settle_time.setText('1.0')
+        else:
+            if self.smu_settle_time > 0.0 and self.smu_settle_time < 1000.0:
+                self.statusBar().showMessage('Setting SMU settle time {} sec'.format(self.smu_settle_time), 3000)
+            else:
+                self.statusBar().showMessage('Invalid input for SMU settle time', 3000)
+                self.smu_settle_time = 1.0
+                self.edit_bias_settle_time.setText('1.0')
+
 
     def set_directory(self):
         self.timer.stop()
@@ -1015,6 +1043,14 @@ class Window(QtGui.QMainWindow):
                 self.statusBar().showMessage('Canceled Photocurrent Experiment', 1000)
 
     def exp_li(self):
+        if self.smu is None:
+            print('Please connect source meter for this experiment')
+            return
+
+        if self.pm is None:
+            print('Please connect power meter for this experiment')
+            return
+
         print('Measuring L-I curve')
         saveDirectory, measDescription, fullpath = self.get_filename()
 
@@ -1026,6 +1062,7 @@ class Window(QtGui.QMainWindow):
                 print('winsound not available no beeping')
 
             start = time.time()
+
 
             # prepare source meter
             self.smu.set_mode("CURR")
@@ -1050,15 +1087,16 @@ class Window(QtGui.QMainWindow):
                 print('Measuring {}'.format(li_current.to_compact()))
 
                 self.smu.set_current(li_current)
-                sleep(1.0)
-                power = self.pm.power # Q_(1.0, 'W') #
+                sleep(self.smu_settle_time)
+                power1 = self.pm.power(channel=1) # Q_(1.0, 'W') #
+                power2 = self.pm.power(channel=2)
                 voltage = self.smu.measure_voltage() # Q_(1.0, 'V') #
 
-                data_out.append([li_current.magnitude, power.magnitude, voltage.magnitude])
+                data_out.append([li_current.magnitude, power1.magnitude, power2.magnitude, voltage.magnitude])
 
                 li_current = li_current + li_step
 
-            fields = 'Current [A],'+'Optical Power [W],'+'Voltage [V],'
+            fields = 'Current [A],'+'Optical Power Ch1 [W],'+'Optical Power Ch2 [W],'+'Voltage [V],'
             np.savetxt(fullpath, np.array(data_out), delimiter=',', header=fields, comments="")
 
             # return source meter to fast sampling
