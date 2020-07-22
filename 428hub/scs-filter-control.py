@@ -393,14 +393,14 @@ class Window(QtGui.QMainWindow):
 
         # Initialize tap Power meter
         try:
-            # from instrumental.drivers.powermeters.thorlabs import PM100A
+            from instrumental.drivers.powermeters.thorlabs import PM100A
+
+            self.pm_tap = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
+
+            # # Borrowed from spec lab
+            # from instrumental.drivers.powermeters.thorlabs import PM100D
             #
-            # self.pm_tap = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
-
-            # Borrowed from spec lab
-            from instrumental.drivers.powermeters.thorlabs import PM100D
-
-            self.pm_tap = PM100D(visa_address='USB0::0x1313::0x8078::P0007034::0::INSTR')
+            # self.pm_tap = PM100D(visa_address='USB0::0x1313::0x8078::P0007034::0::INSTR')
         except:
             print('PM100A Thorlabs Power meter not connected. ', sys.exc_info()[0])
             self.pm_tap = None

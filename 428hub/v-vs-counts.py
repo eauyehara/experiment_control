@@ -39,10 +39,10 @@ def main():
 	## Variables to set
 	##############################################################################
 	which_measurement = "Dark" # "Dark" or "Light"
-	pqc = "chip" # "pcb"
+	pqc = "pcb"# "chip" # "pcb"
 
 	Vbd = Q_(36, 'V') # [V]
-	max_overbias = 15 # [%] check if it doesn't go over 40V
+	max_overbias = 10 # [%] check if it doesn't go over 40V
 	step_overbias = 1.0 # [%] Each step 1% more overbias
 	integration_time = 10.0 # sec
 	bias_settle_time = 3.0 # sec
@@ -61,15 +61,15 @@ def main():
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
 	delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
 	# thresholds = np.arange(-0.005, -0.095, -0.01) # V
-	# thresholds = [-0.025, -0.05, -0.075]
+	thresholds = [-0.025, -0.05, -0.075]
 	# thresholds = [-0.025, -0.05, -0.1, -0.15, -0.2] # V
 	# thresholds = [-0.05, -0.5, -1, -1.5, -2] # V
-	thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
-	light_threshold = 2.5
+	# thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
+	light_threshold = -0.025
 
 	# Filenames
 	timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
-	fname = 'TC2_W3-15_PD4A-30um-onchip'
+	fname = 'TC1_W12-21_PD4A-8um'
 	csvname = './output/'+timestamp_str+ fname+'-{}.csv'.format(which_measurement)
 	imgname = './output/'+timestamp_str+ fname+ '-{}.png'.format(which_measurement)
 	temperature = 25.0
@@ -132,8 +132,9 @@ def main():
 	# Initialize tap Power meter
 	try:
 		from instrumental.drivers.powermeters.thorlabs import PM100A
-		POWERMETER = PM100A(visa_address=USB_address_POWERMETER)
-		#POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
+		#POWERMETER = PM100A(visa_address=USB_address_POWERMETER)
+
+		POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
 	except:
 		print('no powermeter available. exiting.')
 		POWERMETER=None
