@@ -44,8 +44,8 @@ def main():
 	Vbd = Q_(35, 'V') # [V]
 	max_overbias = 10 # [%] check if it doesn't go over 40V
 	step_overbias = 1.0 # [%] Each step 1% more overbias
-	integration_time = 1.0 # sec
-	bias_settle_time = 0.1 # sec
+	integration_time = 10.0 # sec
+	bias_settle_time = 3.0 # sec
 
 # # for testing
 	if False:
