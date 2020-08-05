@@ -41,8 +41,8 @@ def main():
 	which_measurement = "Light" # "Dark" or "Light"
 	pqc = "pcb"# "chip" # "pcb"
 
-	Vbd = Q_(36, 'V') # [V]
-	max_overbias = 15 # [%] check if it doesn't go over 40V
+	Vbd = Q_(35, 'V') # [V]
+	max_overbias = 20 # [%] check if it doesn't go over 40V
 	step_overbias = 1.0 # [%] Each step 1% more overbias
 	integration_time = 10.0 # sec
 	bias_settle_time = 3.0 # sec
@@ -69,7 +69,7 @@ def main():
 
 	# Filenames
 	timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
-	fname = 'TC1_W12-21_PD4A-8um'
+	fname = 'TC1_W12-35_PD4A-16um'
 	csvname = './output/'+timestamp_str+ fname+'-{}.csv'.format(which_measurement)
 	imgname = './output/'+timestamp_str+ fname+ '-{}.png'.format(which_measurement)
 	temperature = 25.0
