@@ -2,10 +2,10 @@
 
 ## Common setup
 
-### 0. Create Python 3.6 environment
+### 0. Create Python 3.6 environment named py36
 python-seabreeze does not support Python 3.7 and above
 ```
-$ conda create -f environment.yml python=3.6
+$ conda env create -f environment.yml python=3.6
 
 $ conda activate py36
 
