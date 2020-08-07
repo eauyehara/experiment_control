@@ -72,14 +72,14 @@ class Window(QtGui.QMainWindow):
         self.Kd = 0.0 #10.0
         self.feedback_timeout = 60.0
 
-        self.target_wl = Q_(550.0, 'nm')
+        self.target_wl = Q_(650.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
         self.smu_channel = 2
         self.smu_bias = Q_(0, 'V')
         self.motor_steps = 0
 
-        self.wavelength_start = Q_(550.0, 'nm')
-        self.wavelength_stop = Q_(554.0, 'nm')
+        self.wavelength_start = Q_(650.0, 'nm')
+        self.wavelength_stop = Q_(654.0, 'nm')
         self.wavelength_step = Q_(5.0, 'nm')
         self.exp_N = 500
 
@@ -414,7 +414,7 @@ class Window(QtGui.QMainWindow):
         #     # Try connecting to Keithley source meter instead
         #     try:
         #         from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
-        #         self.smu = Keithley_2400(visa_address='GPIB0::15::INSTR')
+        #         self.smu = Keithley_2400(visa_address='GPIB0::26::INSTR')
         #     except:
         #         print('Keithley 2400 Sourcemeter not connected. ', sys.exc_info()[0])
         #         self.smu = None
@@ -429,7 +429,7 @@ class Window(QtGui.QMainWindow):
         #     self.smu.set_voltage(voltage=self.smu_bias)
         #     self.smu.set_integration_time('short')
 
-        # initialize source meter
+        # # initialize source meter
         try:
             from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
             self.smu = Keithley_2400(visa_address='GPIB0::26::INSTR')
@@ -441,6 +441,7 @@ class Window(QtGui.QMainWindow):
             # Set default settings for smu
             self.smu_channel = None
             self.smu.set_voltage(voltage=self.smu_bias)
+            self.smu.set_current_compliance(compliance=Q_(1e-3, 'A'))
             # self.smu.set_integration_time('short')
 
 
@@ -871,7 +872,7 @@ class Window(QtGui.QMainWindow):
                 except:
                     print('winsound not available no beeping')
 
-                self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*250)
+                #self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*250)
             else:
                 self.statusBar().showMessage('Cancelled Illumination Experiment', 1000)
             # print([saveDirectory, measDescription])
@@ -908,8 +909,11 @@ class Window(QtGui.QMainWindow):
                 while (wl <= self.wavelength_stop and self.wavelength_step>0.0) or (wl >= self.wavelength_stop and self.wavelength_step<0.0):
                     print('Measuring {}'.format(wl.to_compact()))
 
-                    meas_wl = self.goto_wavelength(wl)
-                    # meas_wl = wl
+                    # only move when we are doing more than 1 step measurement
+                    if np.abs((self.wavelength_stop-wl)/self.wavelength_step)>1:
+                        meas_wl = self.goto_wavelength(wl)
+                    else:
+                        meas_wl = wl
 
                     # self.pm.wavelength = meas_wl
                     self.pm_tap.wavelength = meas_wl
@@ -957,7 +961,7 @@ class Window(QtGui.QMainWindow):
                     print('winsound not available no beeping')
 
 
-                self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*250)
+                # self.mc.go_steps(N=int(self.wavelength_stop.magnitude-self.wavelength_start.magnitude)*250)
             else:
                 self.statusBar().showMessage('Canceled Photocurrent Experiment', 1000)
 

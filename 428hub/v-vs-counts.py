@@ -39,16 +39,17 @@ def main():
 	## Variables to set
 	##############################################################################
 	which_measurement = "Dark" # "Dark" or "Light"
+	pqc = "chip" # "pcb"
 
-	Vbd = Q_(24, 'V') # [V]
-	max_overbias = 10 # [%]
+	Vbd = Q_(36, 'V') # [V]
+	max_overbias = 15 # [%] check if it doesn't go over 40V
 	step_overbias = 1.0 # [%] Each step 1% more overbias
-	integration_time = 5.0 # sec
+	integration_time = 10.0 # sec
 	bias_settle_time = 3.0 # sec
 
 # # for testing
 	if False:
-		which_measurement = "Dark" # "Dark" or "Light"
+		which_measurement = "Light" # "Dark" or "Light"
 		Vbd = Q_(1.0, 'V') # [V]
 		max_overbias = 10.0 # [%]
 		step_overbias = 5.0 # [%] Each step 1% more overbias
@@ -57,15 +58,18 @@ def main():
 
 
 	# Frequency measurements settings
-	slope = 'POS' # Positive('POS')/ Negative('NEG') slope trigger
+	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
 	delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
 	# thresholds = np.arange(-0.005, -0.095, -0.01) # V
 	# thresholds = [-0.025, -0.05, -0.075]
-	thresholds = [0.025] # V
+	# thresholds = [-0.025, -0.05, -0.1, -0.15, -0.2] # V
+	# thresholds = [-0.05, -0.5, -1, -1.5, -2] # V
+	thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
+	light_threshold = 2.5
 
 	# Filenames
 	timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
-	fname = 'TC2_W4-9_PD6D-30um'
+	fname = 'TC2_W3-15_PD4A-30um-onchip'
 	csvname = './output/'+timestamp_str+ fname+'-{}.csv'.format(which_measurement)
 	imgname = './output/'+timestamp_str+ fname+ '-{}.png'.format(which_measurement)
 	temperature = 25.0
@@ -73,7 +77,7 @@ def main():
 	experiment_info = '{}-integration {} sec, slope {}, bias settle time {} sec'.format(which_measurement, integration_time, slope, bias_settle_time)
 
 	# Tap power to Incident Power coefficient
-	power_measurement = np.genfromtxt('./output/550-cal.csv', delimiter=',', skip_header=1)
+	power_measurement = np.genfromtxt('./output/650-cal.csv', delimiter=',', skip_header=1)
 	wavelength = Q_(float(np.round(power_measurement[0])), 'nm')
 	print(wavelength)
 	tap_to_incident = power_measurement[5]
@@ -83,10 +87,10 @@ def main():
 	# nd_cfg = ["NE10B"]
 	nd_cfg = ["NE40B", "NE20B"]
 	nd_cfg = ["NE40B", "NE20B", "NE10B"]
-	nd_cfg = ["NE50A-A", "NE30B"]
+	nd_cfg = ["NE50A-A", "NE40B"]
+	#nd_cfg = ["NE50A-A", "NE30B"]
 	if which_measurement=="Light":
 		experiment_info = experiment_info + ', ND filters: {}'.format(nd_cfg)
-
 	try:
 		pickle_in = open("nd_cal.pickle", "rb")
 		nd_filters = pickle.load(pickle_in)
@@ -96,8 +100,8 @@ def main():
 		print('No ND calibration value pickle file, generating from csv data set in {}'.format(nd_cal_dir))
 
 		nd_filters = {
-			"NE10B": 0,
-			"NE20B": 0,
+			#"NE10B": 0,
+			#"NE20B": 0,
 			"NE30B": 0,
 			"NE40B": 0,
 			"NE50A-A": 0,
@@ -132,7 +136,7 @@ def main():
 		#POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
 	except:
 		print('no powermeter available. exiting.')
-		exit()
+		POWERMETER=None
 	else:
 		print('powermeter opened')
 		POWERMETER.wavelength = wavelength
@@ -148,10 +152,15 @@ def main():
 	else:
 		print('frequency counter connected.')
 		# initialize
-		with visa_timeout_context(COUNTER._rsrc, 1000): # timeout of 60,000 msec
+		with visa_timeout_context(COUNTER._rsrc, 60000): # timeout of 60,000 msec
 			COUNTER.set_mode_totalize(integration_time=integration_time)
 			COUNTER.coupling = 'DC'
-			COUNTER.impedance = Q_(50, 'ohm')
+			if pqc == "pcb":
+				print('pcb pqc setting to 50Ohm')
+				COUNTER.impedance = Q_(50, 'ohm')
+			elif pqc == "chip":
+				print('on chip pqc setting to 1MOhm')
+				COUNTER.impedance = Q_(1e6, 'ohm')
 			COUNTER.slope = 'NEG'
 
 			temperature = COUNTER.temp
@@ -170,9 +179,7 @@ def main():
 	# else:
 	# 	print('HP opened')
 	# 	SOURCEMETER.set_channel(channel=2)
-	#
-	# SOURCEMETER.set_current_compliance(Q_(1e-3, 'A'))
-	# bring_to_breakdown(SOURCEMETER, Vbd)
+
 	# initialize source meter
 	try:
 		from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
@@ -183,7 +190,7 @@ def main():
 	else:
 		print('Keithley connected.')
 
-	SOURCEMETER.set_current_compliance(Q_(1e-3, 'A'))
+	SOURCEMETER.set_current_compliance(Q_(8e-3, 'A'))
 	bring_to_breakdown(SOURCEMETER, Vbd)
 
 	# Start with dark measurements
@@ -194,18 +201,29 @@ def main():
 		# load latest dark measurements
 		import glob
 		# get latest Dark count data file name
-		dark_fname = glob.glob('./output/*'+fname+'-Dark.csv')[-1]
-		print(dark_fname)
+		try:
+			dark_fname = glob.glob('./output/*'+fname+'-Dark.csv')[-1]
+		except:
+			print('Dark results not available, run Dark measurement first.')
+			exit()
+		else:
+			print(dark_fname)
 		# or manually specify
 		# dark_fname = './output/'
 
-		dark_data = np.genfromtxt(dark_fname, delimiter=',', skip_header=1)
+		dark_data = np.genfromtxt(dark_fname, delimiter=',', skip_header=1, skip_footer=1)
 		vec_overbias = Q_(dark_data[:,0], 'V')
 		num_measures = len(vec_overbias)
-		dark_counts= dark_data[:,1].reshape((num_measures,len(thresholds)))
+		dark_counts= dark_data[:,thresholds.index(light_threshold)+1].reshape((num_measures,1))
 	else:
 		print('Choose Dark or Light for which_measurement, currently: {}'.format(which_measurement))
 		exit()
+
+	# truncate voltages beyond 2.5V above breakdown
+	if pqc=='chip':
+		vec_overbias = vec_overbias[vec_overbias < Vbd+Q_(2.5, 'V')]
+		num_measures = len(vec_overbias)
+		print('Adjusting bias range to {} to {} to protect on chip quench circuit'.format(vec_overbias[0], vec_overbias[-1]))
 
 	count_measurements = []
 	tap_avg_measurements = []
@@ -237,7 +255,7 @@ def main():
 				inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
 				pdpp = np.divide((counts[-1]-dark_counts[i]), inc_cps, where=inc_cps!=0)
 
-				print('     Counts: {}, dark cps: {}, Power avg: {:.2g}, Power std: {:.2g}, pdp={}'.format(measured[0], dark_counts[i], measured[1].value.magnitude, measured[1].error.magnitude, pdpp))
+				print('     Counts: {}, dark cps: {}, Power avg: {:.4g}, Power std: {:.2g}, incident counts={:.4g}, pdp={:.3g}'.format(measured[0], dark_counts[i], measured[1].value.magnitude, measured[1].error.magnitude, inc_cps, pdpp[0]))
 			else:
 				print('     Counts: {}, Power avg: {:.2g}, Power std: {:.2g}'.format(measured[0], measured[1].value.magnitude, measured[1].error.magnitude))
 
@@ -255,9 +273,9 @@ def main():
 	# Save results
 	if which_measurement == "Dark":
 		header = 'Bias [V],'+','.join(['cps @ vth={}'.format(vth) for vth in thresholds])
-		data_out = np.array(list(zip(vec_overbias.magnitude, count_measurements)))
-
-		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info)
+		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_measurements), axis=1)
+		# print(data_out)
+		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
 	elif which_measurement == "Light":
 		print('Checking shape of arrays: dark - {}, light- {}'.format(dark_counts.shape, count_measurements.shape))
 
@@ -292,11 +310,10 @@ def main():
 		plt.savefig(imgname+'PDP.png', dpi=300, bbox_inches='tight')
 
 		print(data_out)
-		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info)
+		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
 
 	bring_down_from_breakdown(SOURCEMETER, Vbd)
 	COUNTER.display = 'ON'
-
 	plt.figure()
 	plt.title("\n".join(wrap('Counts '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
 
@@ -316,7 +333,7 @@ def main():
 # Bring the SPAD from 0V to Vbias at Vbias V/step
 def bring_to_breakdown(SOURCEMETER, Vbd):
     Vinit = Q_(0, 'V')
-    Vstep = Q_(1.0, 'V')
+    Vstep = Q_(5.0, 'V')
 
     while (Vinit < Vbd):
         # SOURCEMETER.write(':SOUR1:VOLT {}'.format(Vinit))
@@ -331,7 +348,7 @@ def bring_to_breakdown(SOURCEMETER, Vbd):
 
 # Bring the SPAD from breakdown to 0V at Vstep V/step
 def bring_down_from_breakdown(SOURCEMETER, Vbd):
-    Vstep = Q_(1.0, 'V')
+    Vstep = Q_(5.0, 'V')
     Vinit = Vbd-Vstep
 
     while (Vinit > Q_(0, 'V')):
@@ -362,13 +379,15 @@ def take_measure(COUNTER, POWERMETER, Vthresh, integration_time):
 		COUNTER.write('INIT') # Initiate couting
 		COUNTER.write('*WAI')
 
-		power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
+		if POWERMETER is not None:
+			power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
+		else:
+			power = Q_(0.0, 'W').plus_minus(Q_(0.0, 'W'))
 		num_counts = float(COUNTER.query('FETC?'))
 
 		cps = num_counts/integration_time
 
 	return (cps, power)
-
 
 if __name__ == '__main__':
 	main()

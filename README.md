@@ -12,6 +12,19 @@ $ conda activate py36
 $ conda install -c anaconda ipython   # this is to make sure that iPython runs from this new environment
 ```
 
+or if you already have a Python 3.6 environment you may install the dependencies using this command
+
+```
+$ conda env update --file environment.yml --prune
+```
+
+To update the yaml file to reflect latest packages
+
+```
+$ conda env export > environment.yml
+```
+
+
 ### 1. Clone Mabuchi lab sources
 ```
 $ git clone https://github.com/mabuchilab/Instrumental.git
