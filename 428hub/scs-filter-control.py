@@ -82,13 +82,14 @@ class Window(QtGui.QMainWindow):
         self.biasV_start = Q_(1.0, 'V')
         self.biasV_stop = Q_(-25.0, 'V')
         self.biasV_step = Q_(-0.25, 'V')
-        self.exp_biasV_N = 500
+        self.exp_biasV_N = 250
 
         # Wavelength sweep parameters
         self.wavelength_start = Q_(650.0, 'nm')
         self.wavelength_stop = Q_(654.0, 'nm')
         self.wavelength_step = Q_(5.0, 'nm')
-        self.exp_N = 500
+        self.wavelength_bias = Q_(-2.5, 'V')
+        self.exp_N = 250
 
         self.initialize_instruments()
 
@@ -450,6 +451,11 @@ class Window(QtGui.QMainWindow):
             self.layout.addWidget(self.edit_wavelength_step, row,1,  1,1)
             row = row + 1
 
+            self.layout.addWidget(QtGui.QLabel('   Bias [V]:'), row,0,  1,1)
+            self.edit_wavelength_bias = QtGui.QLineEdit('{}'.format(self.wavelength_bias.magnitude))
+            self.edit_wavelength_bias.editingFinished.connect(self.set_sweep_params)
+            self.layout.addWidget(self.edit_wavelength_bias, row,1,  1,1)
+            row = row + 1
 
             self.layout.addWidget(QtGui.QLabel('   # of Samples'), row,0,  1,1)
             self.edit_exp_N = QtGui.QLineEdit('{}'.format(self.exp_N))
@@ -461,7 +467,7 @@ class Window(QtGui.QMainWindow):
             self.layout.addWidget(self.btn_single, row, 2, 1,1) # save spectra button
             row = row + 1
 
-        plot_row_height = 7
+        plot_row_height = 8
         # Plot of spectra
         self.p_spec = pg.PlotWidget()
         self.xlabel = self.p_spec.setLabel('bottom',text='Wavelength',units='nm')
@@ -719,6 +725,7 @@ class Window(QtGui.QMainWindow):
         self.wavelength_start = Q_(float(self.edit_wavelength_start.text()), 'nm')
         self.wavelength_stop = Q_(float(self.edit_wavelength_stop.text()), 'nm')
         self.wavelength_step = Q_(float(self.edit_wavelength_step.text()), 'nm')
+        self.wavelength_bias = Q_(float(self.edit_wavelength_bias.text()), 'V')
 
         self.exp_N = int(self.edit_exp_N.text())
 
@@ -843,7 +850,7 @@ class Window(QtGui.QMainWindow):
             self.current_data_timestamps.append(time.time()-self.current_data_timezero)
             meas_current = self.smu.measure_current()
             self.current_data.append(meas_current)
-            self.p_current.plot(self.current_data_timestamps, [data.magnitude for data in self.current_data], pen=(2,2))
+            self.p_current.plot(self.current_data_timestamps, [np.abs(data.magnitude) for data in self.current_data], pen=(2,2))
             self.label_photocurrent.setText('Photocurrent: {:9<4.4g~}'.format(meas_current.to_compact()))
 
         if self.mc is not None:
@@ -961,6 +968,7 @@ class Window(QtGui.QMainWindow):
 
                 # prepare source meter
                 self.set_smu_params()
+                self.smu.set_voltage(self.wavelength_bias)
                 # Keithley
                 if self.smu_channel== None:
                     self.smu.set_integration_time(0.2)
@@ -1012,12 +1020,15 @@ class Window(QtGui.QMainWindow):
                 fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Coefficient', 'Actual Power [W]'] + ['Responsivity [A/W]', 'Q.E.'] + ['average over {} points'.format(self.exp_N)]
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
-                # return source meter to fast sampling
-                # Keithley
+                # return source meter to previous state
+
                 if self.smu_channel== None:
+                    # Keithley
                     self.smu.set_integration_time(0.2)
                 else:
+                    # HP Parameter analyzer
                     self.smu.set_integration_time('short')
+                self.smu.set_voltage(self.smu_bias)
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
 
@@ -1111,6 +1122,7 @@ class Window(QtGui.QMainWindow):
                 else:
                     # HP Parameter analyzer
                     self.smu.set_integration_time('short')
+                self.smu.set_voltage(self.smu_bias)
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
 
