@@ -19,9 +19,9 @@ from os import path
 import csv
 
 import numpy as np
-import matplotlib.pyplot as plt
 from instrumental import Q_
 from instrumental.drivers.util import visa_timeout_context
+
 
 import pyqtgraph as pg
 import pyqtgraph.exporters
@@ -78,18 +78,10 @@ class Window(QtGui.QMainWindow):
         self.smu_bias = Q_(0, 'V')
         self.motor_steps = 0
 
-        # Voltage sweep parameters
-        self.biasV_start = Q_(1.0, 'V')
-        self.biasV_stop = Q_(-25.0, 'V')
-        self.biasV_step = Q_(-0.25, 'V')
-        self.exp_biasV_N = 250
-
-        # Wavelength sweep parameters
         self.wavelength_start = Q_(650.0, 'nm')
         self.wavelength_stop = Q_(654.0, 'nm')
         self.wavelength_step = Q_(5.0, 'nm')
-        self.wavelength_bias = Q_(-2.5, 'V')
-        self.exp_N = 250
+        self.exp_N = 500
 
         self.initialize_instruments()
 
@@ -98,105 +90,6 @@ class Window(QtGui.QMainWindow):
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.refresh_live_spectra)
         self.timer.start(Window.timer_factor*self.hr4000_params['IntegrationTime_micros']) # in msec
-
-    def initialize_instruments(self):
-        # Initialize HR4000 Spectrometer
-        try:
-            import seabreeze.spectrometers as sb
-
-            self.hr4000_params={'IntegrationTime_micros':200000}
-
-            devices = sb.list_devices()
-            self.spec = sb.Spectrometer(devices[0])
-        except:
-            print('HR4000 Spectrometer not connected')
-            self.spec = None
-        else:
-            self.spec.integration_time_micros(self.hr4000_params['IntegrationTime_micros'])
-
-        # Initialize Motor controller
-        try:
-            from instrumental.drivers.motion.klinger import KlingerMotorController
-
-            self.mc = KlingerMotorController(visa_address='GPIB0::8::INSTR')
-
-            # Set motor at high speed
-            # self.mc.set_steprate(R=245, S=1, F=20)
-            self.mc.set_steprate(R=250, S=1, F=20)
-        except:
-            print('Klinger Motor controller not connected')
-            self.mc = None
-
-        # Initialize Power meter
-        try:
-            from instrumental.drivers.powermeters.ilx_lightwave import OMM_6810B
-
-            self.pm = OMM_6810B(visa_address='GPIB0::2::INSTR')
-        except:
-            print('Power meter OMM-6810B Power meter not connected. ', sys.exc_info()[0])
-            self.pm = None
-        else:
-            self.pm.wavelength = self.target_wl
-            self.pm.set_no_filter()
-
-
-        # Initialize tap Power meter
-        try:
-            from instrumental.drivers.powermeters.thorlabs import PM100A
-
-            self.pm_tap = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
-
-            # # Borrowed from spec lab
-            # from instrumental.drivers.powermeters.thorlabs import PM100D
-            #
-            # self.pm_tap = PM100D(visa_address='USB0::0x1313::0x8078::P0007034::0::INSTR')
-        except:
-            print('Tap power meter PM100A Thorlabs Power meter not connected. ', sys.exc_info()[0])
-            self.pm_tap = None
-        else:
-            self.pm_tap.wavelength = self.target_wl
-            self.pm_tap.num_averaged = 1
-
-        # Initialize Source meter
-        try:
-            from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
-
-            self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
-        except:
-            print('HP 4156C Parameter Analyzer not connected. Trying Keithley 2400...', sys.exc_info()[0])
-
-            # Try connecting to Keithley source meter instead
-            try:
-                from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
-                self.smu = Keithley_2400(visa_address='GPIB0::26::INSTR')
-            except:
-                print('Keithley 2400 Sourcemeter not connected. ', sys.exc_info()[0])
-                self.smu = None
-            else:
-                # Set default settings for smu
-                self.smu_channel = None
-                self.smu.set_voltage(voltage=self.smu_bias)
-                self.smu.set_integration_time('short')
-        else:
-            # Set default settings for smu
-            self.smu.set_channel(channel=self.smu_channel)
-            self.smu.set_voltage(voltage=self.smu_bias)
-            self.smu.set_integration_time('short')
-
-        # # # initialize source meter
-        # try:
-        #     from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
-        #     self.smu = Keithley_2400(visa_address='GPIB0::26::INSTR')
-        # except:
-        #     print('no sourcemeter available. exiting.')
-        #     exit()
-        # else:
-        #     print('Keithley connected.')
-        #     # Set default settings for smu
-        #     self.smu_channel = None
-        #     self.smu.set_voltage(voltage=self.smu_bias)
-        #     self.smu.set_current_compliance(compliance=Q_(1e-3, 'A'))
-        #     # self.smu.set_integration_time('short')
 
     def initialize_gui(self):
         super(Window, self).__init__()
@@ -217,15 +110,9 @@ class Window(QtGui.QMainWindow):
         fileMenu.addAction(extractAction)
 
         ## Experiments menu, experiment availability aware
-        experimentMenu = mainMenu.addMenu('&Experiments')
-        if self.smu is not None:
-            measIVAction = QtGui.QAction("Measure I&V Curve", self)
-            measIVAction.setShortcut("Ctrl+M")
-            measIVAction.setStatusTip('Probe device before taking measurement')
-            measIVAction.triggered.connect(self.exp_iv)
-            experimentMenu.addAction(measIVAction)
-
         if self.spec is not None:
+            experimentMenu = mainMenu.addMenu('&Experiments')
+
             if self.pm is not None:
                 measIllumAction = QtGui.QAction("Measure &Illumination", self)
                 measIllumAction.setShortcut("Ctrl+I")
@@ -397,39 +284,7 @@ class Window(QtGui.QMainWindow):
             self.layout.addWidget(self.check_smu, row, 3, 1, 1)
             row = row+1
 
-            # IV curve related parameters
-            self.layout.addWidget(QtGui.QLabel('Voltage Sweep Parameters'), row,0,  1,1)
-            row = row+1
-
-            self.layout.addWidget(QtGui.QLabel('   Start Bias [V]:'), row,0,  1,1)
-            self.edit_biasV_start = QtGui.QLineEdit('{}'.format(self.biasV_start.magnitude))
-            self.edit_biasV_start.editingFinished.connect(self.set_biasV_sweep_params)
-            self.layout.addWidget(self.edit_biasV_start, row,1,  1,1)
-            row = row+1
-
-
-            self.layout.addWidget(QtGui.QLabel('   End Bias [V]:'), row,0,  1,1)
-            self.edit_biasV_stop = QtGui.QLineEdit('{}'.format(self.biasV_stop.magnitude))
-            self.edit_biasV_stop.editingFinished.connect(self.set_biasV_sweep_params)
-            self.layout.addWidget(self.edit_biasV_stop, row,1,  1,1)
-            row = row+1
-
-
-            self.layout.addWidget(QtGui.QLabel('   Step Bias [V]:'), row,0,  1,1)
-            self.edit_biasV_step = QtGui.QLineEdit('{}'.format(self.biasV_step.magnitude))
-            self.edit_biasV_step.editingFinished.connect(self.set_biasV_sweep_params)
-            self.layout.addWidget(self.edit_biasV_step, row,1,  1,1)
-            row = row + 1
-
-            self.layout.addWidget(QtGui.QLabel('   # of Samples'), row,0,  1,1)
-            self.edit_exp_biasV_N = QtGui.QLineEdit('{}'.format(self.exp_biasV_N))
-            self.edit_exp_biasV_N.editingFinished.connect(self.set_biasV_sweep_params)
-            self.layout.addWidget(self.edit_exp_biasV_N, row,1,  1,1)
-            row = row+1
-
         if self.spec is not None:
-            self.layout.addWidget(QtGui.QLabel('Wavelength Sweep Parameters'), row,0,  1,1)
-            row = row+1
 
             self.layout.addWidget(QtGui.QLabel('   Start [nm]:'), row,0,  1,1)
             self.edit_wavelength_start = QtGui.QLineEdit('{}'.format(self.wavelength_start.magnitude))
@@ -451,11 +306,6 @@ class Window(QtGui.QMainWindow):
             self.layout.addWidget(self.edit_wavelength_step, row,1,  1,1)
             row = row + 1
 
-            self.layout.addWidget(QtGui.QLabel('   Bias [V]:'), row,0,  1,1)
-            self.edit_wavelength_bias = QtGui.QLineEdit('{}'.format(self.wavelength_bias.magnitude))
-            self.edit_wavelength_bias.editingFinished.connect(self.set_sweep_params)
-            self.layout.addWidget(self.edit_wavelength_bias, row,1,  1,1)
-            row = row + 1
 
             self.layout.addWidget(QtGui.QLabel('   # of Samples'), row,0,  1,1)
             self.edit_exp_N = QtGui.QLineEdit('{}'.format(self.exp_N))
@@ -467,26 +317,25 @@ class Window(QtGui.QMainWindow):
             self.layout.addWidget(self.btn_single, row, 2, 1,1) # save spectra button
             row = row + 1
 
-        plot_row_height = 8
         # Plot of spectra
         self.p_spec = pg.PlotWidget()
         self.xlabel = self.p_spec.setLabel('bottom',text='Wavelength',units='nm')
         self.ylabel = self.p_spec.setLabel('left',text='Counts',units='Arb. Unit')
-        self.layout.addWidget(self.p_spec, 0, 4, plot_row_height, 6)
+        self.layout.addWidget(self.p_spec, 0, 4, int(row/2)+2, int(row/2)+2)
 
         # Plot of power fluctuations
         self.p_power = pg.PlotWidget()
         self.p_power.setLabel('bottom',text='Time',units='sec')
         self.p_power.setLabel('left',text='Power',units='W')
         self.p_power.setLogMode(x=None, y=True)
-        self.layout.addWidget(self.p_power, 1*plot_row_height, 4, plot_row_height, 6)
+        self.layout.addWidget(self.p_power, int(row/2)+2, 4, int(row/2), int(row/2)+2)
 
         # Plot of photocurrent fluctuations
         self.p_current = pg.PlotWidget()
         self.p_current.setLabel('bottom',text='Time',units='sec')
         self.p_current.setLabel('left',text='Photocurrent',units='A')
         self.p_current.setLogMode(x=None, y=True)
-        self.layout.addWidget(self.p_current, 2*plot_row_height, 4, plot_row_height, 6)
+        self.layout.addWidget(self.p_current, row+2, 4, int(row/2), int(row/2)+2)
 
         # # Plot of tap power fluctuations
         # self.p_tap_power = pg.PlotWidget()
@@ -497,11 +346,110 @@ class Window(QtGui.QMainWindow):
         # Equalizes column stretch factor
         for i in range(self.layout.columnCount()):
             self.layout.setColumnStretch(i, 1)
-        # Equalizes row stretch factor
-        for i in range(self.layout.rowCount()):
-            self.layout.setRowStretch(i, 1)
+        # self.layout.setColumnStretch(4, 10)
 
         self.show()
+
+    def initialize_instruments(self):
+        # Initialize HR4000 Spectrometer
+        # try:
+        #     import seabreeze.spectrometers as sb
+        #
+        #     self.hr4000_params={'IntegrationTime_micros':200000}
+        #
+        #     devices = sb.list_devices()
+        #     self.spec = sb.Spectrometer(devices[0])
+        # except:
+        #     print('HR4000 Spectrometer not connected')
+        #     self.spec = None
+        # else:
+        #     self.spec.integration_time_micros(self.hr4000_params['IntegrationTime_micros'])
+        print('No spectrometer in at home setup')
+        self.spec = None
+
+        # # Initialize Motor controller
+        # try:
+        #     from instrumental.drivers.motion.klinger import KlingerMotorController
+        #
+        #     self.mc = KlingerMotorController(visa_address='GPIB0::8::INSTR')
+        #
+        #     # Set motor at high speed
+        #     # self.mc.set_steprate(R=245, S=1, F=20)
+        #     self.mc.set_steprate(R=250, S=1, F=20)
+        # except:
+        #     print('Klinger Motor controller not connected')
+        #     self.mc = None
+        print('No motor controller in at home setup')
+        self.mc = None
+
+        # Initialize Power meter
+        try:
+            from instrumental.drivers.powermeters.ilx_lightwave import OMM_6810B
+
+            self.pm = OMM_6810B(visa_address='GPIB0::2::INSTR')
+        except:
+            print('OMM-6810B Power meter not connected. ', sys.exc_info()[0])
+            self.pm = None
+        else:
+            print('Main power meter connected')
+            self.pm.wavelength = self.target_wl
+            self.pm.set_no_filter()
+
+
+        # Initialize tap Power meter
+        try:
+            from instrumental.drivers.powermeters.thorlabs import PM100A
+
+            self.pm_tap = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
+        except:
+            print('PM100A Thorlabs Power meter not connected. ', sys.exc_info()[0])
+            self.pm_tap = None
+        else:
+            print('Tap power meter connected')
+            self.pm_tap.wavelength = self.target_wl
+            self.pm_tap.num_averaged = 1
+
+        # Initialize Source meter
+        # try:
+        #     from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
+        #
+        #     self.smu = HP_4156C(visa_address='GPIB0::17::INSTR')
+        # except:
+        #     print('HP 4156C Parameter Analyzer not connected. Trying Keithley 2400...', sys.exc_info()[0])
+        #
+        #     # Try connecting to Keithley source meter instead
+        #     try:
+        #         from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+        #         self.smu = Keithley_2400(visa_address='GPIB0::26::INSTR')
+        #     except:
+        #         print('Keithley 2400 Sourcemeter not connected. ', sys.exc_info()[0])
+        #         self.smu = None
+        #     else:
+        #         # Set default settings for smu
+        #         self.smu_channel = None
+        #         self.smu.set_voltage(voltage=self.smu_bias)
+        #         self.smu.set_integration_time('short')
+        # else:
+        #     # Set default settings for smu
+        #     self.smu.set_channel(channel=self.smu_channel)
+        #     self.smu.set_voltage(voltage=self.smu_bias)
+        #     self.smu.set_integration_time('short')
+
+        # # initialize source meter
+        try:
+            from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+            self.smu = Keithley_2400(visa_address='GPIB0::15::INSTR')
+        except:
+            print('no sourcemeter available. exiting.')
+            exit()
+        else:
+            print('Keithley connected.')
+            # Set default settings for smu
+            self.smu_channel = None
+            self.smu.set_voltage(voltage=self.smu_bias)
+            self.smu.set_current_compliance(compliance=Q_(1e-3, 'A'))
+            # self.smu.set_integration_time('short')
+
 
     # UI Event handlers
     def save_spectra(self):
@@ -720,26 +668,14 @@ class Window(QtGui.QMainWindow):
 
         # self.goto_wavelength(wavelength = self.target_wl)
 
-    # Set parameters for wavelength sweep
     def set_sweep_params(self):
         self.wavelength_start = Q_(float(self.edit_wavelength_start.text()), 'nm')
         self.wavelength_stop = Q_(float(self.edit_wavelength_stop.text()), 'nm')
         self.wavelength_step = Q_(float(self.edit_wavelength_step.text()), 'nm')
-        self.wavelength_bias = Q_(float(self.edit_wavelength_bias.text()), 'V')
 
         self.exp_N = int(self.edit_exp_N.text())
 
-        self.statusBar().showMessage('Setting wavelength sweep parameters', 1000)
-
-    # Set parameters for bias voltage sweep
-    def set_biasV_sweep_params(self):
-        self.biasV_start = Q_(float(self.edit_biasV_start.text()), 'V')
-        self.biasV_stop = Q_(float(self.edit_biasV_stop.text()), 'V')
-        self.biasV_step = Q_(float(self.edit_biasV_step.text()), 'V')
-
-        self.exp_biasV_N = int(self.edit_exp_biasV_N.text())
-
-        self.statusBar().showMessage('Setting Voltage IV sweep parameters', 1000)
+        self.statusBar().showMessage('Setting wavelength sweep', 1000)
 
     def toggle_feedback(self, state):
         self.feedback_state = int(state)
@@ -850,7 +786,7 @@ class Window(QtGui.QMainWindow):
             self.current_data_timestamps.append(time.time()-self.current_data_timezero)
             meas_current = self.smu.measure_current()
             self.current_data.append(meas_current)
-            self.p_current.plot(self.current_data_timestamps, [np.abs(data.magnitude) for data in self.current_data], pen=(2,2))
+            self.p_current.plot(self.current_data_timestamps, [data.magnitude for data in self.current_data], pen=(2,2))
             self.label_photocurrent.setText('Photocurrent: {:9<4.4g~}'.format(meas_current.to_compact()))
 
         if self.mc is not None:
@@ -870,8 +806,7 @@ class Window(QtGui.QMainWindow):
             print('Measuring Illumination')
             saveDirectory, measDescription, fullpath = self.get_filename()
 
-            # check that a file name is designated and that the sweep parameters are correct
-            if len(measDescription)>0 and (self.wavelength_stop-self.wavelength_start)*self.wavelength_step>0.0:
+            if len(measDescription)>0:
 
                 start = time.time()
                 # prepare power meter
@@ -892,12 +827,11 @@ class Window(QtGui.QMainWindow):
                         print('winsound not available no beeping')
 
                     # only move when we are doing more than 1 step measurement
-                    if np.abs((self.wavelength_stop-self.wavelength_start)/self.wavelength_step)>1:
+                    if np.abs((self.wavelength_stop-wl)/self.wavelength_step)>1:
                         meas_wl = self.goto_wavelength(wl)
                     else:
                         meas_wl = wl
 
-                    sleep(5.0)
                     self.pm.wavelength = meas_wl
                     self.pm_tap.wavelength = meas_wl
                     data_x.append(meas_wl.magnitude)
@@ -955,8 +889,7 @@ class Window(QtGui.QMainWindow):
             print('Measuring photocurrent')
             saveDirectory, measDescription, fullpath = self.get_filename()
 
-            # check that a file name is designated and that the sweep parameters are correct
-            if len(measDescription)>0 and (self.wavelength_stop-self.wavelength_start)*self.wavelength_step>0.0:
+            if len(measDescription)>0:
 
                 try:
                     import winsound
@@ -968,7 +901,6 @@ class Window(QtGui.QMainWindow):
 
                 # prepare source meter
                 self.set_smu_params()
-                self.smu.set_voltage(self.wavelength_bias)
                 # Keithley
                 if self.smu_channel== None:
                     self.smu.set_integration_time(0.2)
@@ -984,12 +916,11 @@ class Window(QtGui.QMainWindow):
                     print('Measuring {}'.format(wl.to_compact()))
 
                     # only move when we are doing more than 1 step measurement
-                    if np.abs((self.wavelength_stop-self.wavelength_start)/self.wavelength_step)>1:
+                    if np.abs((self.wavelength_stop-wl)/self.wavelength_step)>1:
                         meas_wl = self.goto_wavelength(wl)
                     else:
                         meas_wl = wl
 
-                    sleep(5.0)
                     # self.pm.wavelength = meas_wl
                     self.pm_tap.wavelength = meas_wl
                     data_x.append(meas_wl.magnitude)
@@ -1020,15 +951,12 @@ class Window(QtGui.QMainWindow):
                 fields = ['Wavelength [nm]'] + ['Avg. Photocurrent [A]', 'Std Dev [A]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Coefficient', 'Actual Power [W]'] + ['Responsivity [A/W]', 'Q.E.'] + ['average over {} points'.format(self.exp_N)]
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
-                # return source meter to previous state
-
+                # return source meter to fast sampling
+                # Keithley
                 if self.smu_channel== None:
-                    # Keithley
                     self.smu.set_integration_time(0.2)
                 else:
-                    # HP Parameter analyzer
                     self.smu.set_integration_time('short')
-                self.smu.set_voltage(self.smu_bias)
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
 
@@ -1044,12 +972,12 @@ class Window(QtGui.QMainWindow):
                 self.statusBar().showMessage('Canceled Photocurrent Experiment', 1000)
 
     def exp_iv(self):
+        pass
         with visa_timeout_context(self.smu._rsrc, 5000):
-            print('\nMeasuring IV curve')
+            print('Measuring IV curve')
             saveDirectory, measDescription, fullpath = self.get_filename()
 
-            # check that a file name is designated and that the sweep parameters are correct
-            if len(measDescription)>0 and (self.biasV_stop-self.biasV_start)*self.biasV_step>0.0:
+            if len(measDescription)>0:
                 try:
                     import winsound
                     winsound.Beep(2200, 1000)
@@ -1060,36 +988,30 @@ class Window(QtGui.QMainWindow):
 
                 # prepare source meter
                 self.set_smu_params()
-
+                # Keithley
                 if self.smu_channel== None:
-                    # Keithley 2400
                     self.smu.set_integration_time(1.0)
                 else:
-                    # HP Parameter analyzer
                     self.smu.set_integration_time('long')
 
                 #  Load measurement parameters
-                bias = self.biasV_start
+                bias = self.bias_start
 
                 data_x = []
                 data_y = []
-                while (bias <= self.biasV_stop and self.biasV_step>0.0) or (bias >= self.biasV_stop and self.biasV_step<0.0):
+                while bias <= self.bias_stop:
                     print('Measuring current at bias {}'.format(bias.to_compact()))
 
                     self.smu.set_voltage(bias)
-                    sleep(1.0) # wait a second for bias to settle
 
                     data_x.append(bias.magnitude)
 
                     data_row = []
                     data_row2 = []
-                    for n in range(self.exp_biasV_N):
+                    for n in range(self.exp_N):
                         data_row.append(self.smu.measure_current())
-                        if self.pm_tap is not None:
-                            data_row2.append(self.pm_tap.power)
-                        else:
-                            data_row2.append(Q_(0.0, 'W'))
-                        print('   Sample {} at {}: {}  with {}'.format(n, bias, data_row[-1], data_row2[-1]))
+                        data_row2.append(self.pm_tap.power)
+                        print('   Sample {} at {}: {}  with {}'.format(n, meas_wl, data_row[-1], data_row2[-1]))
                     # Append average and stdev
                     data_mean = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row]))
                     data_std = np.std(np.array([measure.to_base_units().magnitude for measure in data_row]))
@@ -1102,27 +1024,20 @@ class Window(QtGui.QMainWindow):
 
                     data_y.append([Q_(data_mean, 'A'), Q_(data_std, 'A'), Q_(data_mean2, 'W'), Q_(data_std2, 'W')])
 
-                    bias = bias + self.biasV_step
+                    self.refresh_live_spectra()
+
+                    wl = wl + self.wavelength_step
 
                 # fields = ['Wavelength [nm]'] + ['Avg. Power [A]', 'Std Dev [A]'] + ['Photocurrent {} [A]'.format(n) for n in range(self.exp_N)]
-                fields = ['Voltage [V]', 'Avg. Current [A]', 'Current stdev [A]', 'Avg. Tap Power [W]', 'Tap Power stdev [W]']
+                fields = ['Voltage [V]'] + ['Current [A]']
                 self.save_to_csv(saveDirectory, measDescription, fields, data_x, data_y)
 
-                plt.figure()
-                plt.semilogy(data_x, [np.abs(row[0].magnitude) for row in data_y])
-                plt.xlabel('Bias [V]')
-                plt.ylabel('Current [A]')
-                plt.savefig(path.normpath(path.join(saveDirectory,measDescription+'.png')))
-
                 # return source meter to fast sampling
-
+                # Keithley
                 if self.smu_channel== None:
-                    # Keithley 2400
                     self.smu.set_integration_time(0.2)
                 else:
-                    # HP Parameter analyzer
                     self.smu.set_integration_time('short')
-                self.smu.set_voltage(self.smu_bias)
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
 
@@ -1132,7 +1047,7 @@ class Window(QtGui.QMainWindow):
                 except:
                     print('winsound not available no beeping')
             else:
-                self.statusBar().showMessage('Canceled IV Experiment, check parameters', 1000)
+                self.statusBar().showMessage('Canceled IV Experiment', 1000)
 
     def close_application(self):
         sys.exit()

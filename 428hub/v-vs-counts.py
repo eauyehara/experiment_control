@@ -38,8 +38,8 @@ def main():
 	##############################################################################
 	## Variables to set
 	##############################################################################
-	which_measurement = "Dark" # "Dark" or "Light"
-	pqc = "chip" # "pcb"
+	which_measurement = "Light" # "Dark" or "Light"
+	pqc = "pcb"# "chip" # "pcb"
 
 	Vbd = Q_(36, 'V') # [V]
 	max_overbias = 15 # [%] check if it doesn't go over 40V
@@ -61,15 +61,15 @@ def main():
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
 	delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
 	# thresholds = np.arange(-0.005, -0.095, -0.01) # V
-	# thresholds = [-0.025, -0.05, -0.075]
+	thresholds = [-0.025, -0.05, -0.075]
 	# thresholds = [-0.025, -0.05, -0.1, -0.15, -0.2] # V
 	# thresholds = [-0.05, -0.5, -1, -1.5, -2] # V
-	thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
-	light_threshold = 2.5
+	# thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
+	light_threshold = -0.025
 
 	# Filenames
 	timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
-	fname = 'TC2_W3-15_PD4A-30um-onchip'
+	fname = 'TC1_W12-21_PD4A-8um'
 	csvname = './output/'+timestamp_str+ fname+'-{}.csv'.format(which_measurement)
 	imgname = './output/'+timestamp_str+ fname+ '-{}.png'.format(which_measurement)
 	temperature = 25.0
@@ -132,8 +132,9 @@ def main():
 	# Initialize tap Power meter
 	try:
 		from instrumental.drivers.powermeters.thorlabs import PM100A
-		POWERMETER = PM100A(visa_address=USB_address_POWERMETER)
-		#POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
+		#POWERMETER = PM100A(visa_address=USB_address_POWERMETER)
+
+		POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
 	except:
 		print('no powermeter available. exiting.')
 		POWERMETER=None
@@ -214,7 +215,6 @@ def main():
 		dark_data = np.genfromtxt(dark_fname, delimiter=',', skip_header=1, skip_footer=1)
 		vec_overbias = Q_(dark_data[:,0], 'V')
 		num_measures = len(vec_overbias)
-		dark_counts= dark_data[:,thresholds.index(light_threshold)+1].reshape((num_measures,1))
 	else:
 		print('Choose Dark or Light for which_measurement, currently: {}'.format(which_measurement))
 		exit()
@@ -232,7 +232,7 @@ def main():
 	print('Performing {} measurement...'.format(which_measurement))
 
 	for i in range(num_measures):
-		print('{} out of {}'.format(i+1, num_measures))
+		print('\n{} out of {}'.format(i+1, num_measures))
 		SOURCEMETER.set_voltage(vec_overbias[i])
 		time.sleep(bias_settle_time)
 
@@ -249,13 +249,23 @@ def main():
 			power_std.append(measured[1].error.magnitude)
 
 			if which_measurement=="Light":
+				# Set dark counts according to current Vthreshold
+				try:
+					dark_counts= dark_data[:,thresholds.index(Vthresh)+1].reshape((num_measures,1))
+				except:
+					print('Dark and light measurement thresholds do not match')
+					dark_counts= dark_data[:,0].reshape((num_measures,1))
+					print('using dark count data {}'.format(dark_counts))
+
 				act_power = power[-1]*tap_to_incident
 				for nd_filter in nd_cfg: # attenuate
 					act_power = act_power*nd_filters[nd_filter]
 				inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
 				pdpp = np.divide((counts[-1]-dark_counts[i]), inc_cps, where=inc_cps!=0)
 
-				print('     Counts: {}, dark cps: {}, Power avg: {:.4g}, Power std: {:.2g}, incident counts={:.4g}, pdp={:.3g}'.format(measured[0], dark_counts[i], measured[1].value.magnitude, measured[1].error.magnitude, inc_cps, pdpp[0]))
+				print('     	Counts: {}, dark cps: {}, pdp={:.3g}'.format(measured[0], dark_counts[i], pdpp[0]))
+				print('     		Power avg: {:.2g}, std: {:.2g}'.format(measured[1].value.magnitude, measured[1].error.magnitude))
+				print('     		Incident pwr: {:.2g}, cps={:.2g}'.format(act_power, inc_cps))
 			else:
 				print('     Counts: {}, Power avg: {:.2g}, Power std: {:.2g}'.format(measured[0], measured[1].value.magnitude, measured[1].error.magnitude))
 
@@ -294,9 +304,9 @@ def main():
 			['Tap power std[W] @ vth={}'.format(vth) for vth in thresholds] +
 			['Actual power[W] @ vth={}'.format(vth) for vth in thresholds] +
 			['Incident cps @ vth={}'.format(vth) for vth in thresholds] +
-			['PDP[%] @ vth={}'.format(vth) for vth in thresholds] )
+			['PDP @ vth={}'.format(vth) for vth in thresholds] )
 
-		experiment_info = experiment_info + ', {}nm'.format(wavelength.magnitude)
+		experiment_info = experiment_info + ', {}nm'.format(wavelength.magnitude) + ', Dark count data {}'.format(dark_fname)
 
 		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_measurements, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps, pdp), axis=1)
 
@@ -304,12 +314,13 @@ def main():
 		plt.title("\n".join(wrap('PDP '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
 		plt.plot(vec_overbias.magnitude, pdp, 'o-') # plot first threshold data
 		plt.xlabel('Bias [V]')
-		plt.ylabel('PDP [%]')
-		plt.ylim([0,1.0])
+		plt.ylabel('PDP')
+		plt.legend([str(vth) for vth in thresholds])
+		# plt.ylim([0,1.0])
 		plt.grid(True, which='both', linestyle=':', linewidth=0.3)
 		plt.savefig(imgname+'PDP.png', dpi=300, bbox_inches='tight')
 
-		print(data_out)
+		#print(data_out)
 		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
 
 	bring_down_from_breakdown(SOURCEMETER, Vbd)

@@ -7,3 +7,6 @@
 
 # ipython checkpoint directory
 .ipynb_checkpoints
+
+# output data directory
+output
