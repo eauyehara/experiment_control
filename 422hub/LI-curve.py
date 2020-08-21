@@ -70,7 +70,7 @@ class Window(QtGui.QMainWindow):
 
         self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
-        
+
         self.smu_channel = 2
         self.smu_settle_time = 1.0 # seconds
 
@@ -314,10 +314,10 @@ class Window(QtGui.QMainWindow):
             self.layout.addWidget(self.edit_bias, row, col,  1,1)
 
             col = col+1
-            
+
             self.layout.addWidget(QtGui.QLabel('SMU settle time [sec]'), row,col,  1,1)
             col = col+1
-            
+
             self.edit_bias_settle_time = QtGui.QLineEdit('{:.4g}'.format(self.smu_settle_time))
             self.edit_bias_settle_time.editingFinished.connect(self.set_smu_params)
             self.layout.addWidget(self.edit_bias_settle_time, row, col,  1,1)
@@ -1067,7 +1067,7 @@ class Window(QtGui.QMainWindow):
             # prepare source meter
             self.smu.set_mode("CURR")
             if self.smu_channel== None:
-                self.smu.set_integration_time(1.0)
+                self.smu.set_integration_time(0.1)
             else:
                 self.smu.set_integration_time('long')
 
