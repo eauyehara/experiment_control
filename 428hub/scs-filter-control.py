@@ -799,7 +799,7 @@ class Window(QtGui.QMainWindow):
     def refresh_live_spectra(self):
         if self.spec is not None:
             # print('Refreshing plot')
-            self.spectra_data = np.transpose( self.spec.spectrum() )
+            self.spectra_data = np.transpose( self.spec.spectrum(correct_dark_counts=True, correct_nonlinearity=True) )
             self.p_spec.plot(self.spectra_data, clear=True)
 
             # refresh peak wavelength
