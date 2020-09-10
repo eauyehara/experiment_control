@@ -226,6 +226,12 @@ class Window(QtGui.QMainWindow):
             experimentMenu.addAction(measIVAction)
 
         if self.spec is not None:
+            measSpectraAction = QtGui.QAction("Measure &Spectra", self)
+            measSpectraAction.setShortcut("Ctrl+S")
+            measSpectraAction.setStatusTip('Measuring spectra')
+            measSpectraAction.triggered.connect(self.exp_spectra)
+            experimentMenu.addAction(measSpectraAction)
+
             if self.pm is not None:
                 measIllumAction = QtGui.QAction("Measure &Illumination", self)
                 measIllumAction.setShortcut("Ctrl+I")
@@ -281,6 +287,14 @@ class Window(QtGui.QMainWindow):
             self.btn_setparam.clicked.connect(self.set_spec_params)
             self.layout.addWidget(self.btn_setparam, row, 2,  1,1) # Set parameters button
 
+            row = row+1
+
+
+            self.check_spectra_avg = QtGui.QCheckBox('Spectra Averaging on?')
+            self.layout.addWidget(self.check_spectra_avg, row, 1, 1,1)
+
+            self.check_spectra_correct = QtGui.QCheckBox('Spectra nonlinear correction on?')
+            self.layout.addWidget(self.check_spectra_correct, row, 2, 1,1)
             row = row+1
 
         self.layout.addWidget(QtGui.QLabel('Target Wavelength [nm]'), row,0, 1,1)
@@ -798,8 +812,15 @@ class Window(QtGui.QMainWindow):
     # Timer event handler
     def refresh_live_spectra(self):
         if self.spec is not None:
-            # print('Refreshing plot')
-            self.spectra_data = np.transpose( self.spec.spectrum(correct_dark_counts=True, correct_nonlinearity=True) )
+            # Check checkbox GUI to set options for spectrometer data acquisition
+            averaging = False
+            correction = False
+            if self.check_spectra_avg.isChecked():
+                averaging =True
+            if self.check_spectra_correct.isChecked():
+                correction =True
+
+            self.spectra_data = np.transpose( self.spec.spectrum(correct_dark_counts=averaging, correct_nonlinearity=correction) )
             self.p_spec.plot(self.spectra_data, clear=True)
 
             # refresh peak wavelength
@@ -949,6 +970,51 @@ class Window(QtGui.QMainWindow):
                 self.statusBar().showMessage('Cancelled Illumination Experiment', 1000)
             # print([saveDirectory, measDescription])
 
+    def exp_spectra(self):
+
+        print('Measuring Spectra')
+        saveDirectory, measDescription, fullpath = self.get_filename()
+
+        # check that a file name is designated
+        if len(measDescription)>0:
+
+            self.timer.stop()
+            timestamp_str = datetime.strftime(datetime.now(),'%Y_%m_%d_%H_%M_%S')
+
+            # Save csv
+            fname = measDescription+'-'+timestamp_str+'.csv'
+            fpath = path.normpath(path.join(saveDirectory,fname))
+
+            with open(fpath, 'w', newline='') as csvfile:
+                csvwriter = csv.writer(csvfile, dialect='excel')
+                csvwriter.writerow(['Wavelength nm', 'Count', 'Integration time', str(self.hr4000_params['IntegrationTime_micros'])])
+
+                for i in range(self.spectra_data.shape[0]):
+                    csvwriter.writerow([str(self.spectra_data[i,0]), str(self.spectra_data[i,1])])
+
+            # Save png
+            fname = self.measDescription.text()+'-'+timestamp_str+'.png'
+            fpath = path.normpath(path.join(saveDirectory,fname))
+
+            # QtGui.QApplication.processEvents()
+            # create an exporter instance, as an argument give it
+            # the item you wish to export
+            exporter = pg.exporters.ImageExporter(self.p_spec.scene())
+            exporter.export(fpath)
+
+            self.statusBar().showMessage('Saved spectra to {}'.format(fpath), 5000)
+            # restart timer
+            self.timer.start(max([Window.timer_factor*self.hr4000_params['IntegrationTime_micros'], 200.0])) # in msec
+
+            print('Experiment lasted {} seconds'.format(time.time()-start))
+
+            try:
+                import winsound
+                winsound.Beep(2500, 1000)
+            except:
+                print('winsound not available no beeping')
+        else:
+            self.statusBar().showMessage('Cancelled Illumination Experiment', 1000)
 
     def exp_photocurrent(self):
         with visa_timeout_context(self.smu._rsrc, 5000):
