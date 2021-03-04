@@ -847,9 +847,10 @@ class Window(QtGui.QMainWindow):
 
                 if self.pm is not None:
                     with visa_timeout_context(self.pm._rsrc, 1000):
-                        # Change power meter wavelength if peak detected
-                        if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
-                            self.pm.wavelength = self.current_wl
+                        if self.spec is not None:
+                            # Change power meter wavelength if peak detected
+                            if max(self.spectra_data[:,1])-min(self.spectra_data[:,1]) > 1000:
+                                self.pm.wavelength = self.current_wl
 
                         meas_power = self.pm.power()
                     label_illumpower_text = 'Actual: {:0<4.4g~},'.format(meas_power.to_compact())
