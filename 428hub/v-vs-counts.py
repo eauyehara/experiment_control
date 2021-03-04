@@ -39,17 +39,18 @@ def main():
 	## Variables to set
 	##############################################################################
 	which_measurement = "Light" # "Dark" or "Light"
-	pqc = "pcb"# "chip" # "pcb"
+	pqc = "chip"# "chip" # "pcb"
 
-	Vbd = Q_(35, 'V') # [V]
+	# Vbd = Q_(35, 'V') # [V] for PD4Q
+	Vbd = Q_(25, 'V') # [V] for PD6D
 	max_overbias = 20 # [%] check if it doesn't go over 40V
 	step_overbias = 1.0 # [%] Each step 1% more overbias
 	integration_time = 10.0 # sec
 	bias_settle_time = 3.0 # sec
 
 # # for testing
-	if False:
-		which_measurement = "Light" # "Dark" or "Light"
+	if True:
+		which_measurement = "Dark" # "Dark" or "Light"
 		Vbd = Q_(1.0, 'V') # [V]
 		max_overbias = 10.0 # [%]
 		step_overbias = 5.0 # [%] Each step 1% more overbias
@@ -61,7 +62,8 @@ def main():
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
 	delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
 	# thresholds = np.arange(-0.005, -0.095, -0.01) # V
-	thresholds = [-0.025, -0.05, -0.075]
+	thresholds = [-0.05]
+	# thresholds = [-0.025, -0.05, -0.075]
 	# thresholds = [-0.025, -0.05, -0.1, -0.15, -0.2] # V
 	# thresholds = [-0.05, -0.5, -1, -1.5, -2] # V
 	# thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
@@ -69,7 +71,8 @@ def main():
 
 	# Filenames
 	timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
-	fname = 'TC1_W12-35_PD4A-16um'
+	# fname = 'TC1_W12-35_PD4A-16um'
+	fname ='test'
 	csvname = './output/'+timestamp_str+ fname+'-{}.csv'.format(which_measurement)
 	imgname = './output/'+timestamp_str+ fname+ '-{}.png'.format(which_measurement)
 	temperature = 25.0
@@ -124,9 +127,10 @@ def main():
 	SOURCEMETER = None
 	POWERMETER = None
 
-	USB_address_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
-	USB_address_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
-	USB_address_POWERMETER = 'USB0::0x1313::0x8079::P1001952::INSTR'
+	address_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
+	#USB_address_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
+	address_SOURCEMETER = 'GPIB1::15::INSTR'
+	address_POWERMETER = 'USB0::0x1313::0x8079::P1001951::INSTR'
 	#---------------------------------------------------------------------------------------
 
 	# Initialize tap Power meter
@@ -134,7 +138,7 @@ def main():
 		from instrumental.drivers.powermeters.thorlabs import PM100A
 		#POWERMETER = PM100A(visa_address=USB_address_POWERMETER)
 
-		POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
+		POWERMETER = PM100A(visa_address=address_POWERMETER)
 	except:
 		print('no powermeter available. exiting.')
 		POWERMETER=None
@@ -146,7 +150,7 @@ def main():
 	# Open the instruments
 	try:
 		from instrumental.drivers.frequencycounters.keysight import FC53220A
-		COUNTER = FC53220A(visa_address=USB_address_COUNTER)
+		COUNTER = FC53220A(visa_address=address_COUNTER)
 	except:
 		print('no frequency counter available. exiting.')
 		exit()
@@ -184,7 +188,7 @@ def main():
 	# initialize source meter
 	try:
 		from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
-		SOURCEMETER = Keithley_2400(visa_address='GPIB0::26::INSTR')
+		SOURCEMETER = Keithley_2400(visa_address=address_SOURCEMETER)
 	except:
 		print('no sourcemeter available. exiting.')
 		exit()

@@ -72,7 +72,7 @@ class Window(QtGui.QMainWindow):
         self.Kd = 0.0 #10.0
         self.feedback_timeout = 60.0
 
-        self.target_wl = Q_(650.0, 'nm')
+        self.target_wl = Q_(850.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
         self.smu_channel = 2
         self.smu_bias = Q_(0, 'V')
@@ -132,6 +132,7 @@ class Window(QtGui.QMainWindow):
             from instrumental.drivers.powermeters.ilx_lightwave import OMM_6810B
 
             self.pm = OMM_6810B(visa_address='GPIB0::2::INSTR')
+            # self.pm = OMM_6810B(visa_address='GPIB1::2::INSTR')
         except:
             print('Power meter OMM-6810B Power meter not connected. ', sys.exc_info()[0])
             self.pm = None
@@ -168,7 +169,8 @@ class Window(QtGui.QMainWindow):
             # Try connecting to Keithley source meter instead
             try:
                 from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
-                self.smu = Keithley_2400(visa_address='GPIB0::26::INSTR')
+                self.smu = Keithley_2400(visa_address='GPIB0::15::INSTR')
+                # self.smu = Keithley_2400(visa_address='GPIB1::15::INSTR')
             except:
                 print('Keithley 2400 Sourcemeter not connected. ', sys.exc_info()[0])
                 self.smu = None
@@ -176,7 +178,7 @@ class Window(QtGui.QMainWindow):
                 # Set default settings for smu
                 self.smu_channel = None
                 self.smu.set_voltage(voltage=self.smu_bias)
-                self.smu.set_integration_time('short')
+                # self.smu.set_integration_time('short')
         else:
             # Set default settings for smu
             self.smu.set_channel(channel=self.smu_channel)
@@ -225,19 +227,19 @@ class Window(QtGui.QMainWindow):
             measIVAction.triggered.connect(self.exp_iv)
             experimentMenu.addAction(measIVAction)
 
+        if self.pm is not None:
+            measIllumAction = QtGui.QAction("Measure &Illumination", self)
+            measIllumAction.setShortcut("Ctrl+I")
+            measIllumAction.setStatusTip('Place over power meter to measure illumination')
+            measIllumAction.triggered.connect(self.exp_illum)
+            experimentMenu.addAction(measIllumAction)
+
         if self.spec is not None:
             measSpectraAction = QtGui.QAction("Measure &Spectra", self)
             measSpectraAction.setShortcut("Ctrl+S")
             measSpectraAction.setStatusTip('Measuring spectra')
             measSpectraAction.triggered.connect(self.exp_spectra)
             experimentMenu.addAction(measSpectraAction)
-
-            if self.pm is not None:
-                measIllumAction = QtGui.QAction("Measure &Illumination", self)
-                measIllumAction.setShortcut("Ctrl+I")
-                measIllumAction.setStatusTip('Place over power meter to measure illumination')
-                measIllumAction.triggered.connect(self.exp_illum)
-                experimentMenu.addAction(measIllumAction)
 
             if self.smu is not None:
                 measPhotocurrentAction = QtGui.QAction("Measure &Photocurrent", self)
@@ -480,6 +482,13 @@ class Window(QtGui.QMainWindow):
             self.btn_single.clicked.connect(self.take_single_measurement)
             self.layout.addWidget(self.btn_single, row, 2, 1,1) # save spectra button
             row = row + 1
+        # else:
+        #     self.layout.addWidget(QtGui.QLabel('Wavelength [nm]:'), row,0,  1,1)
+        #     self.edit_wavelength = QtGui.QLineEdit('{}'.format(self.wavelength_start.magnitude))
+        #     self.edit_wavelength.editingFinished.connect(self.set_wavelength)
+        #     self.layout.addWidget(self.edit_wavelength, row,1,  1,1)
+        #     row = row+1
+
 
         plot_row_height = 8
         # Plot of spectra
@@ -892,62 +901,73 @@ class Window(QtGui.QMainWindow):
             saveDirectory, measDescription, fullpath = self.get_filename()
 
             # check that a file name is designated and that the sweep parameters are correct
-            if len(measDescription)>0 and (self.wavelength_stop-self.wavelength_start)*self.wavelength_step>0.0:
-
+            if len(measDescription)>0:
                 start = time.time()
-                # prepare power meter
-                # self.pm.set_slow_filter()
 
-                #  Load measurement parameters
-                wl = self.wavelength_start
+                # spectometer not connected
+                if self.spec is None:
+                    self.wavelength_start = self.target_wl
+                    self.wavelength_stop =  self.wavelength_start+Q_(1.0, 'nm')
+                    self.wavelength_step = Q_(2.0, 'nm')
+                    self.exp_N = 500
 
-                data_x = []
-                data_y = []
-                while (wl <= self.wavelength_stop and self.wavelength_step>0.0) or (wl >= self.wavelength_stop and self.wavelength_step<0.0):
-                    print('Measuring {}'.format(wl.to_compact()))
+                # wavelength sweep if spectrometer is connected
+                if (self.wavelength_stop-self.wavelength_start)*self.wavelength_step>0.0:
 
-                    try:
-                        import winsound
-                        winsound.Beep(2200, 1000)
-                    except:
-                        print('winsound not available no beeping')
+                    # prepare power meter
+                    # self.pm.set_slow_filter()
 
-                    # only move when we are doing more than 1 step measurement
-                    if np.abs((self.wavelength_stop-self.wavelength_start)/self.wavelength_step)>1:
-                        meas_wl = self.goto_wavelength(wl)
-                    else:
-                        meas_wl = wl
+                    #  Load measurement parameters
+                    wl = self.wavelength_start
 
-                    sleep(5.0)
-                    self.pm.wavelength = meas_wl
-                    self.pm_tap.wavelength = meas_wl
-                    data_x.append(meas_wl.magnitude)
+                    data_x = []
+                    data_y = []
+                    while (wl <= self.wavelength_stop and self.wavelength_step>0.0) or (wl >= self.wavelength_stop and self.wavelength_step<0.0):
+                        print('Measuring {}'.format(wl.to_compact()))
 
-                    data_row = []
-                    data_row2 = []
-                    for n in range(self.exp_N):
-                        data_row.append(self.pm.power())
-                        data_row2.append(self.pm_tap.power)
-                        print('   Sample {} at {} : Actual {}, Tap {}'.format(n, meas_wl, data_row[-1], data_row2[-1]))
+                        try:
+                            import winsound
+                            winsound.Beep(2200, 1000)
+                        except:
+                            print('winsound not available no beeping')
 
-                    # Append average and stdev
-                    data_mean = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row]))
-                    data_std = np.std(np.array([measure.to_base_units().magnitude for measure in data_row]))
-                    data_mean2 = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row2]))
-                    data_std2 = np.std(np.array([measure.to_base_units().magnitude for measure in data_row2]))
-                    data_coeff = data_mean/data_mean2
+                        # only move when we are doing more than 1 step measurement
+                        if np.abs((self.wavelength_stop-self.wavelength_start)/self.wavelength_step)>1:
+                            meas_wl = self.goto_wavelength(wl)
+                            sleep(5.0)
+                        else:
+                            meas_wl = wl
+
+                        self.pm.wavelength = meas_wl
+                        self.pm_tap.wavelength = meas_wl
+                        data_x.append(meas_wl.magnitude)
+
+                        data_row = []
+                        data_row2 = []
+                        for n in range(self.exp_N):
+                            data_row.append(self.pm.power())
+                            data_row2.append(self.pm_tap.power)
+                            print('   Sample {} at {} : Actual {}, Tap {}'.format(n, meas_wl, data_row[-1], data_row2[-1]))
+
+                        # Append average and stdev
+                        data_mean = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row]))
+                        data_std = np.std(np.array([measure.to_base_units().magnitude for measure in data_row]))
+                        data_mean2 = np.mean(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+                        data_std2 = np.std(np.array([measure.to_base_units().magnitude for measure in data_row2]))
+                        data_coeff = data_mean/data_mean2
 
 
-                    # Bring average and stdev to the front
-                    # data_row.extend([Q_(data_mean, 'W'), Q_(data_std, 'W')])
-                    # data_row = [data_row[i-2] for i in range(len(data_row))]
-                    # data_y.append(data_row)
+                        # Bring average and stdev to the front
+                        # data_row.extend([Q_(data_mean, 'W'), Q_(data_std, 'W')])
+                        # data_row = [data_row[i-2] for i in range(len(data_row))]
+                        # data_y.append(data_row)
 
-                    data_y.append([Q_(data_mean, 'W'), Q_(data_std, 'W'), Q_(data_mean2, 'W'), Q_(data_std2, 'W'), Q_(data_coeff, '')])
+                        data_y.append([Q_(data_mean, 'W'), Q_(data_std, 'W'), Q_(data_mean2, 'W'), Q_(data_std2, 'W'), Q_(data_coeff, '')])
 
-                    self.refresh_live_spectra()
+                        self.refresh_live_spectra()
 
-                    wl = wl + self.wavelength_step
+                        wl = wl + self.wavelength_step
+
 
                 # fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] + ['Power {} [W]'.format(n) for n in range(self.exp_N)]
                 fields = ['Wavelength [nm]'] + ['Avg. Power [W]', 'Std Dev [W]'] +['Tap Avg. Power [W]', 'Std Dev [W]'] + ['Coefficient'] + ['average over {} points'.format(self.exp_N)]
