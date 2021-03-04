@@ -44,7 +44,7 @@ $ conda install future
 $ conda install cffi
 
 # for running measurements inside Instrumental
-$ conda install uncertainties
+$ conda install -c conda-forge uncertainties
 ```
 ### 3. Run setup on each of Mabuchi lab sources
 ```
