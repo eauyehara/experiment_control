@@ -38,22 +38,27 @@ def main():
 	##############################################################################
 	## Variables to set
 	##############################################################################
-	which_measurement = "Light" # "Dark" or "Light"
-	pqc = "chip"# "chip" # "pcb"
+	if len(sys.argv) > 1:
+		which_measurement = sys.argv[1]
+	else:
+		which_measurement = "Light" # "Dark" or "Light"
+		# which_measurement = "Light" # "Dark" or "Light"
+	pqc = "pcb"# "chip" # "pcb"
 
 	# Vbd = Q_(35, 'V') # [V] for PD4Q
-	Vbd = Q_(25, 'V') # [V] for PD6D
+	Vbd = Q_(25.4, 'V') # [V] for PD6D
 	max_overbias = 20 # [%] check if it doesn't go over 40V
+	max_overbias = 5 # [%] check if it doesn't go over 40V
 	step_overbias = 1.0 # [%] Each step 1% more overbias
 	integration_time = 10.0 # sec
 	bias_settle_time = 3.0 # sec
 
 # # for testing
-	if True:
+	if False:
 		which_measurement = "Dark" # "Dark" or "Light"
 		Vbd = Q_(1.0, 'V') # [V]
 		max_overbias = 10.0 # [%]
-		step_overbias = 5.0 # [%] Each step 1% more overbias
+		step_overbias = 3.0 # [%] Each step 1% more overbias
 		integration_time = 1.0 # sec
 		bias_settle_time = 1.0 # sec
 
@@ -62,8 +67,8 @@ def main():
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
 	delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
 	# thresholds = np.arange(-0.005, -0.095, -0.01) # V
-	thresholds = [-0.05]
-	# thresholds = [-0.025, -0.05, -0.075]
+	# thresholds = [-0.05]
+	thresholds = [-0.025, -0.05] #, -0.075, -0.1]
 	# thresholds = [-0.025, -0.05, -0.1, -0.15, -0.2] # V
 	# thresholds = [-0.05, -0.5, -1, -1.5, -2] # V
 	# thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
@@ -72,15 +77,15 @@ def main():
 	# Filenames
 	timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
 	# fname = 'TC1_W12-35_PD4A-16um'
-	fname ='test'
+	fname ='TC2_W3-20_PD6D-12um'
 	csvname = './output/'+timestamp_str+ fname+'-{}.csv'.format(which_measurement)
-	imgname = './output/'+timestamp_str+ fname+ '-{}.png'.format(which_measurement)
+	imgname = './output/'+timestamp_str+ fname+ '-{}'.format(which_measurement)
 	temperature = 25.0
 
 	experiment_info = '{}-integration {} sec, slope {}, bias settle time {} sec'.format(which_measurement, integration_time, slope, bias_settle_time)
 
 	# Tap power to Incident Power coefficient
-	power_measurement = np.genfromtxt('./output/650-cal.csv', delimiter=',', skip_header=1)
+	power_measurement = np.genfromtxt('./output/nd-cal/850-od0.csv', delimiter=',', skip_header=1)
 	wavelength = Q_(float(np.round(power_measurement[0])), 'nm')
 	print(wavelength)
 	tap_to_incident = power_measurement[5]
@@ -91,6 +96,7 @@ def main():
 	nd_cfg = ["NE40B", "NE20B"]
 	nd_cfg = ["NE40B", "NE20B", "NE10B"]
 	nd_cfg = ["NE50A-A", "NE40B"]
+	nd_cfg = ["od5", "od4"]
 	#nd_cfg = ["NE50A-A", "NE30B"]
 	if which_measurement=="Light":
 		experiment_info = experiment_info + ', ND filters: {}'.format(nd_cfg)
@@ -98,20 +104,23 @@ def main():
 		pickle_in = open("nd_cal.pickle", "rb")
 		nd_filters = pickle.load(pickle_in)
 	except:
-		nd_cal_dir = './output/'
+		nd_cal_dir = './output/nd-cal/'
 
 		print('No ND calibration value pickle file, generating from csv data set in {}'.format(nd_cal_dir))
 
 		nd_filters = {
 			#"NE10B": 0,
 			#"NE20B": 0,
-			"NE30B": 0,
-			"NE40B": 0,
-			"NE50A-A": 0,
+			#"NE30B": 0,
+			# "NE40B": 0,
+			# "NE50A-A": 0,
+			'od4': 0,
+			'od5': 0,
 		}
+
+		Pi = np.genfromtxt(nd_cal_dir+'850-od0.csv', delimiter=',', skip_header=1)
 		for (filter, value) in nd_filters.items():
-			Pi = np.genfromtxt(nd_cal_dir+'Pi-'+filter+'.csv', delimiter=',', skip_header=1)
-			Po = np.genfromtxt(nd_cal_dir+'Po-'+filter+'.csv', delimiter=',', skip_header=1)
+			Po = np.genfromtxt(nd_cal_dir+'850-'+filter+'.csv', delimiter=',', skip_header=1)
 
 			nd_filters[filter] = Po[1]/Pi[1]
 
@@ -129,7 +138,7 @@ def main():
 
 	address_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
 	#USB_address_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
-	address_SOURCEMETER = 'GPIB1::15::INSTR'
+	address_SOURCEMETER = 'GPIB0::15::INSTR'
 	address_POWERMETER = 'USB0::0x1313::0x8079::P1001951::INSTR'
 	#---------------------------------------------------------------------------------------
 
@@ -163,6 +172,8 @@ def main():
 			if pqc == "pcb":
 				print('pcb pqc setting to 50Ohm')
 				COUNTER.impedance = Q_(50, 'ohm')
+				# print('pcb pqc setting to 1MOhm')
+				# COUNTER.impedance = Q_(1e6, 'ohm')
 			elif pqc == "chip":
 				print('on chip pqc setting to 1MOhm')
 				COUNTER.impedance = Q_(1e6, 'ohm')
@@ -235,7 +246,7 @@ def main():
 
 	print('Performing {} measurement...'.format(which_measurement))
 
-	for i in range(num_measures):
+	for i in range(num_measures): # loop through biases
 		print('\n{} out of {}'.format(i+1, num_measures))
 		SOURCEMETER.set_voltage(vec_overbias[i])
 		time.sleep(bias_settle_time)
@@ -291,6 +302,7 @@ def main():
 		# print(data_out)
 		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
 	elif which_measurement == "Light":
+		dark_counts = dark_data[:,1:] # skip bias column
 		print('Checking shape of arrays: dark - {}, light- {}'.format(dark_counts.shape, count_measurements.shape))
 
 		# compute things
@@ -322,7 +334,7 @@ def main():
 		plt.legend([str(vth) for vth in thresholds])
 		# plt.ylim([0,1.0])
 		plt.grid(True, which='both', linestyle=':', linewidth=0.3)
-		plt.savefig(imgname+'PDP.png', dpi=300, bbox_inches='tight')
+		plt.savefig(imgname+'-PDP.png', dpi=300, bbox_inches='tight')
 
 		#print(data_out)
 		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
@@ -337,7 +349,7 @@ def main():
 	plt.xlabel('Bias [V]')
 	plt.ylabel('Counts [cps]')
 	plt.grid(True, which='both', linestyle=':', linewidth=0.3)
-	plt.savefig(imgname, dpi=300, bbox_inches='tight')
+	plt.savefig(imgname+'-Counts.png', dpi=300, bbox_inches='tight')
 	# plt.show()
 
 
@@ -406,3 +418,9 @@ def take_measure(COUNTER, POWERMETER, Vthresh, integration_time):
 
 if __name__ == '__main__':
 	main()
+
+	try:
+	    import winsound
+	    winsound.Beep(2200, 1000)
+	except:
+	    print('winsound not available no beeping')
