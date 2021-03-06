@@ -46,9 +46,9 @@ def main():
 	pqc = "pcb"# "chip" # "pcb"
 
 	# Vbd = Q_(35, 'V') # [V] for PD4Q
-	Vbd = Q_(25.4, 'V') # [V] for PD6D
+	Vbd = Q_(24.5, 'V') # [V] for PD6D
 	max_overbias = 20 # [%] check if it doesn't go over 40V
-	max_overbias = 5 # [%] check if it doesn't go over 40V
+	max_overbias = 10 # [%] check if it doesn't go over 40V
 	step_overbias = 1.0 # [%] Each step 1% more overbias
 	integration_time = 10.0 # sec
 	bias_settle_time = 3.0 # sec
@@ -68,7 +68,8 @@ def main():
 	delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
 	# thresholds = np.arange(-0.005, -0.095, -0.01) # V
 	# thresholds = [-0.05]
-	thresholds = [-0.025, -0.05] #, -0.075, -0.1]
+	# thresholds = [-0.025, -0.05] #, -0.075, -0.1]
+	thresholds = [-0.05, -0.075, -0.1, -0.125] # V
 	# thresholds = [-0.025, -0.05, -0.1, -0.15, -0.2] # V
 	# thresholds = [-0.05, -0.5, -1, -1.5, -2] # V
 	# thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
@@ -343,8 +344,12 @@ def main():
 	COUNTER.display = 'ON'
 	plt.figure()
 	plt.title("\n".join(wrap('Counts '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
-
-	plt.semilogy(vec_overbias.magnitude, count_measurements[:,0], 'o-') # plot first threshold data
+	plt.semilogy(vec_overbias.magnitude, count_measurements, 'o-') # plot first threshold data
+	plt.legend([str(vth) for vth in thresholds])
+	# plt.semilogy(vec_overbias.magnitude, count_measurements[:,0], 'o-', label='Light') # plot first threshold data
+	# if which_measurement == 'Light':
+	# 	plt.semilogy(vec_overbias.magnitude, dark_counts[:,0], 'o-', label='Dark') # plot first threshold data
+	# 	plt.legend()
 
 	plt.xlabel('Bias [V]')
 	plt.ylabel('Counts [cps]')
