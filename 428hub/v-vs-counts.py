@@ -43,6 +43,7 @@ def main():
 	else:
 		which_measurement = "Light" # "Dark" or "Light"
 		# which_measurement = "Light" # "Dark" or "Light"
+	fname ='TC1_W12-1_PD6D-12um'
 	pqc = "pcb"# "chip" # "pcb"
 
 	# Vbd = Q_(35, 'V') # [V] for PD4Q
@@ -50,18 +51,9 @@ def main():
 	max_overbias = 20 # [%] check if it doesn't go over 40V
 	max_overbias = 10 # [%] check if it doesn't go over 40V
 	step_overbias = 1.0 # [%] Each step 1% more overbias
-	integration_time = 10.0 # sec
+	integration_time = 1.0 # sec
 	bias_settle_time = 3.0 # sec
-
-# # for testing
-	if False:
-		which_measurement = "Dark" # "Dark" or "Light"
-		Vbd = Q_(1.0, 'V') # [V]
-		max_overbias = 10.0 # [%]
-		step_overbias = 3.0 # [%] Each step 1% more overbias
-		integration_time = 1.0 # sec
-		bias_settle_time = 1.0 # sec
-
+	reps = 10 # number of repititions
 
 	# Frequency measurements settings
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
@@ -75,20 +67,31 @@ def main():
 	# thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
 	light_threshold = -0.025
 
+# # for testing
+	if False:
+		which_measurement = "Light" # "Dark" or "Light"
+		Vbd = Q_(1.0, 'V') # [V]
+		max_overbias = 1.5 # [%]
+		step_overbias = 1.0 # [%] Each step 1% more overbias
+		integration_time = 1.0 # sec
+		reps =3 # number of repititions
+		bias_settle_time = 1.0 # sec
+		thresholds = [-0.025, -0.05]
+
 	# Filenames
 	timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
 	# fname = 'TC1_W12-35_PD4A-16um'
-	fname ='TC2_W3-20_PD6D-12um'
+
 	csvname = './output/'+timestamp_str+ fname+'-{}.csv'.format(which_measurement)
 	imgname = './output/'+timestamp_str+ fname+ '-{}'.format(which_measurement)
 	temperature = 25.0
 
-	experiment_info = '{}-integration {} sec, slope {}, bias settle time {} sec'.format(which_measurement, integration_time, slope, bias_settle_time)
+	experiment_info = '{}-integration {} sec x {}, slope {}, bias settle time {} sec'.format(which_measurement, integration_time, reps, slope, bias_settle_time)
 
 	# Tap power to Incident Power coefficient
 	power_measurement = np.genfromtxt('./output/nd-cal/850-od0.csv', delimiter=',', skip_header=1)
 	wavelength = Q_(float(np.round(power_measurement[0])), 'nm')
-	print(wavelength)
+	# print(wavelength)
 	tap_to_incident = power_measurement[5]
 
 
@@ -241,7 +244,8 @@ def main():
 		num_measures = len(vec_overbias)
 		print('Adjusting bias range to {} to {} to protect on chip quench circuit'.format(vec_overbias[0], vec_overbias[-1]))
 
-	count_measurements = []
+	count_avg_measurements = []
+	count_std_measurements = []
 	tap_avg_measurements = []
 	tap_std_measurements = []
 
@@ -253,16 +257,18 @@ def main():
 		time.sleep(bias_settle_time)
 
 		counts = []
+		counts_std = []
 		power = []
 		power_std = []
 
 		for Vthresh in thresholds:
 			print('     Counting at Vth = {} V'.format(Vthresh))
 
-			measured = take_measure(COUNTER, POWERMETER, Vthresh, integration_time)
+			measured = take_measure(COUNTER, POWERMETER, Vthresh, integration_time, reps)
 			counts.append(measured[0])
-			power.append(measured[1].value.magnitude)
-			power_std.append(measured[1].error.magnitude)
+			counts_std.append(measured[1])
+			power.append(measured[2])
+			power_std.append(measured[3])
 
 			if which_measurement=="Light":
 				# Set dark counts according to current Vthreshold
@@ -270,7 +276,7 @@ def main():
 					dark_counts= dark_data[:,thresholds.index(Vthresh)+1].reshape((num_measures,1))
 				except:
 					print('Dark and light measurement thresholds do not match')
-					dark_counts= dark_data[:,0].reshape((num_measures,1))
+					dark_counts= dark_data[:,1].reshape((num_measures,1))
 					print('using dark count data {}'.format(dark_counts))
 
 				act_power = power[-1]*tap_to_incident
@@ -279,17 +285,20 @@ def main():
 				inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
 				pdpp = np.divide((counts[-1]-dark_counts[i]), inc_cps, where=inc_cps!=0)
 
-				print('     	Counts: {}, dark cps: {}, pdp={:.3g}'.format(measured[0], dark_counts[i], pdpp[0]))
-				print('     		Power avg: {:.2g}, std: {:.2g}'.format(measured[1].value.magnitude, measured[1].error.magnitude))
+				print('     	Counts: {:.3g} std {:.3g}, dark cps: {:.3g}, pdp={:.3g}'.format(measured[0], measured[1], dark_counts[i][0], pdpp[0]))
+				print('     		Tap Power avg: {:.2g}, std: {:.2g} W'.format(measured[2], measured[3]))
 				print('     		Incident pwr: {:.2g}, cps={:.2g}'.format(act_power, inc_cps))
 			else:
-				print('     Counts: {}, Power avg: {:.2g}, Power std: {:.2g}'.format(measured[0], measured[1].value.magnitude, measured[1].error.magnitude))
+				print('     Counts: {:.1g} std {:.2g}, Power avg: {:.2g}, Power std: {:.2g}'.format(measured[0], measured[1], measured[2], measured[3]))
 
-		count_measurements.append(counts)
+		count_avg_measurements.append(counts)
+		count_std_measurements.append(counts_std)
 		tap_avg_measurements.append(power)
 		tap_std_measurements.append(power_std)
 
-	count_measurements = np.array(count_measurements)
+	# convert to numpy array
+	count_avg_measurements = np.array(count_avg_measurements)
+	count_std_measurements = np.array(count_std_measurements)
 	tap_avg_measurements = np.array(tap_avg_measurements)
 	tap_std_measurements = np.array(tap_std_measurements)
 
@@ -298,25 +307,29 @@ def main():
 
 	# Save results
 	if which_measurement == "Dark":
-		header = 'Bias [V],'+','.join(['cps @ vth={}'.format(vth) for vth in thresholds])
-		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_measurements), axis=1)
+		header = 'Bias [V],'+','.join(
+			['cps @ vth={}'.format(vth) for vth in thresholds] +
+			['cps std @ vth={}'.format(vth) for vth in thresholds])
+		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_avg_measurements, count_std_measurements), axis=1)
 		# print(data_out)
 		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
 	elif which_measurement == "Light":
-		dark_counts = dark_data[:,1:] # skip bias column
-		print('Checking shape of arrays: dark - {}, light- {}'.format(dark_counts.shape, count_measurements.shape))
+		dark_counts_avg = dark_data[:,1:len(thresholds)+1] # skip bias column
+		dark_counts_std = dark_data[:,len(thresholds)+1:] # skip bias column
+		print('Checking shape of arrays: dark - {}, light- {}'.format(dark_counts_avg.shape, count_avg_measurements.shape))
 
 		# compute things
 		actual_power = tap_avg_measurements*tap_to_incident
-		print(tap_to_incident)
+		# print(tap_to_incident)
 		for nd_filter in nd_cfg: # attenuate
 			actual_power = actual_power*nd_filters[nd_filter]
 		incident_cps = actual_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
-		pdp = np.divide((count_measurements-dark_counts), incident_cps, out=np.zeros_like(incident_cps), where=incident_cps!=0)
+		pdp = np.divide((count_avg_measurements-dark_counts_avg), incident_cps, out=np.zeros_like(incident_cps), where=incident_cps!=0)
 
 		# Assemble data
 		header = 'Bias [V],'+','.join(
 			['cps @ vth={}'.format(vth) for vth in thresholds] +
+			['cps std @ vth={}'.format(vth) for vth in thresholds] +
 			['Tap power avg[W] @ vth={}'.format(vth) for vth in thresholds] +
 			['Tap power std[W] @ vth={}'.format(vth) for vth in thresholds] +
 			['Actual power[W] @ vth={}'.format(vth) for vth in thresholds] +
@@ -325,7 +338,7 @@ def main():
 
 		experiment_info = experiment_info + ', {}nm'.format(wavelength.magnitude) + ', Dark count data {}'.format(dark_fname)
 
-		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_measurements, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps, pdp), axis=1)
+		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_avg_measurements, count_std_measurements, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps, pdp), axis=1)
 
 		plt.figure()
 		plt.title("\n".join(wrap('PDP '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
@@ -342,18 +355,22 @@ def main():
 
 	bring_down_from_breakdown(SOURCEMETER, Vbd)
 	COUNTER.display = 'ON'
-	plt.figure()
-	plt.title("\n".join(wrap('Counts '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
-	plt.semilogy(vec_overbias.magnitude, count_measurements, 'o-') # plot first threshold data
-	plt.legend([str(vth) for vth in thresholds])
+
+	fig, ax1 = plt.subplots(1,1)
+	ax1.set_title("\n".join(wrap('Counts '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
+	# plt.semilogy(vec_overbias.magnitude, count_avg_measurements, 'o-') # plot first threshold data
+	for i in range(len(thresholds)):
+		ax1.errorbar(vec_overbias.magnitude, count_avg_measurements[:,i], yerr=count_std_measurements[:,i], fmt='.-')
+	# ax1.set_yscale('log')
+	ax1.legend([str(vth) for vth in thresholds])
 	# plt.semilogy(vec_overbias.magnitude, count_measurements[:,0], 'o-', label='Light') # plot first threshold data
 	# if which_measurement == 'Light':
 	# 	plt.semilogy(vec_overbias.magnitude, dark_counts[:,0], 'o-', label='Dark') # plot first threshold data
 	# 	plt.legend()
 
-	plt.xlabel('Bias [V]')
-	plt.ylabel('Counts [cps]')
-	plt.grid(True, which='both', linestyle=':', linewidth=0.3)
+	ax1.set_xlabel('Bias [V]')
+	ax1.set_ylabel('Counts [cps]')
+	ax1.grid(True, which='both', linestyle=':', linewidth=0.3)
 	plt.savefig(imgname+'-Counts.png', dpi=300, bbox_inches='tight')
 	# plt.show()
 
@@ -393,7 +410,7 @@ def bring_down_from_breakdown(SOURCEMETER, Vbd):
     SOURCEMETER.set_voltage(Q_(0, 'V'))
     print('Sourcemeter at 0V')
 
-def take_measure(COUNTER, POWERMETER, Vthresh, integration_time):
+def take_measure(COUNTER, POWERMETER, Vthresh, integration_time, reps=1):
 	'''
 		Collect counts during integration_time and measures power
 
@@ -403,26 +420,74 @@ def take_measure(COUNTER, POWERMETER, Vthresh, integration_time):
 		Vthres: threshold voltage for frequency counter
 
 		Returns: (cps, int_power)
-		cps: counts per second
+		cps: counts per second as pint.Measurement object
 		power: average optical power during measurement returned as pint.Measurement object
 	'''
 	with visa_timeout_context(COUNTER._rsrc, 60000): # timeout of 60,000 msec
 		COUNTER.Vthreshold = Q_(Vthresh, 'V')
-		COUNTER.write('INIT') # Initiate couting
-		COUNTER.write('*WAI')
+		# COUNTER.set_mode_totalize(integration_time=integration_time)
 
-		if POWERMETER is not None:
-			power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
-		else:
-			power = Q_(0.0, 'W').plus_minus(Q_(0.0, 'W'))
-		num_counts = float(COUNTER.query('FETC?'))
+		powers = []
+		counts = []
+		for i in range(reps):
+			COUNTER.write('INIT') # Initiate counting
+			COUNTER.write('*WAI')
 
-		cps = num_counts/integration_time
+			if POWERMETER is not None:
+				power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
+			else:
+				power = Q_(0.0, 'W').plus_minus(Q_(0.0, 'W'))
+			num_counts = float(COUNTER.query('FETC?'))
+
+			cps = num_counts/integration_time
+
+			powers.append(power.value.magnitude)
+			counts.append(cps)
+
+	return (np.mean(counts), np.std(counts), np.mean(powers), np.std(powers))
+
+def take_measurse(COUNTER, POWERMETER, Vthresh, integration_time, reps):
+	'''
+		Collect counts during integration_time and measures power with multiple repetitions
+
+		Input Parameters:
+		COUNTER: frequency counter object
+		POWERMETER: powermeter object
+		Vthres: threshold voltage for frequency counter
+
+		Returns: (cps, int_power)
+		cps: counts per second as pint.Measurement object
+		power: average optical power during measurement returned as pint.Measurement object
+	'''
+	with visa_timeout_context(COUNTER._rsrc, 60000): # timeout of 60,000 msec
+		COUNTER.Vthreshold = Q_(Vthresh, 'V')
+		COUNTER.set_mode_totalize(integration_time=integration_time)
+
+		powers = []
+		counts = []
+		for i in range(reps):
+			COUNTER.write('INIT') # Initiate counting
+			COUNTER.write('*WAI')
+
+			if POWERMETER is not None:
+				power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
+			else:
+				power = Q_(0.0, 'W').plus_minus(Q_(0.0, 'W'))
+			num_counts = float(COUNTER.query('FETC?'))
+
+			cps = num_counts/integration_time
+
+			powers.append(power.value.magnitude)
+			counts.append(cps)
 
 	return (cps, power)
 
 if __name__ == '__main__':
+	start = time.time()
+	
 	main()
+
+	print('Experiment took {:.2g} sec'.format(time.time()-start))
 
 	try:
 	    import winsound
