@@ -43,7 +43,7 @@ def main():
 	else:
 		which_measurement = "Light" # "Dark" or "Light"
 		# which_measurement = "Light" # "Dark" or "Light"
-	fname ='TC1_W12-1_PD6D-12um'
+	fname ='TC1_W12-1_PD6D-8um'
 	pqc = "pcb"# "chip" # "pcb"
 
 	# Vbd = Q_(35, 'V') # [V] for PD4Q
@@ -57,11 +57,12 @@ def main():
 
 	# Frequency measurements settings
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
+	Zin = 1e6  # 50
 	delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
 	# thresholds = np.arange(-0.005, -0.095, -0.01) # V
 	# thresholds = [-0.05]
 	# thresholds = [-0.025, -0.05] #, -0.075, -0.1]
-	thresholds = [-0.05, -0.075, -0.1, -0.125] # V
+	thresholds = [-0.025, -0.05, -0.075, -0.1, -0.125] # V
 	# thresholds = [-0.025, -0.05, -0.1, -0.15, -0.2] # V
 	# thresholds = [-0.05, -0.5, -1, -1.5, -2] # V
 	# thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
@@ -174,8 +175,8 @@ def main():
 			COUNTER.set_mode_totalize(integration_time=integration_time)
 			COUNTER.coupling = 'DC'
 			if pqc == "pcb":
-				print('pcb pqc setting to 50Ohm')
-				COUNTER.impedance = Q_(50, 'ohm')
+				print('pcb pqc setting to {}Ohm'.format(Zin))
+				COUNTER.impedance = Q_(Zin, 'ohm')
 				# print('pcb pqc setting to 1MOhm')
 				# COUNTER.impedance = Q_(1e6, 'ohm')
 			elif pqc == "chip":
