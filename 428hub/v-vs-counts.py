@@ -86,7 +86,7 @@ def main():
 	imgname = './output/'+timestamp_str+ fname+ '-{}'.format(which_measurement)
 	temperature = 25.0
 
-	experiment_info = '{}-integration {} sec x {}, slope {}, bias settle time {} sec'.format(which_measurement, integration_time, reps, slope, bias_settle_time)
+	experiment_info = '#{}-integration {} sec x {}, slope {}, bias settle time {} sec'.format(which_measurement, integration_time, reps, slope, bias_settle_time)
 
 	# Tap power to Incident Power coefficient
 	power_measurement = np.genfromtxt('./output/nd-cal/850-od0.csv', delimiter=',', skip_header=1)
@@ -315,7 +315,7 @@ def main():
 		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
 	elif which_measurement == "Light":
 		dark_counts_avg = dark_data[:,1:len(thresholds)+1] # skip bias column
-		dark_counts_std = dark_data[:,len(thresholds)+1:] # skip bias column
+		dark_counts_std = dark_data[:,len(thresholds)+1:2*len(thresholds)+1] # skip bias column
 		print('Checking shape of arrays: dark - {}, light- {}'.format(dark_counts_avg.shape, count_avg_measurements.shape))
 
 		# compute things
@@ -323,8 +323,14 @@ def main():
 		# print(tap_to_incident)
 		for nd_filter in nd_cfg: # attenuate
 			actual_power = actual_power*nd_filters[nd_filter]
-		incident_cps = actual_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
-		pdp = np.divide((count_avg_measurements-dark_counts_avg), incident_cps, out=np.zeros_like(incident_cps), where=incident_cps!=0)
+		inc_cps = actual_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
+		inc_std = tap_to_incident/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))*tap_std_measurements
+
+		sig_avg =count_avg_measurements-dark_counts_avg
+		sig_std = np.sqrt(count_std_measurements**2+dark_counts_std**2)
+
+		pdp = np.divide(sig_avg, inc_cps, out=np.zeros_like(inc_cps), where=inc_cps!=0)
+		pdp_std = np.abs(pdp) * np.sqrt((np.divide(sig_std, sig_avg, where=sig_avg!=0))**2+(np.divide(inc_std, inc_cps, where=inc_cps!=0)**2)) # assumes covariance is 0
 
 		# Assemble data
 		header = 'Bias [V],'+','.join(
@@ -340,15 +346,24 @@ def main():
 
 		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_avg_measurements, count_std_measurements, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps, pdp), axis=1)
 
-		plt.figure()
-		plt.title("\n".join(wrap('PDP '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
-		plt.plot(vec_overbias.magnitude, pdp, 'o-') # plot first threshold data
-		plt.xlabel('Bias [V]')
-		plt.ylabel('PDP')
-		plt.legend([str(vth) for vth in thresholds])
-		# plt.ylim([0,1.0])
-		plt.grid(True, which='both', linestyle=':', linewidth=0.3)
+
+		fig, ax1 = plt.subplots(1,1, figsize=(3.5,2.5), dpi=300)
+		ax1.set_title("PDP")
+
+		for i in range(len(thresholds)):
+		    ax1.errorbar(vec_overbias.magnitude, pdp[:,i]*100, yerr=pdp_std[:,i], linewidth=0.5, elinewidth=0.2, capsize=1.5) # , ecolor='blue') #, fmt='.-')uplims=True, lolims=True
+		# ax1.set_yscale('log')
+
+		ax1.set_xlabel('Reverse Bias [V]')
+		ax1.set_ylabel('PDP [%]')
+
+		ax1.legend(['$V_{{th}}$={:g} mV'.format(vth*1000) for vth in thresholds])
+		ax1.grid(True, which='both', linestyle=':', linewidth=0.3)
 		plt.savefig(imgname+'-PDP.png', dpi=300, bbox_inches='tight')
+
+		(bias_max, th_max) = np.unravel_index(np.argmax(pdp), pdp.shape)
+		print('Max PDP={:g}%  at {:g}V Bias and {:g} mV Threshold, DCR={}'.format(np.max(pdp)*100, Bias[bias_max], thresholds[th_max]*1000, DCR[bias_max, th_max]))
+
 
 		#print(data_out)
 		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
@@ -357,7 +372,7 @@ def main():
 	COUNTER.display = 'ON'
 
 	fig, ax1 = plt.subplots(1,1)
-	ax1.set_title("\n".join(wrap('Counts '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
+	ax1.set_title("\n".join(wrap('Counts '+experiment_info, 60)))
 	# plt.semilogy(vec_overbias.magnitude, count_avg_measurements, 'o-') # plot first threshold data
 	for i in range(len(thresholds)):
 		ax1.errorbar(vec_overbias.magnitude, count_avg_measurements[:,i], yerr=count_std_measurements[:,i], fmt='.-')
@@ -484,7 +499,7 @@ def take_measurse(COUNTER, POWERMETER, Vthresh, integration_time, reps):
 
 if __name__ == '__main__':
 	start = time.time()
-	
+
 	main()
 
 	print('Experiment took {:.2g} sec'.format(time.time()-start))
