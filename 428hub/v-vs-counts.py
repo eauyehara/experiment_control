@@ -43,15 +43,17 @@ def main():
 	else:
 		which_measurement = "Light" # "Dark" or "Light"
 		# which_measurement = "Light" # "Dark" or "Light"
-	fname ='TC1_W12-1_PD6D-8um'
+	fname ='TC1_W12-1_PD6D-4um'
 	pqc = "pcb"# "chip" # "pcb"
 
 	# Vbd = Q_(35, 'V') # [V] for PD4Q
-	Vbd = Q_(24.5, 'V') # [V] for PD6D
+	# Vbd = Q_(24.5, 'V') # [V] for PD6D
+	# Vbd = Q_(24, 'V') # [V] for PD6D
+	Vbd = Q_(29.5, 'V') # [V] for PD6D 4um
 	max_overbias = 20 # [%] check if it doesn't go over 40V
 	max_overbias = 10 # [%] check if it doesn't go over 40V
 	step_overbias = 1.0 # [%] Each step 1% more overbias
-	integration_time = 1.0 # sec
+	integration_time = 4.0 # sec
 	bias_settle_time = 3.0 # sec
 	reps = 10 # number of repititions
 
@@ -62,7 +64,9 @@ def main():
 	# thresholds = np.arange(-0.005, -0.095, -0.01) # V
 	# thresholds = [-0.05]
 	# thresholds = [-0.025, -0.05] #, -0.075, -0.1]
-	thresholds = [-0.025, -0.05, -0.075, -0.1, -0.125] # V
+	thresholds = [-0.02, -0.030, -0.040, -0.05, -0.06] # V
+	# thresholds = [-0.005, -0.010, -0.015, -0.02, -0.025] # V
+	# thresholds = [-0.01, -0.025, -0.04, -0.05, -0.06, -0.075] # V
 	# thresholds = [-0.025, -0.05, -0.1, -0.15, -0.2] # V
 	# thresholds = [-0.05, -0.5, -1, -1.5, -2] # V
 	# thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
@@ -87,7 +91,7 @@ def main():
 	imgname = './output/'+timestamp_str+ fname+ '-{}'.format(which_measurement)
 	temperature = 25.0
 
-	experiment_info = '#{}-integration {} sec x {}, slope {}, bias settle time {} sec'.format(which_measurement, integration_time, reps, slope, bias_settle_time)
+	experiment_info = '#{}-integration {} sec x {}; slope {}; bias settle time {} sec; input Z={}; Bias(Vbd={} Vex={}% Vex step={}%)'.format(which_measurement, integration_time, reps, slope, bias_settle_time, Zin, Vbd, max_overbias, step_overbias)
 
 	# Tap power to Incident Power coefficient
 	power_measurement = np.genfromtxt('./output/nd-cal/850-od0.csv', delimiter=',', skip_header=1)
@@ -104,7 +108,7 @@ def main():
 	nd_cfg = ["od5", "od4"]
 	#nd_cfg = ["NE50A-A", "NE30B"]
 	if which_measurement=="Light":
-		experiment_info = experiment_info + ', ND filters: {}'.format(nd_cfg)
+		experiment_info = experiment_info + '; ND filters: {}'.format(nd_cfg)
 	try:
 		pickle_in = open("nd_cal.pickle", "rb")
 		nd_filters = pickle.load(pickle_in)
@@ -186,7 +190,7 @@ def main():
 
 			temperature = COUNTER.temp
 			print('temp is {}'.format(temperature))
-			experiment_info = experiment_info + ', T={} C'.format(temperature.magnitude)
+			experiment_info = experiment_info + '; T={} C'.format(temperature.magnitude)
 
 			COUNTER.display = 'OFF'
 
@@ -232,7 +236,8 @@ def main():
 		# or manually specify
 		# dark_fname = './output/'
 
-		dark_data = np.genfromtxt(dark_fname, delimiter=',', skip_header=1, skip_footer=1)
+		dark_data = np.genfromtxt(dark_fname, delimiter=',', skip_header=1, comments='#') # skip_footer=1
+		# print(dark_data)
 		vec_overbias = Q_(dark_data[:,0], 'V')
 		num_measures = len(vec_overbias)
 	else:
@@ -264,8 +269,12 @@ def main():
 
 		for Vthresh in thresholds:
 			print('     Counting at Vth = {} V'.format(Vthresh))
+			if len(counts)>1 and counts[-1]==0.0:
+				# skip measurement for speed up if lower threshold has no counts
+				measured = [0.0, 0.0, 0.0, 0.0]
+			else:
+				measured = take_measure(COUNTER, POWERMETER, Vthresh, integration_time, reps)
 
-			measured = take_measure(COUNTER, POWERMETER, Vthresh, integration_time, reps)
 			counts.append(measured[0])
 			counts_std.append(measured[1])
 			power.append(measured[2])
@@ -286,11 +295,11 @@ def main():
 				inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
 				pdpp = np.divide((counts[-1]-dark_counts[i]), inc_cps, where=inc_cps!=0)
 
-				print('     	Counts: {:.3g} std {:.3g}, dark cps: {:.3g}, pdp={:.3g}'.format(measured[0], measured[1], dark_counts[i][0], pdpp[0]))
-				print('     		Tap Power avg: {:.2g}, std: {:.2g} W'.format(measured[2], measured[3]))
-				print('     		Incident pwr: {:.2g}, cps={:.2g}'.format(act_power, inc_cps))
+				print('     	Counts: {:.4g} std {:.4g}, dark cps: {:.4g}, pdp={:.4g}'.format(measured[0], measured[1], dark_counts[i][0], pdpp[0]))
+				print('     		Tap Power avg: {:.4g}, std: {:.4g} W'.format(measured[2], measured[3]))
+				print('     		Incident pwr: {:.4g}, cps={:.4g}'.format(act_power, inc_cps))
 			else:
-				print('     Counts: {:.1g} std {:.2g}, Power avg: {:.2g}, Power std: {:.2g}'.format(measured[0], measured[1], measured[2], measured[3]))
+				print('     Counts: {:.4g} std {:.4g}, Power avg: {:.4g}, Power std: {:.4g}'.format(measured[0], measured[1], measured[2], measured[3]))
 
 		count_avg_measurements.append(counts)
 		count_std_measurements.append(counts_std)
@@ -343,9 +352,9 @@ def main():
 			['Incident cps @ vth={}'.format(vth) for vth in thresholds] +
 			['PDP @ vth={}'.format(vth) for vth in thresholds] )
 
-		experiment_info = experiment_info + ', {}nm'.format(wavelength.magnitude) + ', Dark count data {}'.format(dark_fname)
+		experiment_info = experiment_info + '; {}nm'.format(wavelength.magnitude) + '; Dark count data {}'.format(dark_fname)
 
-		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_avg_measurements, count_std_measurements, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps, pdp), axis=1)
+		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_avg_measurements, count_std_measurements, tap_avg_measurements, tap_std_measurements, actual_power, inc_cps, pdp), axis=1)
 
 
 		fig, ax1 = plt.subplots(1,1, figsize=(3.5,2.5), dpi=300)
@@ -363,7 +372,7 @@ def main():
 		plt.savefig(imgname+'-PDP.png', dpi=300, bbox_inches='tight')
 
 		(bias_max, th_max) = np.unravel_index(np.argmax(pdp), pdp.shape)
-		print('Max PDP={:g}%  at {:g}V Bias and {:g} mV Threshold, DCR={}'.format(np.max(pdp)*100, Bias[bias_max], thresholds[th_max]*1000, DCR[bias_max, th_max]))
+		print('Max PDP={:g}%  at {:g}V Bias and {:g} mV Threshold, DCR={}'.format(np.max(pdp)*100, vec_overbias.magnitude[bias_max], thresholds[th_max]*1000, dark_counts_avg[bias_max, th_max]))
 
 
 		#print(data_out)
@@ -376,9 +385,10 @@ def main():
 	ax1.set_title("\n".join(wrap('Counts '+experiment_info, 60)))
 	# plt.semilogy(vec_overbias.magnitude, count_avg_measurements, 'o-') # plot first threshold data
 	for i in range(len(thresholds)):
-		ax1.errorbar(vec_overbias.magnitude, count_avg_measurements[:,i], yerr=count_std_measurements[:,i], fmt='.-')
-	# ax1.set_yscale('log')
-	ax1.legend([str(vth) for vth in thresholds])
+		ax1.errorbar(vec_overbias.magnitude, count_avg_measurements[:,i], yerr=count_std_measurements[:,i], linewidth=0.5, elinewidth=0.2, capsize=1.5)
+	ax1.set_yscale('log')
+	ax1.legend(['$V_{{th}}$={:g} mV'.format(vth*1000) for vth in thresholds])
+
 	# plt.semilogy(vec_overbias.magnitude, count_measurements[:,0], 'o-', label='Light') # plot first threshold data
 	# if which_measurement == 'Light':
 	# 	plt.semilogy(vec_overbias.magnitude, dark_counts[:,0], 'o-', label='Dark') # plot first threshold data
