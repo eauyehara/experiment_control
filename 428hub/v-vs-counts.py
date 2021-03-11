@@ -43,17 +43,33 @@ def main():
 	else:
 		which_measurement = "Light" # "Dark" or "Light"
 		# which_measurement = "Light" # "Dark" or "Light"
-	fname ='TC1_W12-1_PD6D-4um'
+	fname ='TC1_W12-29_PD4A-8um'
 	pqc = "pcb"# "chip" # "pcb"
+	print('Measuring {}'.format(fname))
 
-	# Vbd = Q_(35, 'V') # [V] for PD4Q
-	# Vbd = Q_(24.5, 'V') # [V] for PD6D
+	device = 'PD4A'
+	exp_setting = {
+	# device: Vbd, overbias max%, step%, integration time]
+		'PD6D': [Q_(24, 'V'), 10, 1.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
+		'PD6D-4um': [Q_(29.5, 'V'), 10, 1.0, 4.0, [-0.02, -0.030, -0.040, -0.05, -0.06]],
+		'PD4A': [Q_(33.5, 'V'), 20, 2.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
+	}
+
+
+	Vbd = exp_setting[device][0]
+	max_overbias = exp_setting[device][1]
+	step_overbias = exp_setting[device][2]
+	integration_time = exp_setting[device][3]
+
+	# # Vbd = Q_(35, 'V') # [V] for PD4Q
+	# # Vbd = Q_(24.5, 'V') # [V] for PD6D
 	# Vbd = Q_(24, 'V') # [V] for PD6D
-	Vbd = Q_(29.5, 'V') # [V] for PD6D 4um
-	max_overbias = 20 # [%] check if it doesn't go over 40V
-	max_overbias = 10 # [%] check if it doesn't go over 40V
-	step_overbias = 1.0 # [%] Each step 1% more overbias
-	integration_time = 4.0 # sec
+	# # Vbd = Q_(29.5, 'V') # [V] for PD6D 4um
+	# # max_overbias = 20 # [%] check if it doesn't go over 40V
+	# max_overbias = 10 # [%] check if it doesn't go over 40V
+	# step_overbias = 1.0 # [%] Each step 1% more overbias
+	# integration_time = 1.0 # sec
+	# # integration_time = 4.0 # sec
 	bias_settle_time = 3.0 # sec
 	reps = 10 # number of repititions
 
@@ -63,13 +79,14 @@ def main():
 	delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
 	# thresholds = np.arange(-0.005, -0.095, -0.01) # V
 	# thresholds = [-0.05]
-	# thresholds = [-0.025, -0.05] #, -0.075, -0.1]
-	thresholds = [-0.02, -0.030, -0.040, -0.05, -0.06] # V
+	thresholds = [-0.025, -0.05, -0.075, -0.1, -0.125] #V 8-20um
+	# thresholds = [-0.02, -0.030, -0.040, -0.05, -0.06] # V 4um
 	# thresholds = [-0.005, -0.010, -0.015, -0.02, -0.025] # V
 	# thresholds = [-0.01, -0.025, -0.04, -0.05, -0.06, -0.075] # V
 	# thresholds = [-0.025, -0.05, -0.1, -0.15, -0.2] # V
 	# thresholds = [-0.05, -0.5, -1, -1.5, -2] # V
 	# thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
+	thresholds = exp_setting[device][4]
 	light_threshold = -0.025
 
 # # for testing
@@ -271,7 +288,8 @@ def main():
 			print('     Counting at Vth = {} V'.format(Vthresh))
 			if len(counts)>1 and counts[-1]==0.0:
 				# skip measurement for speed up if lower threshold has no counts
-				measured = [0.0, 0.0, 0.0, 0.0]
+				print('     Skipping threshold {} V'.format(Vthresh))
+				measured = [0.0, 0.0, measured[2], measured[3]]
 			else:
 				measured = take_measure(COUNTER, POWERMETER, Vthresh, integration_time, reps)
 
@@ -339,8 +357,8 @@ def main():
 		sig_avg =count_avg_measurements-dark_counts_avg
 		sig_std = np.sqrt(count_std_measurements**2+dark_counts_std**2)
 
-		pdp = np.divide(sig_avg, inc_cps, out=np.zeros_like(inc_cps), where=inc_cps!=0)
-		pdp_std = np.abs(pdp) * np.sqrt((np.divide(sig_std, sig_avg, where=sig_avg!=0))**2+(np.divide(inc_std, inc_cps, where=inc_cps!=0)**2)) # assumes covariance is 0
+		pdp = np.divide(sig_avg, inc_cps, out=np.zeros_like(inc_cps), where=inc_cps!=0.0)
+		pdp_std = np.abs(pdp) * np.sqrt((np.divide(sig_std, sig_avg, out=np.zeros_like(sig_avg), where=sig_avg!=0.0))**2+(np.divide(inc_std, inc_cps, out=np.zeros_like(inc_cps), where=inc_cps!=0)**2)) # assumes covariance is 0
 
 		# Assemble data
 		header = 'Bias [V],'+','.join(
