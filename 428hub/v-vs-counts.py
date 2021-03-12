@@ -375,9 +375,12 @@ def main():
 
 		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_avg_measurements, count_std_measurements, tap_avg_measurements, tap_std_measurements, actual_power, inc_cps, pdp), axis=1)
 
+		(bias_max, th_max) = np.unravel_index(np.argmax(pdp), pdp.shape)
+		maxpdp = 'Max PDP={:.4g}% at {:.4g}V Bias and {:.4g} mV Threshold, DCR={.4}'.format(np.max(pdp)*100, vec_overbias.magnitude[bias_max], thresholds[th_max]*1000, dark_counts_avg[bias_max, th_max])
+		print(maxpdp)
 
 		fig, ax1 = plt.subplots(1,1, figsize=(3.5,2.5), dpi=300)
-		ax1.set_title("PDP")
+		ax1.set_title(maxpdp)
 
 		for i in range(len(thresholds)):
 		    ax1.errorbar(vec_overbias.magnitude, pdp[:,i]*100, yerr=pdp_std[:,i], linewidth=0.5, elinewidth=0.2, capsize=1.5) # , ecolor='blue') #, fmt='.-')uplims=True, lolims=True
@@ -391,9 +394,6 @@ def main():
 		ax1.legend(['$V_{{th}}$={:g} mV'.format(vth*1000) for vth in thresholds])
 		ax1.grid(True, which='both', linestyle=':', linewidth=0.3)
 		plt.savefig(imgname+'-PDP.png', dpi=300, bbox_inches='tight')
-
-		(bias_max, th_max) = np.unravel_index(np.argmax(pdp), pdp.shape)
-		print('Max PDP={:g}%  at {:g}V Bias and {:g} mV Threshold, DCR={}'.format(np.max(pdp)*100, vec_overbias.magnitude[bias_max], thresholds[th_max]*1000, dark_counts_avg[bias_max, th_max]))
 
 
 		#print(data_out)
