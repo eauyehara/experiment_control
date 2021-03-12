@@ -43,15 +43,16 @@ def main():
 	else:
 		which_measurement = "Light" # "Dark" or "Light"
 		# which_measurement = "Light" # "Dark" or "Light"
-	fname ='TC1_W12-29_PD4A-8um'
+	fname ='TC1_W12-14_PD6D-8um'
 	pqc = "pcb"# "chip" # "pcb"
 	print('Measuring {}'.format(fname))
 
-	device = 'PD4A'
+	device = 'PD6D-wide'
 	exp_setting = {
 	# device: Vbd, overbias max%, step%, integration time]
-		'PD6D': [Q_(24, 'V'), 10, 1.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
-		'PD6D-4um': [Q_(29.5, 'V'), 10, 1.0, 4.0, [-0.02, -0.030, -0.040, -0.05, -0.06]],
+		'PD6D': [Q_(24, 'V'), 20, 2.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
+		'PD6D-wide': [Q_(24, 'V'), 20, 1.0, 1.0, [-0.025, -0.05]],
+		'PD6D-4um': [Q_(30.0, 'V'), 20, 2.0, 4.0, [-0.02, -0.030, -0.040, -0.05, -0.06]],
 		'PD4A': [Q_(33.5, 'V'), 20, 2.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
 	}
 
@@ -167,7 +168,7 @@ def main():
 	address_SOURCEMETER = 'GPIB0::15::INSTR'
 	address_POWERMETER = 'USB0::0x1313::0x8079::P1001951::INSTR'
 	#---------------------------------------------------------------------------------------
-
+	print('Initializing instruments: ')
 	# Initialize tap Power meter
 	try:
 		from instrumental.drivers.powermeters.thorlabs import PM100A
@@ -175,10 +176,10 @@ def main():
 
 		POWERMETER = PM100A(visa_address=address_POWERMETER)
 	except:
-		print('no powermeter available. exiting.')
+		print('    no powermeter available. exiting.')
 		POWERMETER=None
 	else:
-		print('powermeter opened')
+		print('    powermeter opened')
 		POWERMETER.wavelength = wavelength
 		POWERMETER.auto_range = 1
 
@@ -187,26 +188,26 @@ def main():
 		from instrumental.drivers.frequencycounters.keysight import FC53220A
 		COUNTER = FC53220A(visa_address=address_COUNTER)
 	except:
-		print('no frequency counter available. exiting.')
+		print('    no frequency counter available. exiting.')
 		exit()
 	else:
-		print('frequency counter connected.')
+		print('    frequency counter connected.')
 		# initialize
 		with visa_timeout_context(COUNTER._rsrc, 60000): # timeout of 60,000 msec
 			COUNTER.set_mode_totalize(integration_time=integration_time)
 			COUNTER.coupling = 'DC'
 			if pqc == "pcb":
-				print('pcb pqc setting to {}Ohm'.format(Zin))
+				print('     pcb pqc setting to {}Ohm'.format(Zin))
 				COUNTER.impedance = Q_(Zin, 'ohm')
 				# print('pcb pqc setting to 1MOhm')
 				# COUNTER.impedance = Q_(1e6, 'ohm')
 			elif pqc == "chip":
-				print('on chip pqc setting to 1MOhm')
+				print('    on chip pqc setting to 1MOhm')
 				COUNTER.impedance = Q_(1e6, 'ohm')
 			COUNTER.slope = 'NEG'
 
 			temperature = COUNTER.temp
-			print('temp is {}'.format(temperature))
+			print('    temp is {}'.format(temperature))
 			experiment_info = experiment_info + '; T={} C'.format(temperature.magnitude)
 
 			COUNTER.display = 'OFF'
@@ -227,10 +228,10 @@ def main():
 		from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
 		SOURCEMETER = Keithley_2400(visa_address=address_SOURCEMETER)
 	except:
-		print('no sourcemeter available. exiting.')
+		print('     no sourcemeter available. exiting.')
 		exit()
 	else:
-		print('Keithley connected.')
+		print('     Keithley connected.')
 
 	SOURCEMETER.set_current_compliance(Q_(8e-3, 'A'))
 	bring_to_breakdown(SOURCEMETER, Vbd)
@@ -385,6 +386,8 @@ def main():
 		ax1.set_xlabel('Reverse Bias [V]')
 		ax1.set_ylabel('PDP [%]')
 
+		ax1.set_ylim(bottom = 0, top=np.min([100, 2*np.max(pdp*100)]))
+
 		ax1.legend(['$V_{{th}}$={:g} mV'.format(vth*1000) for vth in thresholds])
 		ax1.grid(True, which='both', linestyle=':', linewidth=0.3)
 		plt.savefig(imgname+'-PDP.png', dpi=300, bbox_inches='tight')
@@ -490,7 +493,7 @@ def take_measure(COUNTER, POWERMETER, Vthresh, integration_time, reps=1):
 
 	return (np.mean(counts), np.std(counts), np.mean(powers), np.std(powers))
 
-def take_measurse(COUNTER, POWERMETER, Vthresh, integration_time, reps):
+def take_measures(COUNTER, POWERMETER, Vthresh, integration_time, reps):
 	'''
 		Collect counts during integration_time and measures power with multiple repetitions
 
@@ -531,7 +534,7 @@ if __name__ == '__main__':
 
 	main()
 
-	print('Experiment took {:.2g} sec'.format(time.time()-start))
+	print('Experiment took {}'.format(time.strftime("%H:%M:%S", time.gmtime(time.time()-start))))
 
 	try:
 	    import winsound
