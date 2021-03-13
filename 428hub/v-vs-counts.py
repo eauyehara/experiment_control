@@ -43,15 +43,16 @@ def main():
 	else:
 		which_measurement = "Light" # "Dark" or "Light"
 		# which_measurement = "Light" # "Dark" or "Light"
-	fname ='TC1_W12-14_PD6D-8um'
+	fname ='TC1_W12-14_PD6D-16um'
 	pqc = "pcb"# "chip" # "pcb"
 	print('Measuring {}'.format(fname))
 
-	device = 'PD6D-wide'
+	device = 'PD6D-zoom'
 	exp_setting = {
 	# device: Vbd, overbias max%, step%, integration time]
 		'PD6D': [Q_(24, 'V'), 20, 2.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
 		'PD6D-wide': [Q_(24, 'V'), 20, 1.0, 1.0, [-0.025, -0.05]],
+		'PD6D-zoom': [Q_(25, 'V'), 4, 0.2, 1.0, [-0.025, -0.05]],
 		'PD6D-4um': [Q_(30.0, 'V'), 20, 2.0, 4.0, [-0.02, -0.030, -0.040, -0.05, -0.06]],
 		'PD4A': [Q_(33.5, 'V'), 20, 2.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
 	}
@@ -112,7 +113,8 @@ def main():
 	experiment_info = '#{}-integration {} sec x {}; slope {}; bias settle time {} sec; input Z={}; Bias(Vbd={} Vex={}% Vex step={}%)'.format(which_measurement, integration_time, reps, slope, bias_settle_time, Zin, Vbd, max_overbias, step_overbias)
 
 	# Tap power to Incident Power coefficient
-	power_measurement = np.genfromtxt('./output/nd-cal/850-od0.csv', delimiter=',', skip_header=1)
+	# power_measurement = np.genfromtxt('./output/nd-cal/850-od0.csv', delimiter=',', skip_header=1)
+	power_measurement = np.genfromtxt('./output/850-cal-20210311.csv', delimiter=',', skip_header=1)
 	wavelength = Q_(float(np.round(power_measurement[0])), 'nm')
 	# print(wavelength)
 	tap_to_incident = power_measurement[5]
@@ -375,8 +377,11 @@ def main():
 
 		data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_avg_measurements, count_std_measurements, tap_avg_measurements, tap_std_measurements, actual_power, inc_cps, pdp), axis=1)
 
+		#print(data_out)
+		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
+
 		(bias_max, th_max) = np.unravel_index(np.argmax(pdp), pdp.shape)
-		maxpdp = 'Max PDP={:.4g}% at {:.4g}V Bias and {:.4g} mV Threshold, DCR={.4}'.format(np.max(pdp)*100, vec_overbias.magnitude[bias_max], thresholds[th_max]*1000, dark_counts_avg[bias_max, th_max])
+		maxpdp = 'Max PDP={:.4g}% at {:.4g}V Bias and {:.4g} mV Threshold, DCR={:.4g}'.format(np.max(pdp)*100, vec_overbias.magnitude[bias_max], thresholds[th_max]*1000, dark_counts_avg[bias_max, th_max])
 		print(maxpdp)
 
 		fig, ax1 = plt.subplots(1,1, figsize=(3.5,2.5), dpi=300)
@@ -395,9 +400,6 @@ def main():
 		ax1.grid(True, which='both', linestyle=':', linewidth=0.3)
 		plt.savefig(imgname+'-PDP.png', dpi=300, bbox_inches='tight')
 
-
-		#print(data_out)
-		np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
 
 	bring_down_from_breakdown(SOURCEMETER, Vbd)
 	COUNTER.display = 'ON'

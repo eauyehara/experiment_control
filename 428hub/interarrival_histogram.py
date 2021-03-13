@@ -35,20 +35,21 @@ def main():
 	##############################################################################
 	## Variables to set
 	##############################################################################
-	fname = 'TC1_W12-35_PD4A-16um'
+	fname = 'TC1_W12-35_PD6D-16um'
 
-	which_measurement = "interarrival_histogram.py" # "Dark" or "Light"
+	which_measurement = "interarrival_histogram" # "Dark" or "Light"
 	# input_file = './output/20200704_165548-TC1_W13-34_PD4A-16um-Dark.csv'
 	input_file = None
+	input_file = './output/20210312_204949-TC1_W12-35_PD6D-16um-interarrival_histogram.csv'
 	# input_file = './output/20200704_194025-TC1_W13-34_PD4A-16um-Dark.csv'
 	pqc = "pcb" # "pcb" or "chip"
 
-	Vbd = Q_(34.8, 'V') # Breakdown voltage PD4A-16um 34.8V
-	Vbias = Q_(37.8, 'V')
+	Vbd = Q_(24.0, 'V') # Breakdown voltage PD4A-16um 34.8V
+	Vbias = Q_(25.6, 'V')
 	bias_settle_time = 30.0 # sec
 
 	# Frequency counter settings
-	num_samples = 1000
+	num_samples = 10000
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
 	threshold = -0.050 # V
 
@@ -90,71 +91,72 @@ def main():
 
 
 
-	# Global instrument variables
-	COUNTER = None
-	SOURCEMETER = None
-	POWERMETER = None
-
-	address_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
-	# address_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
-	address_POWERMETER = 'USB0::0x1313::0x8079::P1001951::INSTR'
-	address_SOURCEMETER = 'GPIB0::15::INSTR'
-	#---------------------------------------------------------------------------------------
-
-	# Initialize tap Power meter
-	# try:
-	# 	from instrumental.drivers.powermeters.thorlabs import PM100A
-	# 	POWERMETER = PM100A(visa_address=USB_address_POWERMETER)
-	# 	#POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
-	# except:
-	# 	print('no powermeter available.')
-	# 	POWERMETER=None
-	# else:
-	# 	print('powermeter opened')
-	# 	POWERMETER.wavelength = wavelength
-	# 	POWERMETER.auto_range = 1
-	POWERMETER = None
-
-	# Open the instruments
-	# initialize counter
-	try:
-		from instrumental.drivers.frequencycounters.keysight import FC53220A
-		COUNTER = FC53220A(visa_address=address_COUNTER)
-	except:
-		print('no frequency counter available. exiting.')
-		exit()
-	else:
-		print('frequency counter connected.')
-		COUNTER._rsrc.timeout = num_samples*60
-		COUNTER.set_mode_single_period(num_counts = num_samples)
-		COUNTER.coupling = 'DC'
-		if pqc == "pcb":
-			print('pcb pqc setting to 50Ohm')
-			COUNTER.impedance = Q_(50, 'ohm')
-		elif pqc == "chip":
-			print('on chip pqc setting to 1MOhm')
-			COUNTER.impedance = Q_(1e6, 'ohm')
-		COUNTER.slope = 'NEG'
-		COUNTER.threshold = threshold
-
-		temperature = COUNTER.temp
-		print('temp is {}'.format(temperature))
-		experiment_info = experiment_info + ', T={} C'.format(temperature.magnitude)
-
-		COUNTER.display = 'ON'
-
-	# initialize source meter
-	try:
-		from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
-		SOURCEMETER = Keithley_2400(visa_address=address_SOURCEMETER)
-	except:
-		print('no sourcemeter available. exiting.')
-		exit()
-	else:
-		print('Keithley connected.')
-		SOURCEMETER.set_current_compliance(Q_(8e-3, 'A'))
-
 	if input_file is None:
+		# Global instrument variables
+		COUNTER = None
+		SOURCEMETER = None
+		POWERMETER = None
+
+		address_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
+		# address_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
+		address_POWERMETER = 'USB0::0x1313::0x8079::P1001951::INSTR'
+		address_SOURCEMETER = 'GPIB0::15::INSTR'
+		#---------------------------------------------------------------------------------------
+
+		# Initialize tap Power meter
+		# try:
+		# 	from instrumental.drivers.powermeters.thorlabs import PM100A
+		# 	POWERMETER = PM100A(visa_address=USB_address_POWERMETER)
+		# 	#POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
+		# except:
+		# 	print('no powermeter available.')
+		# 	POWERMETER=None
+		# else:
+		# 	print('powermeter opened')
+		# 	POWERMETER.wavelength = wavelength
+		# 	POWERMETER.auto_range = 1
+		POWERMETER = None
+
+		# Open the instruments
+		# initialize counter
+		try:
+			from instrumental.drivers.frequencycounters.keysight import FC53220A
+			COUNTER = FC53220A(visa_address=address_COUNTER)
+		except:
+			print('no frequency counter available. exiting.')
+			exit()
+		else:
+			print('frequency counter connected.')
+			COUNTER._rsrc.timeout = num_samples*60
+			COUNTER.set_mode_single_period(num_counts = num_samples)
+			COUNTER.coupling = 'DC'
+			if pqc == "pcb":
+				print('pcb pqc setting to 50Ohm')
+				COUNTER.impedance = Q_(1e6, 'ohm')
+			elif pqc == "chip":
+				print('on chip pqc setting to 1MOhm')
+				COUNTER.impedance = Q_(1e6, 'ohm')
+			COUNTER.slope = 'NEG'
+			COUNTER.threshold = threshold
+
+			temperature = COUNTER.temp
+			print('temp is {}'.format(temperature))
+			experiment_info = experiment_info + ', T={} C'.format(temperature.magnitude)
+
+			COUNTER.display = 'ON'
+
+		# initialize source meter
+		try:
+			from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+			SOURCEMETER = Keithley_2400(visa_address=address_SOURCEMETER)
+		except:
+			print('no sourcemeter available. exiting.')
+			exit()
+		else:
+			print('Keithley connected.')
+			SOURCEMETER.set_current_compliance(Q_(8e-3, 'A'))
+
+
 		# perform measurement
 		bring_to_breakdown(SOURCEMETER, Vbias)
 		time.sleep(bias_settle_time)
@@ -174,8 +176,6 @@ def main():
 
 			# Save raw results
 			np.savetxt(csvname, data, delimiter=',', header=experiment_info, comments="")
-
-
 
 		bring_down_from_breakdown(SOURCEMETER, Vbias)
 		COUNTER.display = 'ON'
@@ -213,7 +213,8 @@ def main():
 
 		plt.plot(bin_center[1:], single_exp(bin_center[1:], *popt), label='Fit')
 		plt.title("\n".join(wrap('Interarrival time Histogram for {}\n'.format(fname) \
-			+ 'Fitted DCR: {:.4g}, Pap={:.4g}%\n'.format(popt[0], Pap*100), 60)))
+			+ 'Fitted DCR: {:.4g}, Pap={:.4g}%\n'.format(popt[0], Pap*100) \
+			+ 'at Bias={}V and Threshold={}V'.format(Vbias.magnitude, threshold), 60)))
 		plt.legend()
 
 		plt.savefig(imgname+'-Histogram.png', dpi=300, bbox_inches='tight')
@@ -221,6 +222,8 @@ def main():
 
 		# Sequence of ranged amplitudes - based on Kramnik's script
 		sorted_data = np.sort(data)[::-1] # sort in descending order
+		# len = sorted_data.size
+		sorted_data = sorted_data[:-50]
 		len = sorted_data.size
 		n  = np.arange(1., len+1., 1.)
 		cdf_vec = (len - n)/len
@@ -229,13 +232,18 @@ def main():
 		holdoff_time = sorted_data[-1]
 
 		# Pap: after pulsing probability, DCR: primary dark count rate, APR: afterpulsing rate
-		func = lambda tn, Pap, DCR, APR: 1. - (1.-Pap) * np.exp(-DCR*(tn-holdoff_time)) - Pap*np.exp(-APR*(tn-holdoff_time))
+		# func = lambda tn, Pap, DCR, APR: 1. - (1.-Pap) * np.exp(-DCR*(tn-holdoff_time)) - Pap*np.exp(-APR*(tn-holdoff_time))
+		def func(tn, Pap, DCR, APR):
+			return 1. - (1.-Pap) * np.exp(-DCR*(tn-holdoff_time)) - Pap*np.exp(-APR*(tn-holdoff_time))
+
+
 		# Constrain the optimization to the region of 0 <= Pap <= 1, 0 <= DCR <= 1e9 and 0 <= APR <= 1e9
 		bounds = (0, [1., 1.e9, 1.e9])
 		# Initial guess Pap= DCR= Ttrap
-		DCR_guess = 1/np.mean(sorted_data)
+		Pap_guess = 0.2
+		DCR_guess = 1/np.mean(sorted_data[10:])
 		APR_guess = 10*DCR_guess
-		p0 = [0.5, DCR_guess, APR_guess]
+		p0 = [Pap_guess, DCR_guess, APR_guess]
 
 		# possibility need to give sigma option
 
@@ -246,6 +254,17 @@ def main():
 		# x_plot_fit_realistic = - np.log10( 1 - func(sorted_data, *popt))
 		# y_plot_realistic = sorted_data / np.mean( sorted_data )
 
+		from lmfit import Model
+
+		sra = Model(func)
+		sra.set_param_hint('Pap', value=Pap_guess, min=0.0, max=1e9)
+		sra.set_param_hint('DCR', value=DCR_guess, min=0.0, max=1e9)
+		sra.set_param_hint('APR', value=APR_guess, min=0.0, max=1e9)
+		# result = sra.fit(cdf_vec, tn=sorted_data, Pap=Pap_guess, DCR=DCR_guess, APR=APR_guess)
+		result = sra.fit(cdf_vec, tn=sorted_data)
+		print(result.fit_report())
+
+		# popt = [0.25, 2500, 90e5]
         # Make the plot
 		pm = u"\u00B1"
 		plt.figure()
@@ -254,71 +273,32 @@ def main():
 			+ 'Pap={:.4g}% {} {:.4g}%, '.format(popt[0]*100, pm, perr[0]*100) \
 			+'DCR={:.4g} {} {:.4g}, '.format(popt[1], pm, perr[1]) \
 			+ 'APR={:.4g} {} {:.4g}\n'.format(popt[2], pm, perr[2]) \
-			+ 'at Bias={}V and Threshold={}V'.format(), 60)))
+			+ 'at Bias={}V and Threshold={}V'.format(Vbias.magnitude, threshold), 60)))
 		print('Pap from SRA = {:.4g}%'.format(popt[0]*100))
 		plt.semilogx( sorted_data, cdf_vec, 'o', linestyle='None', label='Measurement')
 		plt.semilogx( sorted_data, func(sorted_data, *popt), label='fit')
+		# plt.semilogx( sorted_data, func(sorted_data, Pap=0.2, DCR=5000, APR=5e5), label='fit')
 		plt.xlabel('Interarrival time [s]')
 		plt.ylabel('CDF=Sorted Index/Total Samples')
+		plt.legend()
 		plt.savefig(imgname+'-SRA.png', dpi=300, bbox_inches='tight')
         # title( plot_title );
 
+		plt.figure()
+		plt.title("\n".join(wrap( \
+			'SRA fit for {}\n'.format(fname) \
+			+ 'Pap={:.4g}% {} {:.4g}%, '.format(result.best_values['Pap']*100, pm, perr[0]*100) \
+			+'DCR={:.4g} {} {:.4g}, '.format(popt[1], pm, perr[1]) \
+			+ 'APR={:.4g} {} {:.4g}\n'.format(popt[2], pm, perr[2]) \
+			+ 'at Bias={}V and Threshold={}V'.format(Vbias.magnitude, threshold), 60)))
+		print('Pap from SRA = {:.4g}%'.format(result.best_values['Pap']*100))
+		plt.semilogx( sorted_data, cdf_vec, 'o', linestyle='None', label='Measurement')
+		plt.semilogx( sorted_data, result.best_fit, label='fit')
+		plt.xlabel('Interarrival time [s]')
+		plt.ylabel('CDF=Sorted Index/Total Samples')
+		plt.legend()
+		plt.savefig(imgname+'-SRAlmfit.png', dpi=300, bbox_inches='tight')
 
-
-
-	# if which_measurement == "Dark":
-	# 	header = 'Bias [V],'+','.join(['cps @ vth={}'.format(vth) for vth in thresholds])
-	# 	data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_measurements), axis=1)
-	# 	# print(data_out)
-	# 	np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
-	# elif which_measurement == "Light":
-	# 	print('Checking shape of arrays: dark - {}, light- {}'.format(dark_counts.shape, count_measurements.shape))
-	#
-	# 	# compute things
-	# 	actual_power = tap_avg_measurements*tap_to_incident
-	# 	print(tap_to_incident)
-	# 	for nd_filter in nd_cfg: # attenuate
-	# 		actual_power = actual_power*nd_filters[nd_filter]
-	# 	incident_cps = actual_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
-	# 	pdp = np.divide((count_measurements-dark_counts), incident_cps, out=np.zeros_like(incident_cps), where=incident_cps!=0)
-	#
-	# 	# Assemble data
-	# 	header = 'Bias [V],'+','.join(
-	# 		['cps @ vth={}'.format(vth) for vth in thresholds] +
-	# 		['Tap power avg[W] @ vth={}'.format(vth) for vth in thresholds] +
-	# 		['Tap power std[W] @ vth={}'.format(vth) for vth in thresholds] +
-	# 		['Actual power[W] @ vth={}'.format(vth) for vth in thresholds] +
-	# 		['Incident cps @ vth={}'.format(vth) for vth in thresholds] +
-	# 		['PDP[%] @ vth={}'.format(vth) for vth in thresholds] )
-	#
-	# 	experiment_info = experiment_info + ', {}nm'.format(wavelength.magnitude)
-	#
-	# 	data_out = np.concatenate((vec_overbias.reshape(num_measures,1).magnitude, count_measurements, tap_avg_measurements, tap_std_measurements, actual_power, incident_cps, pdp), axis=1)
-	#
-	# 	plt.figure()
-	# 	plt.title("\n".join(wrap('PDP '+experiment_info+' at Vth={}'.format(thresholds[0]), 60)))
-	# 	plt.plot(vec_overbias.magnitude, pdp, 'o-') # plot first threshold data
-	# 	plt.xlabel('Bias [V]')
-	# 	plt.ylabel('PDP [%]')
-	# 	plt.ylim([0,1.0])
-	# 	plt.grid(True, which='both', linestyle=':', linewidth=0.3)
-	# 	plt.savefig(imgname+'PDP.png', dpi=300, bbox_inches='tight')
-	#
-	# 	print(data_out)
-	# 	np.savetxt(csvname, data_out, delimiter=',', header=header, footer=experiment_info, comments="")
-
-
-
-	# plt.figure()
-
-	#
-	# plt.semilogy(vec_overbias.magnitude, count_measurements[:,0], 'o-') # plot first threshold data
-	#
-	# plt.xlabel('Bias [V]')
-	# plt.ylabel('Counts [cps]')
-	# plt.grid(True, which='both', linestyle=':', linewidth=0.3)
-	# plt.savefig(imgname, dpi=300, bbox_inches='tight')
-	# plt.show()
 
 
 #############################################################################
