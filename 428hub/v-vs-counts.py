@@ -540,6 +540,6 @@ if __name__ == '__main__':
 
 	try:
 	    import winsound
-	    winsound.Beep(2200, 1000)
+	    winsound.Beep(1500, 1000)
 	except:
 	    print('winsound not available no beeping')

@@ -35,23 +35,26 @@ def main():
 	##############################################################################
 	## Variables to set
 	##############################################################################
-	fname = 'TC1_W12-35_PD6D-16um'
+	fname = 'TC1_W12-14_PD6D-16um'
 
-	which_measurement = "interarrival_histogram" # "Dark" or "Light"
+	which_measurement = "interarrival_histogram"
+	illum = 'Light' # "Dark" or "Light"
 	# input_file = './output/20200704_165548-TC1_W13-34_PD4A-16um-Dark.csv'
 	input_file = None
-	input_file = './output/20210312_204949-TC1_W12-35_PD6D-16um-interarrival_histogram.csv'
+	# input_file = './output/20210312_204949-TC1_W12-35_PD6D-16um-interarrival_histogram.csv'
 	# input_file = './output/20200704_194025-TC1_W13-34_PD4A-16um-Dark.csv'
 	pqc = "pcb" # "pcb" or "chip"
 
 	Vbd = Q_(24.0, 'V') # Breakdown voltage PD4A-16um 34.8V
 	Vbias = Q_(25.6, 'V')
 	bias_settle_time = 30.0 # sec
+	integration_time = 10.0
 
 	# Frequency counter settings
 	num_samples = 10000
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
 	threshold = -0.050 # V
+	Zin=1e6
 
 	reps = 10
 
@@ -63,12 +66,15 @@ def main():
 
 # # for testing
 	if False:
-		which_measurement = "Light" # "Dark" or "Light"
+		which_measurement = "interarrival"
+		illum = 'Light' # "Dark" or "Light"
 		Vbd = Q_(1.0, 'V') # [V]
 		max_overbias = 10.0 # [%]
 		step_overbias = 5.0 # [%] Each step 1% more overbias
 		integration_time = 1.0 # sec
 		bias_settle_time = 1.0 # sec
+
+		num_samples = 1000
 
 	# Filenames
 	if input_file is None:
@@ -82,12 +88,45 @@ def main():
 	temperature = 25.0
 
 
-	#
-	# # Tap power to Incident Power coefficient
-	# power_measurement = np.genfromtxt('./output/Pi-NE10B.csv', delimiter=',', skip_header=1)
-	# wavelength = Q_(float(np.round(power_measurement[0])), 'nm')
+	power_measurement = np.genfromtxt('./output/850-cal-20210311.csv', delimiter=',', skip_header=1)
+	wavelength = Q_(float(np.round(power_measurement[0])), 'nm')
 	# print(wavelength)
-	# tap_to_incident = power_measurement[5]
+	tap_to_incident = power_measurement[5]
+
+	# ND filter calibration values -
+	nd_cfg = ["od5", "od4"]
+	if illum=="Light":
+		experiment_info = experiment_info + '; ND filters: {}'.format(nd_cfg)
+	try:
+		pickle_in = open("nd_cal.pickle", "rb")
+		nd_filters = pickle.load(pickle_in)
+	except:
+		nd_cal_dir = './output/nd-cal/'
+
+		print('No ND calibration value pickle file, generating from csv data set in {}'.format(nd_cal_dir))
+
+		nd_filters = {
+			#"NE10B": 0,
+			#"NE20B": 0,
+			#"NE30B": 0,
+			# "NE40B": 0,
+			# "NE50A-A": 0,
+			'od4': 0,
+			'od5': 0,
+		}
+
+		Pi = np.genfromtxt(nd_cal_dir+'850-od0.csv', delimiter=',', skip_header=1)
+		for (filter, value) in nd_filters.items():
+			Po = np.genfromtxt(nd_cal_dir+'850-'+filter+'.csv', delimiter=',', skip_header=1)
+
+			nd_filters[filter] = Po[1]/Pi[1]
+
+		pickle_out = open("nd_cal.pickle", "wb")
+		pickle.dump(nd_filters, pickle_out)
+		pickle_out.close()
+	else:
+		print('ND calibration values loaded from nd_cal.pickle file')
+		# print(nd_filters)
 
 
 
@@ -104,20 +143,18 @@ def main():
 		#---------------------------------------------------------------------------------------
 
 		# Initialize tap Power meter
-		# try:
-		# 	from instrumental.drivers.powermeters.thorlabs import PM100A
-		# 	POWERMETER = PM100A(visa_address=USB_address_POWERMETER)
-		# 	#POWERMETER = PM100A(visa_address='USB0::0x1313::0x8079::P1001951::INSTR')
-		# except:
-		# 	print('no powermeter available.')
-		# 	POWERMETER=None
-		# else:
-		# 	print('powermeter opened')
-		# 	POWERMETER.wavelength = wavelength
-		# 	POWERMETER.auto_range = 1
-		POWERMETER = None
+		try:
+			from instrumental.drivers.powermeters.thorlabs import PM100A
 
-		# Open the instruments
+			POWERMETER = PM100A(visa_address=address_POWERMETER)
+		except:
+			print('    no powermeter available. exiting.')
+			POWERMETER=None
+		else:
+			print('    powermeter opened')
+			POWERMETER.wavelength = wavelength
+			POWERMETER.auto_range = 1
+
 		# initialize counter
 		try:
 			from instrumental.drivers.frequencycounters.keysight import FC53220A
@@ -131,8 +168,8 @@ def main():
 			COUNTER.set_mode_single_period(num_counts = num_samples)
 			COUNTER.coupling = 'DC'
 			if pqc == "pcb":
-				print('pcb pqc setting to 50Ohm')
-				COUNTER.impedance = Q_(1e6, 'ohm')
+				print('pcb pqc setting to {}Ohm'.format(Zin))
+				COUNTER.impedance = Q_(Zin, 'ohm')
 			elif pqc == "chip":
 				print('on chip pqc setting to 1MOhm')
 				COUNTER.impedance = Q_(1e6, 'ohm')
@@ -143,7 +180,7 @@ def main():
 			print('temp is {}'.format(temperature))
 			experiment_info = experiment_info + ', T={} C'.format(temperature.magnitude)
 
-			COUNTER.display = 'ON'
+			COUNTER.display = 'OFF'
 
 		# initialize source meter
 		try:
@@ -165,7 +202,17 @@ def main():
 		try:
 			COUNTER.write('INIT') # Initiate the measurements
 			COUNTER.write('*WAI') # Wait for the measurements to be completed
-			time_list = COUNTER.query('FETC?') # Read instrument
+			# Take power meter measurements
+			if POWERMETER is not None:
+				power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
+			else:
+				power = Q_(0.0, 'W').plus_minus(Q_(0.0, 'W'))
+			act_power = power.value.magnitude*tap_to_incident
+			for nd_filter in nd_cfg: # attenuate
+				act_power = act_power*nd_filters[nd_filter]
+			inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
+
+			time_list = COUNTER.query('FETC?') # Read from counter
 		except:
 			print("Unexpected error:", sys.exc_info()[0])
 			data = None
@@ -174,8 +221,9 @@ def main():
 
 			print('Measurement finished...')
 
+			experiment_info = experiment_info + ', Tap power {:.4g}; Actual Power {:.4g}; Incident cps {:.4g}'.format(power, act_power, inc_cps)
 			# Save raw results
-			np.savetxt(csvname, data, delimiter=',', header=experiment_info, comments="")
+			np.savetxt(csvname, data, delimiter=',', header=experiment_info, comments="#")
 
 		bring_down_from_breakdown(SOURCEMETER, Vbias)
 		COUNTER.display = 'ON'
@@ -346,6 +394,6 @@ if __name__ == '__main__':
 
 	try:
 	    import winsound
-	    winsound.Beep(2200, 1000)
+	    winsound.Beep(1500, 1000)
 	except:
 	    print('winsound not available no beeping')
