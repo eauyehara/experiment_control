@@ -43,17 +43,22 @@ def main():
 	else:
 		which_measurement = "Light" # "Dark" or "Light"
 		# which_measurement = "Light" # "Dark" or "Light"
-	fname ='TC1_W12-14_PD6D-16um'
+	# fname ='TC1_W12-14_PD6D-12um-9K10um'
+	# fname ='TC1_W12-7_PD6D-12um'
+	# fname='TC1_W12-7_PD6D-12um-STI2000nm'
+	fname='TC1_W12-7_PD6D-12um-Intr1000nm'
+	# fname ='TC1_W12-14_PD6D-20um-HalfCrossHover'
 	pqc = "pcb"# "chip" # "pcb"
 	print('Measuring {}'.format(fname))
 
-	device = 'PD6D-zoom'
+	device = 'PD6D-12um'
 	exp_setting = {
 	# device: Vbd, overbias max%, step%, integration time]
 		'PD6D': [Q_(24, 'V'), 20, 2.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
 		'PD6D-wide': [Q_(24, 'V'), 20, 1.0, 1.0, [-0.025, -0.05]],
 		'PD6D-zoom': [Q_(25, 'V'), 4, 0.2, 1.0, [-0.025, -0.05]],
 		'PD6D-4um': [Q_(30.0, 'V'), 20, 2.0, 4.0, [-0.02, -0.030, -0.040, -0.05, -0.06]],
+		'PD6D-12um': [Q_(24.5, 'V'), 6, 0.3, 1.0, [-0.025, -0.05]],
 		'PD4A': [Q_(33.5, 'V'), 20, 2.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
 	}
 
