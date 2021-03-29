@@ -44,57 +44,35 @@ def main():
 		which_measurement = "Light" # "Dark" or "Light"
 		# which_measurement = "Light" # "Dark" or "Light"
 	# fname ='TC1_W12-14_PD6D-12um-9K10um'
+	# fname ='TC1_W12-14_PD6D-12um-9K10um'
 	# fname ='TC1_W12-7_PD6D-12um'
 	# fname='TC1_W12-7_PD6D-12um-STI2000nm'
-	fname='TC1_W12-7_PD6D-12um-Intr1000nm'
+	# fname='TC1_W12-7_PD6D-12um-Intr1000nm'
 	# fname ='TC1_W12-14_PD6D-20um-HalfCrossHover'
+	fname = 'TC1_W12-7_PD6D-12um'
 	pqc = "pcb"# "chip" # "pcb"
 	print('Measuring {}'.format(fname))
 
 	device = 'PD6D-12um'
 	exp_setting = {
-	# device: Vbd, overbias max%, step%, integration time]
-		'PD6D': [Q_(24, 'V'), 20, 2.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
-		'PD6D-wide': [Q_(24, 'V'), 20, 1.0, 1.0, [-0.025, -0.05]],
-		'PD6D-zoom': [Q_(25, 'V'), 4, 0.2, 1.0, [-0.025, -0.05]],
-		'PD6D-4um': [Q_(30.0, 'V'), 20, 2.0, 4.0, [-0.02, -0.030, -0.040, -0.05, -0.06]],
-		'PD6D-12um': [Q_(24.5, 'V'), 6, 0.3, 1.0, [-0.025, -0.05]],
-		'PD4A': [Q_(33.5, 'V'), 20, 2.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
+	# device: Vbd, max bias, num of points, number of samples, thresholds]
+		'PD6D': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
+		'PD6D-wide': [Q_(24, 'V'), Q_(28, 'V'), 21, 1.0, [-0.025, -0.05]],
+		'PD6D-zoom': [Q_(25.5, 'V'), 2, 0.1, 1.0, [-0.025, -0.05]],
+		'PD6D-4um': [Q_(30.0, 'V'), Q_(36.0, 'V'), 21, 4.0, [-0.02, -0.030, -0.040, -0.05, -0.06]],
+		'PD6D-12um': [Q_(24.5, 'V'), Q_(26.95, 'V'), 21, 1.0, [-0.025, -0.05]],
+		'PD6D-16um': [Q_(25.4, 'V'), Q_(25.6, 'V'), 21, 1.0, [-0.025, -0.05]],
+		'PD4A': [Q_(33.5, 'V'), Q_(40.2, 'V'), 21, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
+		'test': [Q_(25.5, 'V'), Q_(25.8, 'V'), 4, 1.0, [-0.025, -0.05]],
 	}
 
-
 	Vbd = exp_setting[device][0]
-	max_overbias = exp_setting[device][1]
-	step_overbias = exp_setting[device][2]
+	max_bias = exp_setting[device][1]
+	num_measures = exp_setting[device][2]
+	# max_overbias = exp_setting[device][1]
+	# step_overbias = exp_setting[device][2]
 	integration_time = exp_setting[device][3]
-
-	# # Vbd = Q_(35, 'V') # [V] for PD4Q
-	# # Vbd = Q_(24.5, 'V') # [V] for PD6D
-	# Vbd = Q_(24, 'V') # [V] for PD6D
-	# # Vbd = Q_(29.5, 'V') # [V] for PD6D 4um
-	# # max_overbias = 20 # [%] check if it doesn't go over 40V
-	# max_overbias = 10 # [%] check if it doesn't go over 40V
-	# step_overbias = 1.0 # [%] Each step 1% more overbias
-	# integration_time = 1.0 # sec
-	# # integration_time = 4.0 # sec
-	bias_settle_time = 3.0 # sec
-	reps = 10 # number of repititions
-
-	# Frequency measurements settings
-	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
-	Zin = 1e6  # 50
-	delta_thres = 0.0025 # Resolution of threshold trigger is 2.5 mV
-	# thresholds = np.arange(-0.005, -0.095, -0.01) # V
-	# thresholds = [-0.05]
-	thresholds = [-0.025, -0.05, -0.075, -0.1, -0.125] #V 8-20um
-	# thresholds = [-0.02, -0.030, -0.040, -0.05, -0.06] # V 4um
-	# thresholds = [-0.005, -0.010, -0.015, -0.02, -0.025] # V
-	# thresholds = [-0.01, -0.025, -0.04, -0.05, -0.06, -0.075] # V
-	# thresholds = [-0.025, -0.05, -0.1, -0.15, -0.2] # V
-	# thresholds = [-0.05, -0.5, -1, -1.5, -2] # V
-	# thresholds = [2.5, 2.45, 2.4, 2.35, 2.3	] # V
 	thresholds = exp_setting[device][4]
-	light_threshold = -0.025
 
 # # for testing
 	if False:
@@ -107,6 +85,20 @@ def main():
 		bias_settle_time = 1.0 # sec
 		thresholds = [-0.025, -0.05]
 
+	if pqc=='chip':
+		if max_bias > Q_(2.5, 'V'):
+			print('Adjusting max bias from {} to {} to protect on chip quench circuit'.format(max_bias, Vbd+Q_(2.5, 'V')))
+			max_bias = Q_(2.5, 'V')+Vbd
+
+	vec_overbias = np.linspace(Vbd, max_bias, num = num_measures)
+
+	bias_settle_time = 3.0 # sec
+	reps = 10 # number of repititions
+
+	# Frequency measurements settings
+	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
+	Zin = 1e6  # 50
+
 	# Filenames
 	timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
 	# fname = 'TC1_W12-35_PD4A-16um'
@@ -115,7 +107,10 @@ def main():
 	imgname = './output/'+timestamp_str+ fname+ '-{}'.format(which_measurement)
 	temperature = 25.0
 
-	experiment_info = '#{}-integration {} sec x {}; slope {}; bias settle time {} sec; input Z={}; Bias(Vbd={} Vex={}% Vex step={}%)'.format(which_measurement, integration_time, reps, slope, bias_settle_time, Zin, Vbd, max_overbias, step_overbias)
+	try:
+		experiment_info = '#{}-integration {} sec x {}; slope {}; bias settle time {} sec; input Z={}; Bias(Vbd={} Vex={}% Vex step={}%)'.format(which_measurement, integration_time, reps, slope, bias_settle_time, Zin, Vbd, max_overbias, step_overbias)
+	except:
+		experiment_info = '#{}-integration {} sec x {}; slope {}; bias settle time {} sec; input Z={}; Bias(Vbd={} Vex={})'.format(which_measurement, integration_time, reps, slope, bias_settle_time, Zin, Vbd, max_bias.magnitude)
 
 	# Tap power to Incident Power coefficient
 	# power_measurement = np.genfromtxt('./output/nd-cal/850-od0.csv', delimiter=',', skip_header=1)
@@ -245,8 +240,15 @@ def main():
 
 	# Start with dark measurements
 	if which_measurement=="Dark":
-		num_measures = int(max_overbias/step_overbias) + 1 # 0% and max_overbias% included
-		vec_overbias = Vbd + Vbd/100 * np.linspace(0, max_overbias, num = num_measures)
+		try:
+			max_bias # check if defined
+		except:  # if not defined calculate bias vector based on overbias percentage
+			max_bias = (max_overbias/100.0+1.0) * Vbd
+
+			num_measures = int(max_overbias/step_overbias) + 1 # 0% and max_overbias% included
+			vec_overbias = Vbd + Vbd/100 * np.linspace(0, max_overbias, num = num_measures)
+
+		vec_overbias = np.linspace(Vbd, max_bias, num = num_measures)
 	elif which_measurement=="Light":
 		# load latest dark measurements
 		import glob
@@ -269,11 +271,6 @@ def main():
 		print('Choose Dark or Light for which_measurement, currently: {}'.format(which_measurement))
 		exit()
 
-	# truncate voltages beyond 2.5V above breakdown
-	if pqc=='chip':
-		vec_overbias = vec_overbias[vec_overbias < Vbd+Q_(2.5, 'V')]
-		num_measures = len(vec_overbias)
-		print('Adjusting bias range to {} to {} to protect on chip quench circuit'.format(vec_overbias[0], vec_overbias[-1]))
 
 	count_avg_measurements = []
 	count_std_measurements = []

@@ -35,7 +35,7 @@ def main():
 	##############################################################################
 	## Variables to set
 	##############################################################################
-	fname = 'TC1_W12-14_PD6D-16um'
+	fname = 'TC1_W12-7_PD6D-12um'
 
 	which_measurement = "interarrival_histogram"
 	illum = 'Light' # "Dark" or "Light"
@@ -46,7 +46,7 @@ def main():
 	pqc = "pcb" # "pcb" or "chip"
 
 	Vbd = Q_(24.0, 'V') # Breakdown voltage PD4A-16um 34.8V
-	Vbias = Q_(25.6, 'V')
+	Vbias = Q_(24.5, 'V')
 	bias_settle_time = 30.0 # sec
 	integration_time = 10.0
 

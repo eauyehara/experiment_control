@@ -46,42 +46,28 @@ def main():
 	pqc = "pcb" # "pcb" or "chip"
 
 
-	device = 'PD6D-12um'
+	# device = 'PD6D-zoom'
+	device = 'PD6D-16um'
 	exp_setting = {
-	# device: Vbd, overbias max%, step%, integration time]
-		'PD6D': [Q_(24, 'V'), 20, 2.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
-		'PD6D-wide': [Q_(24, 'V'), 20, 1.0, 1.0, [-0.025, -0.05]],
-		'PD6D-zoom': [Q_(25, 'V'), 4, 0.2, 1.0, [-0.025, -0.05]],
-		'PD6D-4um': [Q_(30.0, 'V'), 20, 2.0, 4.0, [-0.02, -0.030, -0.040, -0.05, -0.06]],
-		'PD6D-12um': [Q_(24.5, 'V'), 6, 0.3, 1.0, [-0.025, -0.05]],
-		'PD4A': [Q_(33.5, 'V'), 20, 2.0, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
+	# device: Vbd, max bias, num of points, number of samples, threshold]
+		'PD6D': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1000, -0.05],
+		'PD6D-wide': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1000, -0.05],
+		'PD6D-4um': [Q_(30.0, 'V'), Q_(36.0, 'V'), 21, 1000, -0.05],
+		'PD6D-12um': [Q_(24.5, 'V'), Q_(26.95, 'V'), 21, 1000, -0.05],
+		'PD6D-16um': [Q_(25.45, 'V'), Q_(25.65, 'V'), 21, 10000, -0.05],
+		'PD4A': [Q_(33.5, 'V'), Q_(40.2, 'V'), 21, 1000, -0.05],
+		'test': [Q_(25.5, 'V'), Q_(25.8, 'V'), 4, 1000, -0.05],
 	}
-	# Vbd = Q_(24.0, 'V') # Breakdown voltage PD4A-16um 34.8V
-	# Vbias = Q_(25.6, 'V')
 
 	Vbd = exp_setting[device][0]
-	max_overbias = exp_setting[device][1]
-	step_overbias = exp_setting[device][2]
-	integration_time = exp_setting[device][3]
+	max_bias = exp_setting[device][1]
+	num_measures = exp_setting[device][2]
+	# max_overbias = exp_setting[device][1]
+	# step_overbias = exp_setting[device][2]
+	num_samples = exp_setting[device][3]
+	threshold = exp_setting[device][4]
 
-	bias_settle_time = 30.0 # sec
-	integration_time = 10.0
-
-	# Frequency counter settings
-	num_samples = 10000
-	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
-	threshold = -0.050 # V
-	Zin=1e6
-
-	reps = 10
-
-	if pqc=='chip':
-		if Vbias > Vbd+Q_(2.5, 'V'):
-			print('Adjusting bias from {} to {} to protect on chip quench circuit'.format(Vbias, Vbd+Q_(2.5, 'V')))
-			Vbias = Vbd+Q_(2.5, 'V')
-	experiment_info = '# {}, Number of samples: {}, slope {}, threshold {} V, Bias {:.4g}, bias settle time {} sec'.format(which_measurement, num_samples, slope, threshold, Vbias, bias_settle_time)
-
-# # for testing
+	# # for testing
 	if False:
 		which_measurement = "interarrival"
 		illum = 'Light' # "Dark" or "Light"
@@ -93,10 +79,39 @@ def main():
 
 		num_samples = 1000
 
+
+
+	try:
+		max_bias # check if defined
+	except:  # if not defined calculate bias vector based on overbias percentage
+		max_bias = (max_overbias/100.0+1.0) * Vbd
+		num_measures = int(max_overbias/step_overbias) + 1 # 0% and max_overbias% included
+
+	if pqc=='chip':
+		if max_bias > Q_(2.5, 'V'):
+			print('Adjusting max bias from {} to {} to protect on chip quench circuit'.format(max_bias, Vbd+Q_(2.5, 'V')))
+			max_bias = Q_(2.5, 'V')+Vbd
+
+	vec_overbias = np.linspace(Vbd, max_bias, num = num_measures)
+
+	bias_settle_time = 5.0 # sec
+	integration_time = 10.0
+
+	# Frequency counter settings
+	# num_samples = 1000
+	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
+	Zin=1e6
+
+	reps = 10
+
+	experiment_info = '# {}, Number of samples: {}, slope {}, threshold {} V, Max Bias {:.4g}, bias settle time {} sec'.format(which_measurement, num_samples, slope, threshold, max_bias.magnitude, bias_settle_time)
+
+
 	# Filenames
 	if input_file is None:
 		timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
-		csvname = './output/'+timestamp_str+ fname+'-{}.csv'.format(which_measurement)
+		rawcsvname = './output/'+timestamp_str+ fname+'-{}-intertimes.csv'.format(which_measurement)
+		csvname = './output/'+timestamp_str+ fname+'-{}-processed.csv'.format(which_measurement)
 		imgname = './output/'+timestamp_str+ fname+ '-{}'.format(which_measurement)
 	else:
 		csvname = input_file
@@ -154,7 +169,6 @@ def main():
 		POWERMETER = None
 
 		address_COUNTER = 'USB0::0x0957::0x1807::MY50009613::INSTR'
-		# address_SOURCEMETER = 'USB0::0x0957::0x8C18::MY51141236::INSTR'
 		address_POWERMETER = 'USB0::0x1313::0x8079::P1001951::INSTR'
 		address_SOURCEMETER = 'GPIB0::15::INSTR'
 		#---------------------------------------------------------------------------------------
@@ -178,7 +192,7 @@ def main():
 			COUNTER = FC53220A(visa_address=address_COUNTER)
 		except:
 			print('no frequency counter available. exiting.')
-			exit()
+			# exit()
 		else:
 			print('frequency counter connected.')
 			COUNTER._rsrc.timeout = num_samples*60
@@ -191,12 +205,13 @@ def main():
 				print('on chip pqc setting to 1MOhm')
 				COUNTER.impedance = Q_(1e6, 'ohm')
 			COUNTER.slope = 'NEG'
-			COUNTER.threshold = threshold
+			COUNTER.Vthreshold = Q_(threshold,'V')
 
 			temperature = COUNTER.temp
 			print('temp is {}'.format(temperature))
 			experiment_info = experiment_info + ', T={} C'.format(temperature.magnitude)
 
+			COUNTER.timeout = 100.0
 			COUNTER.display = 'OFF'
 
 		# initialize source meter
@@ -205,19 +220,21 @@ def main():
 			SOURCEMETER = Keithley_2400(visa_address=address_SOURCEMETER)
 		except:
 			print('no sourcemeter available. exiting.')
-			exit()
+			# exit()
 		else:
 			print('Keithley connected.')
 			SOURCEMETER.set_current_compliance(Q_(8e-3, 'A'))
 
-		num_measures = int(max_overbias/step_overbias) + 1 # 0% and max_overbias% included
-		vec_overbias = Vbd + Vbd/100 * np.linspace(0, max_overbias, num = num_measures)
 
 		# perform measurement
-		bring_to_breakdown(SOURCEMETER, Vbias)
-		time.sleep(bias_settle_time)
+		bring_to_breakdown(SOURCEMETER, Vbd)
 
-		print('Performing {} samples interarrival time measurement...'.format(num_samples))
+		print('Performing {} samples interarrival time measurement on {}...'.format(num_samples, fname))
+
+		raw_data_array = []
+		pap_vec = []
+		dcr_vec = []
+
 
 		for i in range(num_measures): # loop through biases
 			print('\n{} out of {}'.format(i+1, num_measures))
@@ -225,151 +242,109 @@ def main():
 			time.sleep(bias_settle_time)
 
 			try:
-				COUNTER.write('INIT') # Initiate the measurements
-				COUNTER.write('*WAI') # Wait for the measurements to be completed
-				# Take power meter measurements
-				if POWERMETER is not None:
-					power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
-				else:
-					power = Q_(0.0, 'W').plus_minus(Q_(0.0, 'W'))
-				act_power = power.value.magnitude*tap_to_incident
-				for nd_filter in nd_cfg: # attenuate
-					act_power = act_power*nd_filters[nd_filter]
-				inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
+				print('Counting interarrival times')
+				COUNTER.write('INIT:IMM') # Initiate the measurements
+				# COUNTER.write('*WAI') # Wait for the measurements to be completed
+				# # Take power meter measurements
+				# if POWERMETER is not None:
+				# 	power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
+				# else:
+				# 	power = Q_(0.0, 'W').plus_minus(Q_(0.0, 'W'))
+				# act_power = power.value.magnitude*tap_to_incident
+				# for nd_filter in nd_cfg: # attenuate
+				# 	act_power = act_power*nd_filters[nd_filter]
+				# inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
 
+				print('Fetching interarrival times')
 				time_list = COUNTER.query('FETC?') # Read from counter
+
+
 			except:
 				print("Unexpected error:", sys.exc_info()[0])
 				data = None
 			else:
-				data = np.float_(time_list.split(",")) # Converts the output string to a float list
+			# 	# time_list = np.genfromtxt('./output/20210314 TC1-W12-14 PD6D 16um light interarrival/20210314_215837-TC1_W12-14_PD6D-16um-interarrival_histogram.csv')
+				data = np.array(time_list.split(",")).astype(np.float) # Converts the output string to a float list
 
-				print('Measurement finished...')
+				Pap, DCR = histogramFit(data)
+				print('Fitted DCR: {:.4g}, Pap={:.4g}%\n'.format(DCR, Pap*100) \
+					+ 'at Bias={:.4g}V and Threshold={:.4g}V'.format(vec_overbias[i].magnitude, threshold))
 
-				experiment_info = experiment_info + ', Tap power {:.4g}; Actual Power {:.4g}; Incident cps {:.4g}'.format(power, act_power, inc_cps)
-				# Save raw results
-				np.savetxt(csvname, data, delimiter=',', header=experiment_info, comments="#")
-
-
-		else:
-			print('Loading previous data from '+input_file)
-			try:
-				data = np.genfromtxt(input_file, delimiter=',', skip_header=1)
-			except:
-				print("Unexpected error:", sys.exc_info()[0])
-				data = None
-
-		# Parameter fit
-		if data is not None:
-			# Histogram method
-			plt.figure()
-			N, bin_borders, patches = plt.hist(data, bins=1000, label='Data') # Try: Calculate the apropiate num of bins from data
-			bin_center = bin_borders[:-1] + np.diff(bin_borders) / 2
-			plt.xlabel('Interarrival time [s]')
-			plt.ylabel('Counts per bin')
+				raw_data_array.append(data)
+				pap_vec.append(Pap)
+				dcr_vec.append(DCR)
 
 
-			# poisson = lambda k, A, euler: euler**k *  np.exp(-euler) / np.factorial(k)
-			single_exp = lambda t, DCR, A: A* np.exp(-DCR*t)
-			bounds = (0, [1.e9, 1.e9])
-			p0 = [1/np.mean(data), N[1]]
+		print('Measurement finished...')
 
-			Nshift = np.roll(N, -1)
-			ap_index = max(1, (N>Nshift+num_samples/100).argmin())
-			print('afterpulses included before {}'.format(ap_index))
-			Pap = np.sum(N[0:ap_index])/num_samples
-			print('Pap from histogram = {:.4g}%'.format(Pap*100))
-			# final fit excluding afterpulses are in first bin
-			popt, pcov = curve_fit(single_exp, bin_center[ap_index:], N[ap_index:], p0=p0, bounds=bounds)
+		# print(np.array(pap_vec).shape)
+		# print(np.array(dcr_vec).shape)
+		# print(np.array(vec_overbias.magnitude).shape)
+		# Save results to csvname
+		output_array = np.vstack((np.array(vec_overbias.magnitude), np.array(pap_vec), np.array(dcr_vec)))
+		np.savetxt(csvname, output_array, delimiter=',', header=experiment_info, comments="#")
 
+		output_array = np.hstack((np.array([vec_overbias.magnitude]).T, np.array(raw_data_array))).T
+		np.savetxt(rawcsvname, output_array, delimiter=',', header=experiment_info, comments="#")
 
-			plt.plot(bin_center[1:], single_exp(bin_center[1:], *popt), label='Fit')
-			plt.title("\n".join(wrap('Interarrival time Histogram for {}\n'.format(fname) \
-				+ 'Fitted DCR: {:.4g}, Pap={:.4g}%\n'.format(popt[0], Pap*100) \
-				+ 'at Bias={}V and Threshold={}V'.format(Vbias.magnitude, threshold), 60)))
-			plt.legend()
+		bring_down_from_breakdown(SOURCEMETER, Vbd)
+		COUNTER.display = 'ON'
 
-			plt.savefig(imgname+'-Histogram.png', dpi=300, bbox_inches='tight')
+	else:
+		print('Loading previous data from '+input_file)
+		try:
+			data = np.genfromtxt(input_file, delimiter=',', skip_header=1)
+		except:
+			print("Unexpected error:", sys.exc_info()[0])
+			data = None
 
-
-			# Sequence of ranged amplitudes - based on Kramnik's script
-			sorted_data = np.sort(data)[::-1] # sort in descending order
-			# len = sorted_data.size
-			sorted_data = sorted_data[:-50]
-			len = sorted_data.size
-			n  = np.arange(1., len+1., 1.)
-			cdf_vec = (len - n)/len
-
-			# % Estimate holdoff time (assuming dense data set for characterization)
-			holdoff_time = sorted_data[-1]
-
-			# Pap: after pulsing probability, DCR: primary dark count rate, APR: afterpulsing rate
-			# func = lambda tn, Pap, DCR, APR: 1. - (1.-Pap) * np.exp(-DCR*(tn-holdoff_time)) - Pap*np.exp(-APR*(tn-holdoff_time))
-			def func(tn, Pap, DCR, APR):
-				return 1. - (1.-Pap) * np.exp(-DCR*(tn-holdoff_time)) - Pap*np.exp(-APR*(tn-holdoff_time))
+	# Parameter fit
+	if data is not None:
+		# Histogram method
+		plt.figure()
+		N, bin_borders, patches = plt.hist(data, bins=1000, label='Data') # Try: Calculate the apropiate num of bins from data
+		bin_center = bin_borders[:-1] + np.diff(bin_borders) / 2
+		plt.xlabel('Interarrival time [s]')
+		plt.ylabel('Counts per bin')
 
 
-			# Constrain the optimization to the region of 0 <= Pap <= 1, 0 <= DCR <= 1e9 and 0 <= APR <= 1e9
-			bounds = (0, [1., 1.e9, 1.e9])
-			# Initial guess Pap= DCR= Ttrap
-			Pap_guess = 0.2
-			DCR_guess = 1/np.mean(sorted_data[10:])
-			APR_guess = 10*DCR_guess
-			p0 = [Pap_guess, DCR_guess, APR_guess]
+		# poisson = lambda k, A, euler: euler**k *  np.exp(-euler) / np.factorial(k)
+		single_exp = lambda t, DCR, A: A* np.exp(-DCR*t)
+		bounds = (0, [1.e9, 1.e9])
+		p0 = [1/np.mean(data), N[1]]
 
-			# possibility need to give sigma option
+		Nshift = np.roll(N, -1)
+		ap_index = max(1, (N>Nshift+num_samples/100).argmin())
+		print('afterpulses included before {}'.format(ap_index))
+		Pap = np.sum(N[0:ap_index])/num_samples
+		print('Pap from histogram = {:.4g}%'.format(Pap*100))
+		# final fit excluding afterpulses are in first bin
+		popt, pcov = curve_fit(single_exp, bin_center[ap_index:], N[ap_index:], p0=p0, bounds=bounds)
 
-			# perform fit
-			popt, pcov = curve_fit(func, sorted_data, cdf_vec, p0=p0, bounds=bounds)
-			perr = np.sqrt(np.diag(pcov))
-			# x_plot_data_realistic = - np.log10( 1. - cdf_vec )
-			# x_plot_fit_realistic = - np.log10( 1 - func(sorted_data, *popt))
-			# y_plot_realistic = sorted_data / np.mean( sorted_data )
 
-			from lmfit import Model
+		plt.plot(bin_center[1:]*1e3, single_exp(bin_center[1:], *popt), label='Fit')
+		plt.title("\n".join(wrap('Interarrival time Histogram for {}\n'.format(fname) \
+			+ 'Fitted DCR: {:.4g}, Pap={:.4g}%\n'.format(popt[0], Pap*100) \
+			+ 'at Bias={:.4g}V and Threshold={:.4g}V'.format(Vbd.magnitude, threshold), 60)))
+		plt.legend()
+		plt.xlabel('Interarrival Time [ms]')
 
-			sra = Model(func)
-			sra.set_param_hint('Pap', value=Pap_guess, min=0.0, max=1e9)
-			sra.set_param_hint('DCR', value=DCR_guess, min=0.0, max=1e9)
-			sra.set_param_hint('APR', value=APR_guess, min=0.0, max=1e9)
-			# result = sra.fit(cdf_vec, tn=sorted_data, Pap=Pap_guess, DCR=DCR_guess, APR=APR_guess)
-			result = sra.fit(cdf_vec, tn=sorted_data)
-			print(result.fit_report())
+		plt.savefig(imgname+'-Histogram.png', dpi=300, bbox_inches='tight')
 
-			# popt = [0.25, 2500, 90e5]
-	        # Make the plot
-			pm = u"\u00B1"
-			plt.figure()
-			plt.title("\n".join(wrap( \
-				'SRA fit for {}\n'.format(fname) \
-				+ 'Pap={:.4g}% {} {:.4g}%, '.format(popt[0]*100, pm, perr[0]*100) \
-				+'DCR={:.4g} {} {:.4g}, '.format(popt[1], pm, perr[1]) \
-				+ 'APR={:.4g} {} {:.4g}\n'.format(popt[2], pm, perr[2]) \
-				+ 'at Bias={}V and Threshold={}V'.format(Vbias.magnitude, threshold), 60)))
-			print('Pap from SRA = {:.4g}%'.format(popt[0]*100))
-			plt.semilogx( sorted_data, cdf_vec, 'o', linestyle='None', label='Measurement')
-			plt.semilogx( sorted_data, func(sorted_data, *popt), label='fit')
-			# plt.semilogx( sorted_data, func(sorted_data, Pap=0.2, DCR=5000, APR=5e5), label='fit')
-			plt.xlabel('Interarrival time [s]')
-			plt.ylabel('CDF=Sorted Index/Total Samples')
-			plt.legend()
-			plt.savefig(imgname+'-SRA.png', dpi=300, bbox_inches='tight')
-	        # title( plot_title );
+		fig,ax = plt.subplots(2,1, figsize=(15,10))
+		ax[0].set_title('Bias vs $P_{ap}$'+' and DCR Plot for {}'.format(fname))
+		ax[0].plot(vec_overbias.magnitude, np.array(pap_vec)*100)
+		ax[0].set_xlabel('Bias [V]')
+		ax[0].set_ylabel('$P_{ap}$ [%]')
 
-			plt.figure()
-			plt.title("\n".join(wrap( \
-				'SRA fit for {}\n'.format(fname) \
-				+ 'Pap={:.4g}% {} {:.4g}%, '.format(result.best_values['Pap']*100, pm, perr[0]*100) \
-				+'DCR={:.4g} {} {:.4g}, '.format(popt[1], pm, perr[1]) \
-				+ 'APR={:.4g} {} {:.4g}\n'.format(popt[2], pm, perr[2]) \
-				+ 'at Bias={}V and Threshold={}V'.format(Vbias.magnitude, threshold), 60)))
-			print('Pap from SRA = {:.4g}%'.format(result.best_values['Pap']*100))
-			plt.semilogx( sorted_data, cdf_vec, 'o', linestyle='None', label='Measurement')
-			plt.semilogx( sorted_data, result.best_fit, label='fit')
-			plt.xlabel('Interarrival time [s]')
-			plt.ylabel('CDF=Sorted Index/Total Samples')
-			plt.legend()
-			plt.savefig(imgname+'-SRAlmfit.png', dpi=300, bbox_inches='tight')
+		# ax[1].set_title('Primary DCR Bias dependence')
+		ax[1].plot(vec_overbias.magnitude, np.array(dcr_vec))
+		ax[1].set_xlabel('Bias [V]')
+		ax[1].set_ylabel('Primary DCR [Hz]')
+		ax[1].set_yscale('log')
+
+		plt.savefig(imgname+'-fitted.png', dpi=300, bbox_inches='tight')
+
 
 
 
@@ -407,6 +382,27 @@ def bring_down_from_breakdown(SOURCEMETER, Vbd):
 
     SOURCEMETER.set_voltage(Q_(0, 'V'))
     print('Sourcemeter at 0V')
+
+def histogramFit(data):
+	num_samples = len(data)
+	hist, bin_borders = np.histogram(a=data, bins=1000)
+	bin_center = bin_borders[:-1] + np.diff(bin_borders) / 2
+
+	single_exp = lambda t, DCR, A: A* np.exp(-DCR*t)
+	bounds = (0, [1.e9, 1.e9])
+	p0 = [1/np.mean(data), hist[1]]
+
+	histShift = np.roll(hist, -1)
+	ap_index = max(1, (hist>histShift+num_samples/100).argmin())
+	print('afterpulses included before {}, afterpulse rate {:.4g}'.format(ap_index, 1/bin_center[ap_index]))
+	Pap = np.sum(hist[0:ap_index])/num_samples
+	# print('Pap from histogram = {:.4g}%'.format(Pap*100))
+	# final fit excluding afterpulses are in first bin
+	popt, pcov = curve_fit(single_exp, bin_center[ap_index:], hist[ap_index:], p0=p0, bounds=bounds)
+
+	DCR = popt[0]
+
+	return Pap, DCR
 
 if __name__ == '__main__':
 
