@@ -44,16 +44,19 @@ def main():
 		which_measurement = "Light" # "Dark" or "Light"
 		# which_measurement = "Light" # "Dark" or "Light"
 	# fname ='TC1_W12-14_PD6D-12um-9K10um'
-	# fname ='TC1_W12-14_PD6D-12um-9K10um'
-	# fname ='TC1_W12-7_PD6D-12um'
-	# fname='TC1_W12-7_PD6D-12um-STI2000nm'
+	# fname = 'TC1_W12-7_PD6D-12um-9K11p5um'
+	# fname ='TC1_W12-14_PD6D-12um-9K12um'
+	fname ='TC1_W12-14_PD6D-16um'
+	# fname='TC1_W12-7_PD6D-12um-STI1500nm'
 	# fname='TC1_W12-7_PD6D-12um-Intr1000nm'
+
 	# fname ='TC1_W12-14_PD6D-20um-HalfCrossHover'
-	fname = 'TC1_W12-7_PD6D-12um'
+	# fname = 'TC1_W12-14_PD6D-16um'
 	pqc = "pcb"# "chip" # "pcb"
 	print('Measuring {}'.format(fname))
 
-	device = 'PD6D-12um'
+	# device = 'PD6D-12um-9K'
+	device = 'PD6D-16um'
 	exp_setting = {
 	# device: Vbd, max bias, num of points, number of samples, thresholds]
 		'PD6D': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
@@ -61,7 +64,8 @@ def main():
 		'PD6D-zoom': [Q_(25.5, 'V'), 2, 0.1, 1.0, [-0.025, -0.05]],
 		'PD6D-4um': [Q_(30.0, 'V'), Q_(36.0, 'V'), 21, 4.0, [-0.02, -0.030, -0.040, -0.05, -0.06]],
 		'PD6D-12um': [Q_(24.5, 'V'), Q_(26.95, 'V'), 21, 1.0, [-0.025, -0.05]],
-		'PD6D-16um': [Q_(25.4, 'V'), Q_(25.6, 'V'), 21, 1.0, [-0.025, -0.05]],
+		'PD6D-12um-9K': [Q_(25.9, 'V'), Q_(26.9, 'V'), 21, 1.0, [-0.05]],
+		'PD6D-16um': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 1.0, [-0.05]],
 		'PD4A': [Q_(33.5, 'V'), Q_(40.2, 'V'), 21, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
 		'test': [Q_(25.5, 'V'), Q_(25.8, 'V'), 4, 1.0, [-0.025, -0.05]],
 	}
@@ -97,7 +101,7 @@ def main():
 
 	# Frequency measurements settings
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
-	Zin = 1e6  # 50
+	Zin = 1.0e6  # 50
 
 	# Filenames
 	timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
@@ -112,9 +116,11 @@ def main():
 	except:
 		experiment_info = '#{}-integration {} sec x {}; slope {}; bias settle time {} sec; input Z={}; Bias(Vbd={} Vex={})'.format(which_measurement, integration_time, reps, slope, bias_settle_time, Zin, Vbd, max_bias.magnitude)
 
+	wl = int(940)
 	# Tap power to Incident Power coefficient
 	# power_measurement = np.genfromtxt('./output/nd-cal/850-od0.csv', delimiter=',', skip_header=1)
-	power_measurement = np.genfromtxt('./output/850-cal-20210311.csv', delimiter=',', skip_header=1)
+	# power_measurement = np.genfromtxt('./output/850-cal-20210311.csv', delimiter=',', skip_header=1)
+	power_measurement = np.genfromtxt('./output/nd-cal/{}-od0.csv'.format(wl), delimiter=',', skip_header=1)
 	wavelength = Q_(float(np.round(power_measurement[0])), 'nm')
 	# print(wavelength)
 	tap_to_incident = power_measurement[5]
@@ -147,9 +153,9 @@ def main():
 			'od5': 0,
 		}
 
-		Pi = np.genfromtxt(nd_cal_dir+'850-od0.csv', delimiter=',', skip_header=1)
+		Pi = np.genfromtxt(nd_cal_dir+'{}-od0.csv'.format(wl), delimiter=',', skip_header=1)
 		for (filter, value) in nd_filters.items():
-			Po = np.genfromtxt(nd_cal_dir+'850-'+filter+'.csv', delimiter=',', skip_header=1)
+			Po = np.genfromtxt(nd_cal_dir+'{}-'.format(wl)+filter+'.csv', delimiter=',', skip_header=1)
 
 			nd_filters[filter] = Po[1]/Pi[1]
 

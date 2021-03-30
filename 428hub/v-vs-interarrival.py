@@ -36,9 +36,15 @@ def main():
 	## Variables to set
 	##############################################################################
 	fname = 'TC1_W12-14_PD6D-16um'
+	# fname = 'TC1_W12-7_PD6D-12um-9K11p5um'
+	# fname ='TC1_W12-14_PD6D-12um-9K10um'
 
 	which_measurement = "interarrival_histogram"
-	illum = 'Light' # "Dark" or "Light"
+	if len(sys.argv) > 1:
+		illum = sys.argv[1]
+	else:
+		illum = "Dark" # "Dark" or "Light"
+
 	# input_file = './output/20200704_165548-TC1_W13-34_PD4A-16um-Dark.csv'
 	input_file = None
 	# input_file = './output/20210312_204949-TC1_W12-35_PD6D-16um-interarrival_histogram.csv'
@@ -47,14 +53,16 @@ def main():
 
 
 	# device = 'PD6D-zoom'
+	# device = 'PD6D-12um-9K'
 	device = 'PD6D-16um'
 	exp_setting = {
 	# device: Vbd, max bias, num of points, number of samples, threshold]
 		'PD6D': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1000, -0.05],
 		'PD6D-wide': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1000, -0.05],
 		'PD6D-4um': [Q_(30.0, 'V'), Q_(36.0, 'V'), 21, 1000, -0.05],
-		'PD6D-12um': [Q_(24.5, 'V'), Q_(26.95, 'V'), 21, 1000, -0.05],
-		'PD6D-16um': [Q_(25.45, 'V'), Q_(25.65, 'V'), 21, 10000, -0.05],
+		'PD6D-12um': [Q_(24.5, 'V'), Q_(26.95, 'V'), 21, 10000, -0.05],
+		'PD6D-16um': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 10000, -0.05],
+		'PD6D-12um-9K': [Q_(25.9, 'V'), Q_(26.9, 'V'), 21, 10000, -0.05],
 		'PD4A': [Q_(33.5, 'V'), Q_(40.2, 'V'), 21, 1000, -0.05],
 		'test': [Q_(25.5, 'V'), Q_(25.8, 'V'), 4, 1000, -0.05],
 	}
@@ -92,7 +100,28 @@ def main():
 			print('Adjusting max bias from {} to {} to protect on chip quench circuit'.format(max_bias, Vbd+Q_(2.5, 'V')))
 			max_bias = Q_(2.5, 'V')+Vbd
 
-	vec_overbias = np.linspace(Vbd, max_bias, num = num_measures)
+	if illum == "Dark":
+		vec_overbias = np.linspace(Vbd, max_bias, num = num_measures)
+	elif illum == "Light":
+		# load latest dark measurements
+		import glob
+		# get latest Dark count data file name
+		try:
+			dark_fname = glob.glob('./output/*'+fname+'-Dark.csv')[-1]
+		except:
+			print('Dark results not available, run Dark measurement first.')
+			exit()
+		else:
+			print(dark_fname)
+
+		dark_data = np.genfromtxt(dark_fname, delimiter=',', skip_header=1, comments='#') # skip_footer=1
+		# print(dark_data)
+		vec_overbias = Q_(dark_data[:,0], 'V')
+		num_measures = len(vec_overbias)
+	else:
+		print('Choose Dark or Light for illum, currently: {}'.format(illum))
+		exit()
+
 
 	bias_settle_time = 5.0 # sec
 	integration_time = 10.0
@@ -100,19 +129,19 @@ def main():
 	# Frequency counter settings
 	# num_samples = 1000
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
-	Zin=1e6
+	Zin=  1.0e6 # 50.0
 
 	reps = 10
 
-	experiment_info = '# {}, Number of samples: {}, slope {}, threshold {} V, Max Bias {:.4g}, bias settle time {} sec'.format(which_measurement, num_samples, slope, threshold, max_bias.magnitude, bias_settle_time)
+	experiment_info = '# {}; Number of samples: {}; slope {}; threshold {} V; Zin={}; Max Bias {:.4g}; bias settle time {} sec'.format(which_measurement, num_samples, slope, Zin, threshold, max_bias.magnitude, bias_settle_time)
 
 
 	# Filenames
 	if input_file is None:
 		timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
-		rawcsvname = './output/'+timestamp_str+ fname+'-{}-intertimes.csv'.format(which_measurement)
-		csvname = './output/'+timestamp_str+ fname+'-{}-processed.csv'.format(which_measurement)
-		imgname = './output/'+timestamp_str+ fname+ '-{}'.format(which_measurement)
+		rawcsvname = './output/'+timestamp_str+ fname+'-{}-{}-intertimes.csv'.format(which_measurement, illum)
+		csvname = './output/'+timestamp_str+ fname+'-{}-{}-fitted.csv'.format(which_measurement, illum)
+		imgname = './output/'+timestamp_str+ fname+ '-{}-{}'.format(which_measurement, illum)
 	else:
 		csvname = input_file
 		imgname = input_file[0:-4]
@@ -244,16 +273,16 @@ def main():
 			try:
 				print('Counting interarrival times')
 				COUNTER.write('INIT:IMM') # Initiate the measurements
-				# COUNTER.write('*WAI') # Wait for the measurements to be completed
-				# # Take power meter measurements
-				# if POWERMETER is not None:
-				# 	power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
-				# else:
-				# 	power = Q_(0.0, 'W').plus_minus(Q_(0.0, 'W'))
-				# act_power = power.value.magnitude*tap_to_incident
-				# for nd_filter in nd_cfg: # attenuate
-				# 	act_power = act_power*nd_filters[nd_filter]
-				# inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
+
+				# Take power meter measurements
+				if POWERMETER is not None:
+					power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
+				else:
+					power = Q_(0.0, 'W').plus_minus(Q_(0.0, 'W'))
+				act_power = power.value.magnitude*tap_to_incident
+				for nd_filter in nd_cfg: # attenuate
+					act_power = act_power*nd_filters[nd_filter]
+				inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
 
 				print('Fetching interarrival times')
 				time_list = COUNTER.query('FETC?') # Read from counter
@@ -323,6 +352,7 @@ def main():
 
 
 		plt.plot(bin_center[1:]*1e3, single_exp(bin_center[1:], *popt), label='Fit')
+		plt.yscale('log')
 		plt.title("\n".join(wrap('Interarrival time Histogram for {}\n'.format(fname) \
 			+ 'Fitted DCR: {:.4g}, Pap={:.4g}%\n'.format(popt[0], Pap*100) \
 			+ 'at Bias={:.4g}V and Threshold={:.4g}V'.format(Vbd.magnitude, threshold), 60)))
@@ -343,7 +373,7 @@ def main():
 		ax[1].set_ylabel('Primary DCR [Hz]')
 		ax[1].set_yscale('log')
 
-		plt.savefig(imgname+'-fitted.png', dpi=300, bbox_inches='tight')
+		plt.savefig(imgname+'-fitted.png'.format(illum), dpi=300, bbox_inches='tight')
 
 
 
