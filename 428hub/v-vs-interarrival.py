@@ -39,7 +39,7 @@ def main():
 	# fname = 'TC1_W12-7_PD6D-12um-9K11p5um'
 	# fname ='TC1_W12-14_PD6D-12um-9K10um'
 
-	which_measurement = "interarrival_histogram"
+	which_measurement = "Pap"
 	if len(sys.argv) > 1:
 		illum = sys.argv[1]
 	else:
@@ -54,7 +54,7 @@ def main():
 
 	# device = 'PD6D-zoom'
 	# device = 'PD6D-12um-9K'
-	device = 'PD6D-16um'
+	device = 'PD6D-16um-50'
 	exp_setting = {
 	# device: Vbd, max bias, num of points, number of samples, threshold]
 		'PD6D': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1000, -0.05],
@@ -62,6 +62,7 @@ def main():
 		'PD6D-4um': [Q_(30.0, 'V'), Q_(36.0, 'V'), 21, 1000, -0.05],
 		'PD6D-12um': [Q_(24.5, 'V'), Q_(26.95, 'V'), 21, 10000, -0.05],
 		'PD6D-16um': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 10000, -0.05],
+		'PD6D-16um-50': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 10000, -0.020],
 		'PD6D-12um-9K': [Q_(25.9, 'V'), Q_(26.9, 'V'), 21, 10000, -0.05],
 		'PD4A': [Q_(33.5, 'V'), Q_(40.2, 'V'), 21, 1000, -0.05],
 		'test': [Q_(25.5, 'V'), Q_(25.8, 'V'), 4, 1000, -0.05],
@@ -124,12 +125,12 @@ def main():
 
 
 	bias_settle_time = 5.0 # sec
-	integration_time = 10.0
+	integration_time = 1.0
 
 	# Frequency counter settings
 	# num_samples = 1000
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
-	Zin=  1.0e6 # 50.0
+	Zin=  50 #1.0e6 # 50.0
 
 	reps = 10
 
@@ -149,9 +150,10 @@ def main():
 	temperature = 25.0
 
 
-	power_measurement = np.genfromtxt('./output/850-cal-20210311.csv', delimiter=',', skip_header=1)
-	wavelength = Q_(float(np.round(power_measurement[0])), 'nm')
-	# print(wavelength)
+	# power_measurement = np.genfromtxt('./output/850-cal-20210311.csv', delimiter=',', skip_header=1)
+	power_measurement = np.genfromtxt('./output/nd-cal/830-od0.csv', delimiter=',', skip_header=1)
+	wavelength = Q_(float(np.round(power_measurement[0], decimals=1)), 'nm')
+	print(wavelength)
 	tap_to_incident = power_measurement[5]
 
 	# ND filter calibration values -
@@ -167,20 +169,27 @@ def main():
 		print('No ND calibration value pickle file, generating from csv data set in {}'.format(nd_cal_dir))
 
 		nd_filters = {
+			"wavelength": 830,
 			#"NE10B": 0,
 			#"NE20B": 0,
 			#"NE30B": 0,
 			# "NE40B": 0,
 			# "NE50A-A": 0,
-			'od4': 0,
-			'od5': 0,
+			# 'od4': 0,
+			# 'od5': 0,
+
+			'od4-1': 0,
+			'od5-1': 0,
+			'od4-2': 0,
+			'od5-2': 0,
 		}
 
-		Pi = np.genfromtxt(nd_cal_dir+'850-od0.csv', delimiter=',', skip_header=1)
+		Pi = np.genfromtxt(nd_cal_dir+'{}-od0.csv'.format(nd_filters["wavelength"]), delimiter=',', skip_header=1)
 		for (filter, value) in nd_filters.items():
-			Po = np.genfromtxt(nd_cal_dir+'850-'+filter+'.csv', delimiter=',', skip_header=1)
+			Po = np.genfromtxt(nd_cal_dir+'{}-'.format(nd_filters["wavelength"])+filter+'.csv', delimiter=',', skip_header=1)
 
-			nd_filters[filter] = Po[1]/Pi[1]
+			# use coefficient to adjust for power fluctuations
+			nd_filters[filter] = Po[5]/Pi[5]
 
 		pickle_out = open("nd_cal.pickle", "wb")
 		pickle.dump(nd_filters, pickle_out)
@@ -269,24 +278,33 @@ def main():
 			print('\n{} out of {}'.format(i+1, num_measures))
 			SOURCEMETER.set_voltage(vec_overbias[i])
 			time.sleep(bias_settle_time)
-
 			try:
+				power_arr = []
 				print('Counting interarrival times')
 				COUNTER.write('INIT:IMM') # Initiate the measurements
 
 				# Take power meter measurements
-				if POWERMETER is not None:
-					power = POWERMETER.measure(n_samples = int(integration_time/0.003)) # each sample about 3ms
-				else:
-					power = Q_(0.0, 'W').plus_minus(Q_(0.0, 'W'))
-				act_power = power.value.magnitude*tap_to_incident
-				for nd_filter in nd_cfg: # attenuate
-					act_power = act_power*nd_filters[nd_filter]
-				inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
+				measuring = True
+				while measuring:
+					if POWERMETER is not None:
+						power_arr.append( POWERMETER.measure(n_samples = int(integration_time/0.003)) )# each sample about 3ms
+					else:
+						power_arr.append( Q_(0.0, 'W').plus_minus(Q_(0.0, 'W')) )
+
+					status = int(COUNTER.query('STAT:OPER:COND?'))
+					if status & (1<<4) == 0:
+						measuring = False
+						power = np.mean(power_arr).plus_minus(np.std(power_arr))
+					else:
+						print('Counter is still measuring')
 
 				print('Fetching interarrival times')
 				time_list = COUNTER.query('FETC?') # Read from counter
 
+				act_power = power.value.magnitude*tap_to_incident
+				for nd_filter in nd_cfg: # attenuate
+					act_power = act_power*nd_filters[nd_filter]
+				inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
 
 			except:
 				print("Unexpected error:", sys.exc_info()[0])
@@ -313,7 +331,7 @@ def main():
 		output_array = np.vstack((np.array(vec_overbias.magnitude), np.array(pap_vec), np.array(dcr_vec)))
 		np.savetxt(csvname, output_array, delimiter=',', header=experiment_info, comments="#")
 
-		output_array = np.hstack((np.array([vec_overbias.magnitude]).T, np.array(raw_data_array))).T
+		output_array = np.hstack((np.array([vec_overbias.magnitude]).T, np.array(raw_data_array)))
 		np.savetxt(rawcsvname, output_array, delimiter=',', header=experiment_info, comments="#")
 
 		bring_down_from_breakdown(SOURCEMETER, Vbd)

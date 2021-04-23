@@ -49,6 +49,7 @@ def main():
 	fname ='TC1_W12-14_PD6D-16um'
 	# fname='TC1_W12-7_PD6D-12um-STI1500nm'
 	# fname='TC1_W12-7_PD6D-12um-Intr1000nm'
+	# fname ="ICE1_SiGe_EOS_dopings"
 
 	# fname ='TC1_W12-14_PD6D-20um-HalfCrossHover'
 	# fname = 'TC1_W12-14_PD6D-16um'
@@ -56,7 +57,9 @@ def main():
 	print('Measuring {}'.format(fname))
 
 	# device = 'PD6D-12um-9K'
-	device = 'PD6D-16um'
+	# device = 'PD6D-16um'
+	device = 'PD6D-16um-50'
+	# device = 'ice1'
 	exp_setting = {
 	# device: Vbd, max bias, num of points, number of samples, thresholds]
 		'PD6D': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
@@ -66,8 +69,10 @@ def main():
 		'PD6D-12um': [Q_(24.5, 'V'), Q_(26.95, 'V'), 21, 1.0, [-0.025, -0.05]],
 		'PD6D-12um-9K': [Q_(25.9, 'V'), Q_(26.9, 'V'), 21, 1.0, [-0.05]],
 		'PD6D-16um': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 1.0, [-0.05]],
+		'PD6D-16um-50': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 1.0, [-0.020, -0.025]],
 		'PD4A': [Q_(33.5, 'V'), Q_(40.2, 'V'), 21, 1.0, [-0.025, -0.05, -0.075, -0.1, -0.125]],
 		'test': [Q_(25.5, 'V'), Q_(25.8, 'V'), 4, 1.0, [-0.025, -0.05]],
+		'ice1': [Q_(20, 'V'), Q_(23, 'V'), 5, 1.0, [-0.015, -0.016, -0.017]],
 	}
 
 	Vbd = exp_setting[device][0]
@@ -101,7 +106,7 @@ def main():
 
 	# Frequency measurements settings
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
-	Zin = 1.0e6  # 50
+	Zin = 50 #1.0e6  # 50
 
 	# Filenames
 	timestamp_str = datetime.strftime(datetime.now(),'%Y%m%d_%H%M%S-')
@@ -297,12 +302,12 @@ def main():
 
 		for Vthresh in thresholds:
 			print('     Counting at Vth = {} V'.format(Vthresh))
-			if len(counts)>1 and counts[-1]==0.0:
-				# skip measurement for speed up if lower threshold has no counts
-				print('     Skipping threshold {} V'.format(Vthresh))
-				measured = [0.0, 0.0, measured[2], measured[3]]
-			else:
-				measured = take_measure(COUNTER, POWERMETER, Vthresh, integration_time, reps)
+			# if len(counts)>1 and counts[-1]==0.0:
+			# 	# skip measurement for speed up if lower threshold has no counts
+			# 	print('     Skipping threshold {} V'.format(Vthresh))
+			# 	measured = [0.0, 0.0, measured[2], measured[3]]
+			# else:
+			measured = take_measure(COUNTER, POWERMETER, Vthresh, integration_time, reps)
 
 			counts.append(measured[0])
 			counts_std.append(measured[1])
