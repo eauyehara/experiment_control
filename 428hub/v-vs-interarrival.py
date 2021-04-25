@@ -270,6 +270,9 @@ def main():
 		print('Performing {} samples interarrival time measurement on {}...'.format(num_samples, fname))
 
 		raw_data_array = []
+		tap_power_vec = []
+		act_power_vec = []
+		inc_cps_vec = []
 		pap_vec = []
 		dcr_vec = []
 
@@ -318,6 +321,9 @@ def main():
 					+ 'at Bias={:.4g}V and Threshold={:.4g}V'.format(vec_overbias[i].magnitude, threshold))
 
 				raw_data_array.append(data)
+				tap_power_vec.append(power.value.magnitude)
+				act_power_vec.append(act_power)
+				inc_cps_vec.append(inc_cps)
 				pap_vec.append(Pap)
 				dcr_vec.append(DCR)
 
@@ -431,24 +437,49 @@ def bring_down_from_breakdown(SOURCEMETER, Vbd):
     SOURCEMETER.set_voltage(Q_(0, 'V'))
     print('Sourcemeter at 0V')
 
-def histogramFit(data):
+def histogramFit(data, bin_borders=None):
 	num_samples = len(data)
-	hist, bin_borders = np.histogram(a=data, bins=1000)
-	bin_center = bin_borders[:-1] + np.diff(bin_borders) / 2
+	if bin_borders is None:
+        N, bin_borders = np.histogram(data, bins=500)
+    else:
+        N, bin_borders = np.histogram(data, bins=bin_borders)
 
-	single_exp = lambda t, DCR, A: A* np.exp(-DCR*t)
-	bounds = (0, [1.e9, 1.e9])
-	p0 = [1/np.mean(data), hist[1]]
+    bin_center = bin_borders[:-1] + np.diff(bin_borders) / 2
 
-	histShift = np.roll(hist, -1)
-	ap_index = max(1, (hist>histShift+num_samples/100).argmin())
-	print('afterpulses included before {}, afterpulse rate {:.4g}'.format(ap_index, 1/bin_center[ap_index]))
-	Pap = np.sum(hist[0:ap_index])/num_samples
-	# print('Pap from histogram = {:.4g}%'.format(Pap*100))
-	# final fit excluding afterpulses are in first bin
-	popt, pcov = curve_fit(single_exp, bin_center[ap_index:], hist[ap_index:], p0=p0, bounds=bounds)
+    print('Removing zero data points for plot and fit')
 
-	DCR = popt[0]
+    N_fit = N[N>0]
+    bin_centers = bin_center[N>0]
+
+    bounds = ([0.0, 0.0, 1.0], [1.e9, 1.e9, 1.001])
+    p0 = [1/np.mean(data), N[1], 1.0]
+
+    ap_index = 0
+    max_index = num_samples
+    print(max_index)
+
+    min_err = 1e9
+    min_index = 0
+
+	log_exp = lambda t, DCR, A, d: np.log10(A* np.exp(-DCR*t)+d)
+    for ap_index in range(1, 10,1):
+        # final fit excluding afterpulses are in first bin
+#         popt, pcov = curve_fit(single_exp, bin_center[ap_index:max_index], N[ap_index:max_index], p0=p0, bounds=bounds)
+        popt, pcov = curve_fit(log_exp, bin_centers[ap_index:max_index], np.log10(N_fit[ap_index:max_index]), p0=p0, bounds=bounds)
+        perr = np.sqrt(np.diag(pcov))
+    #     print('perr {}'.format(perr))
+        if perr[0]/popt[0]<min_err: # and perr[0]<90.0:
+            min_err = perr[0]/popt[0]
+            min_index = ap_index
+            DCR = popt[0]
+            min_popt = popt
+            print('abs err {}, prop err {}, DCR {}, freq {} Hz'.format(perr[0], min_err, DCR, bin_center[ap_index]))
+
+    ap_index = min_index
+    print('afterpulses included before {}'.format(ap_index))
+    Pap = np.sum(N[0:ap_index])/num_samples
+    print('Pap from histogram = {:.4g}%'.format(Pap*100))
+    print('DCR = {:.4g}'.format(DCR))
 
 	return Pap, DCR
 
