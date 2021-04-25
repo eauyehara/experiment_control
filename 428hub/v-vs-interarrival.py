@@ -330,14 +330,18 @@ def main():
 
 		print('Measurement finished...')
 
-		# print(np.array(pap_vec).shape)
-		# print(np.array(dcr_vec).shape)
-		# print(np.array(vec_overbias.magnitude).shape)
+		print(np.array(pap_vec).shape)
+		print(np.array(dcr_vec).shape)
+		print(np.array(vec_overbias.magnitude).shape)
+
 		# Save results to csvname
 		output_array = np.vstack((np.array(vec_overbias.magnitude), np.array(pap_vec), np.array(dcr_vec)))
 		np.savetxt(csvname, output_array, delimiter=',', header=experiment_info, comments="#")
 
-		output_array = np.hstack((np.array([vec_overbias.magnitude]).T, np.array(raw_data_array)))
+		power_array = np.array([tap_power_vec, act_power_vec, inc_cps_vec]).T
+		output_array = np.vstack((np.array([vec_overbias.magnitude]), power_array, np.array(raw_data_array).T))
+		print('power array shape {}'.format(power_array.shape))
+		print('interrarrival time output array shape {}'.format(output_array.shape))
 		np.savetxt(rawcsvname, output_array, delimiter=',', header=experiment_info, comments="#")
 
 		bring_down_from_breakdown(SOURCEMETER, Vbd)
