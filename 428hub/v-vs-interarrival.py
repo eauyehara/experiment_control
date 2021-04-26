@@ -35,7 +35,7 @@ def main():
 	##############################################################################
 	## Variables to set
 	##############################################################################
-	fname = 'TC1_W12-14_PD6D-16um'
+	fname = 'TC1_W12-14_PD6D-20um'
 	# fname = 'TC1_W12-7_PD6D-12um-9K11p5um'
 	# fname ='TC1_W12-14_PD6D-12um-9K10um'
 
@@ -54,7 +54,8 @@ def main():
 
 	# device = 'PD6D-zoom'
 	# device = 'PD6D-12um-9K'
-	device = 'PD6D-16um-50'
+	# device = 'PD6D-16um-50'
+	device = 'test'
 	exp_setting = {
 	# device: Vbd, max bias, num of points, number of samples, threshold]
 		'PD6D': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1000, -0.05],
@@ -65,7 +66,7 @@ def main():
 		'PD6D-16um-50': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 10000, -0.020],
 		'PD6D-12um-9K': [Q_(25.9, 'V'), Q_(26.9, 'V'), 21, 10000, -0.05],
 		'PD4A': [Q_(33.5, 'V'), Q_(40.2, 'V'), 21, 1000, -0.05],
-		'test': [Q_(25.5, 'V'), Q_(25.8, 'V'), 4, 1000, -0.05],
+		'test': [Q_(25, 'V'), Q_(25.5, 'V'), 2, 1000, -0.05],
 	}
 
 	Vbd = exp_setting[device][0]
@@ -150,26 +151,28 @@ def main():
 	temperature = 25.0
 
 
+	target_wavelength = 830
 	# power_measurement = np.genfromtxt('./output/850-cal-20210311.csv', delimiter=',', skip_header=1)
-	power_measurement = np.genfromtxt('./output/nd-cal/830-od0.csv', delimiter=',', skip_header=1)
+	power_measurement = np.genfromtxt('./output/nd-cal/{}-od0.csv'.format(target_wavelength), delimiter=',', skip_header=1)
 	wavelength = Q_(float(np.round(power_measurement[0], decimals=1)), 'nm')
 	print(wavelength)
 	tap_to_incident = power_measurement[5]
 
 	# ND filter calibration values -
-	nd_cfg = ["od5", "od4"]
+	nd_cfg = ["od5-1", "od4-1", "od5-2", "od4-2"]
 	if illum=="Light":
 		experiment_info = experiment_info + '; ND filters: {}'.format(nd_cfg)
 	try:
 		pickle_in = open("nd_cal.pickle", "rb")
-		nd_filters = pickle.load(pickle_in)
+		target_wavelength, nd_filters = pickle.load(pickle_in)
+		print('nd_filter calibration values loaded from nd_cal.pickle')
+		print(nd_filters)
 	except:
 		nd_cal_dir = './output/nd-cal/'
 
 		print('No ND calibration value pickle file, generating from csv data set in {}'.format(nd_cal_dir))
 
 		nd_filters = {
-			"wavelength": 830,
 			#"NE10B": 0,
 			#"NE20B": 0,
 			#"NE30B": 0,
@@ -184,15 +187,15 @@ def main():
 			'od5-2': 0,
 		}
 
-		Pi = np.genfromtxt(nd_cal_dir+'{}-od0.csv'.format(nd_filters["wavelength"]), delimiter=',', skip_header=1)
+		Pi = np.genfromtxt(nd_cal_dir+'{}-od0.csv'.format(target_wavelength), delimiter=',', skip_header=1)
 		for (filter, value) in nd_filters.items():
-			Po = np.genfromtxt(nd_cal_dir+'{}-'.format(nd_filters["wavelength"])+filter+'.csv', delimiter=',', skip_header=1)
+			Po = np.genfromtxt(nd_cal_dir+'{}-'.format(target_wavelength)+filter+'.csv', delimiter=',', skip_header=1)
 
 			# use coefficient to adjust for power fluctuations
 			nd_filters[filter] = Po[5]/Pi[5]
 
 		pickle_out = open("nd_cal.pickle", "wb")
-		pickle.dump(nd_filters, pickle_out)
+		pickle.dump([target_wavelength, nd_filters], pickle_out)
 		pickle_out.close()
 	else:
 		print('ND calibration values loaded from nd_cal.pickle file')
@@ -222,6 +225,7 @@ def main():
 		else:
 			print('    powermeter opened')
 			POWERMETER.wavelength = wavelength
+			print('    powermeter wavelength set to {}'.format(wavelength))
 			POWERMETER.auto_range = 1
 
 		# initialize counter
@@ -247,7 +251,7 @@ def main():
 
 			temperature = COUNTER.temp
 			print('temp is {}'.format(temperature))
-			experiment_info = experiment_info + ', T={} C'.format(temperature.magnitude)
+			experiment_info = experiment_info + '; T={} C'.format(temperature.magnitude)
 
 			COUNTER.timeout = 100.0
 			COUNTER.display = 'OFF'
@@ -281,51 +285,56 @@ def main():
 			print('\n{} out of {}'.format(i+1, num_measures))
 			SOURCEMETER.set_voltage(vec_overbias[i])
 			time.sleep(bias_settle_time)
-			try:
-				power_arr = []
-				print('Counting interarrival times')
-				COUNTER.write('INIT:IMM') # Initiate the measurements
+			# try:
+			power_arr = []
+			print('Counting interarrival times')
+			COUNTER.write('INIT:IMM') # Initiate the measurements
 
-				# Take power meter measurements
-				measuring = True
-				while measuring:
-					if POWERMETER is not None:
-						power_arr.append( POWERMETER.measure(n_samples = int(integration_time/0.003)) )# each sample about 3ms
+			# Take power meter measurements
+			measuring = True
+			while measuring:
+				if POWERMETER is not None:
+					power_arr.append( POWERMETER.measure(n_samples = int(integration_time/0.003)) )# each sample about 3ms
+				else:
+					power_arr.append( Q_(0.0, 'W').plus_minus(Q_(0.0, 'W')) )
+
+				status = int(COUNTER.query('STAT:OPER:COND?'))
+				if status & (1<<4) == 0:
+					measuring = False
+					print(power_arr)
+					if len(power_arr) > 1:
+						# If more than one measurement take statistics across multiple measurements
+						power = Q_(np.mean([x.magnitude for x in power_arr])).plus_minus(np.std([x.magnitude for x in power_arr]))
 					else:
-						power_arr.append( Q_(0.0, 'W').plus_minus(Q_(0.0, 'W')) )
+						power = power_arr[0]
+				else:
+					print('Counter is still measuring')
 
-					status = int(COUNTER.query('STAT:OPER:COND?'))
-					if status & (1<<4) == 0:
-						measuring = False
-						power = np.mean(power_arr).plus_minus(np.std(power_arr))
-					else:
-						print('Counter is still measuring')
+			print('Fetching interarrival times')
+			time_list = COUNTER.query('FETC?') # Read from counter
 
-				print('Fetching interarrival times')
-				time_list = COUNTER.query('FETC?') # Read from counter
+			act_power = power.value.magnitude*tap_to_incident
+			for nd_filter in nd_cfg: # attenuate
+				act_power = act_power*nd_filters[nd_filter]
+			inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
 
-				act_power = power.value.magnitude*tap_to_incident
-				for nd_filter in nd_cfg: # attenuate
-					act_power = act_power*nd_filters[nd_filter]
-				inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
+			# except:
+			# 	print("Unexpected error:", sys.exc_info()[0])
+			# 	data = None
+			# else:
 
-			except:
-				print("Unexpected error:", sys.exc_info()[0])
-				data = None
-			else:
-			# 	# time_list = np.genfromtxt('./output/20210314 TC1-W12-14 PD6D 16um light interarrival/20210314_215837-TC1_W12-14_PD6D-16um-interarrival_histogram.csv')
-				data = np.array(time_list.split(",")).astype(np.float) # Converts the output string to a float list
+			data = np.array(time_list.split(",")).astype(np.float) # Converts the output string to a float list
 
-				Pap, DCR = histogramFit(data)
-				print('Fitted DCR: {:.4g}, Pap={:.4g}%\n'.format(DCR, Pap*100) \
-					+ 'at Bias={:.4g}V and Threshold={:.4g}V'.format(vec_overbias[i].magnitude, threshold))
+			Pap, DCR = histogramFit(data)
+			print('Fitted DCR: {:.4g}, Pap={:.4g}%\n'.format(DCR, Pap*100) \
+				+ 'at Bias={:.4g}V and Threshold={:.4g}V'.format(vec_overbias[i].magnitude, threshold))
 
-				raw_data_array.append(data)
-				tap_power_vec.append(power.value.magnitude)
-				act_power_vec.append(act_power)
-				inc_cps_vec.append(inc_cps)
-				pap_vec.append(Pap)
-				dcr_vec.append(DCR)
+			raw_data_array.append(data)
+			tap_power_vec.append(power.value.magnitude)
+			act_power_vec.append(act_power)
+			inc_cps_vec.append(inc_cps)
+			pap_vec.append(Pap)
+			dcr_vec.append(DCR)
 
 
 		print('Measurement finished...')
@@ -334,13 +343,16 @@ def main():
 		print(np.array(dcr_vec).shape)
 		print(np.array(vec_overbias.magnitude).shape)
 
+
 		# Save results to csvname
 		output_array = np.vstack((np.array(vec_overbias.magnitude), np.array(pap_vec), np.array(dcr_vec)))
 		np.savetxt(csvname, output_array, delimiter=',', header=experiment_info, comments="#")
 
-		power_array = np.array([tap_power_vec, act_power_vec, inc_cps_vec]).T
-		output_array = np.vstack((np.array([vec_overbias.magnitude]), power_array, np.array(raw_data_array).T))
-		print('power array shape {}'.format(power_array.shape))
+		pwr_array = np.array([tap_power_vec, act_power_vec, inc_cps_vec])
+		print('power array shape {}'.format(pwr_array.shape))
+
+		output_array = np.vstack((np.array([vec_overbias.magnitude]), pwr_array, np.array(raw_data_array).T))
+
 		print('interrarrival time output array shape {}'.format(output_array.shape))
 		np.savetxt(rawcsvname, output_array, delimiter=',', header=experiment_info, comments="#")
 
@@ -359,7 +371,7 @@ def main():
 	if data is not None:
 		# Histogram method
 		plt.figure()
-		N, bin_borders, patches = plt.hist(data, bins=1000, label='Data') # Try: Calculate the apropiate num of bins from data
+		N, bin_borders, patches = plt.hist(data, bins=500, label='Data') # Try: Calculate the apropiate num of bins from data
 		bin_center = bin_borders[:-1] + np.diff(bin_borders) / 2
 		plt.xlabel('Interarrival time [s]')
 		plt.ylabel('Counts per bin')
@@ -444,46 +456,44 @@ def bring_down_from_breakdown(SOURCEMETER, Vbd):
 def histogramFit(data, bin_borders=None):
 	num_samples = len(data)
 	if bin_borders is None:
-        N, bin_borders = np.histogram(data, bins=500)
-    else:
-        N, bin_borders = np.histogram(data, bins=bin_borders)
+		N, bin_borders = np.histogram(data, bins=500)
+	else:
+		N, bin_borders = np.histogram(data, bins=bin_borders)
+	bin_center = bin_borders[:-1] + np.diff(bin_borders) / 2
 
-    bin_center = bin_borders[:-1] + np.diff(bin_borders) / 2
+	print('Removing zero data points for plot and fit')
 
-    print('Removing zero data points for plot and fit')
+	N_fit = N[N>0]
+	bin_centers = bin_center[N>0]
 
-    N_fit = N[N>0]
-    bin_centers = bin_center[N>0]
+	bounds = ([0.0, 0.0, 1.0], [1.e9, 1.e9, 1.001])
+	p0 = [1/np.mean(data), N[1], 1.0]
 
-    bounds = ([0.0, 0.0, 1.0], [1.e9, 1.e9, 1.001])
-    p0 = [1/np.mean(data), N[1], 1.0]
+	ap_index = 0
+	max_index = num_samples
+	print(max_index)
 
-    ap_index = 0
-    max_index = num_samples
-    print(max_index)
-
-    min_err = 1e9
-    min_index = 0
+	min_err = 1e9
+	min_index = 0
 
 	log_exp = lambda t, DCR, A, d: np.log10(A* np.exp(-DCR*t)+d)
-    for ap_index in range(1, 10,1):
-        # final fit excluding afterpulses are in first bin
-#         popt, pcov = curve_fit(single_exp, bin_center[ap_index:max_index], N[ap_index:max_index], p0=p0, bounds=bounds)
-        popt, pcov = curve_fit(log_exp, bin_centers[ap_index:max_index], np.log10(N_fit[ap_index:max_index]), p0=p0, bounds=bounds)
-        perr = np.sqrt(np.diag(pcov))
-    #     print('perr {}'.format(perr))
-        if perr[0]/popt[0]<min_err: # and perr[0]<90.0:
-            min_err = perr[0]/popt[0]
-            min_index = ap_index
-            DCR = popt[0]
-            min_popt = popt
-            print('abs err {}, prop err {}, DCR {}, freq {} Hz'.format(perr[0], min_err, DCR, bin_center[ap_index]))
+	for ap_index in range(1, 10,1):
+		# final fit excluding afterpulses are in first bin
+		popt, pcov = curve_fit(log_exp, bin_centers[ap_index:max_index], np.log10(N_fit[ap_index:max_index]), p0=p0, bounds=bounds)
+		perr = np.sqrt(np.diag(pcov))
 
-    ap_index = min_index
-    print('afterpulses included before {}'.format(ap_index))
-    Pap = np.sum(N[0:ap_index])/num_samples
-    print('Pap from histogram = {:.4g}%'.format(Pap*100))
-    print('DCR = {:.4g}'.format(DCR))
+		if perr[0]/popt[0]<min_err: # and perr[0]<90.0:
+			min_err = perr[0]/popt[0]
+			min_index = ap_index
+			DCR = popt[0]
+			min_popt = popt
+			print('abs err {}, prop err {}, DCR {}, freq {} Hz'.format(perr[0], min_err, DCR, bin_center[ap_index]))
+
+	ap_index = min_index
+	print('afterpulses included before {}'.format(ap_index))
+	Pap = np.sum(N[0:ap_index])/num_samples
+	print('Pap from histogram = {:.4g}%'.format(Pap*100))
+	print('DCR = {:.4g}'.format(DCR))
 
 	return Pap, DCR
 
