@@ -36,7 +36,7 @@ def main():
 	##############################################################################
 	## Variables to set
 	##############################################################################
-	fname = 'TC1_W12-14_PD6D-20um'
+	fname = 'TC1_W12-14_PD6D-16um'
 	# fname = 'TC1_W12-7_PD6D-12um-9K11p5um'
 	# fname ='TC1_W12-14_PD6D-12um-9K10um'
 
@@ -56,7 +56,8 @@ def main():
 	# device = 'PD6D-zoom'
 	# device = 'PD6D-12um-9K'
 	# device = 'PD6D-16um-50'
-	device = 'test'
+	device = 'PD6D-16um'
+	# device = 'test'
 	exp_setting = {
 	# device: Vbd, max bias, num of points, number of samples, threshold]
 		'PD6D': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1000, -0.05],
@@ -121,6 +122,10 @@ def main():
 		# print(dark_data)
 		vec_overbias = Q_(dark_data[0,:], 'V')
 		num_measures = len(vec_overbias)
+		# get fitted dark counts
+		dark_data = np.genfromtxt(dark_fname[:-4]+'-fit.csv', delimiter=',', skip_header=1, comments='#') # skip_footer=1
+		dcr_vec = dark_data[2,:]
+
 	else:
 		print('Choose Dark or Light for illum, currently: {}'.format(illum))
 		exit()
@@ -136,9 +141,9 @@ def main():
 
 	reps = 10
 	if illum =='Dark':
-		experiment_info = '# {}; Number of samples: {}; slope {}; threshold {} V; Zin={}; Max Bias {:.4g}; bias settle time {} sec'.format(which_measurement, num_samples, slope, Zin, threshold, max_bias.magnitude, bias_settle_time)
+		experiment_info = '# Dark {}; Number of samples: {}; slope {}; threshold {} V; Zin={}; Max Bias {:.4g}; bias settle time {} sec'.format(which_measurement, num_samples, slope, threshold,Zin,  max_bias.magnitude, bias_settle_time)
 	elif illum == 'Light':
-		experiment_info = '# {}; Dark data {}; Number of samples: {}; slope {}; threshold {} V; Zin={}; Max Bias {:.4g}; bias settle time {} sec'.format( which_measurement, dark_fname, num_samples, slope, Zin, threshold, max_bias.magnitude, bias_settle_time)
+		experiment_info = '# Light {}; Dark data {}; Number of samples: {}; slope {}; threshold {} V; Zin={}; Max Bias {:.4g}; bias settle time {} sec'.format( which_measurement, dark_fname, num_samples, slope, threshold, Zin, max_bias.magnitude, bias_settle_time)
 
 
 	# Filenames
@@ -156,13 +161,15 @@ def main():
 
 	target_wavelength = 830
 	# power_measurement = np.genfromtxt('./output/850-cal-20210311.csv', delimiter=',', skip_header=1)
-	power_measurement = np.genfromtxt('./output/nd-cal/{}-od0.csv'.format(target_wavelength), delimiter=',', skip_header=1)
+	# power_measurement = np.genfromtxt('./output/nd-cal/{}-od0.csv'.format(target_wavelength), delimiter=',', skip_header=1)
+	power_file = './output/20210430 830nm PDP/830-od0.csv'
+	power_measurement = np.genfromtxt(power_file, delimiter=',', skip_header=1)
 	wavelength = Q_(float(np.round(power_measurement[0], decimals=1)), 'nm')
 	print(wavelength)
 	tap_to_incident = power_measurement[5]
 
 	# ND filter calibration values -
-	nd_cfg = ["od5-1", "od4-1", "od5-2", "od4-2"]
+	nd_cfg = ["od5-1", "od4-1",   "od4-2"] # "od5-2"]
 	if illum=="Light":
 		experiment_info = experiment_info + '; ND filters: {}'.format(nd_cfg)
 	try:
@@ -281,7 +288,7 @@ def main():
 		act_power_vec = []
 		inc_cps_vec = []
 		pap_vec = []
-		dcr_vec = []
+		cr_vec = []
 
 
 		for i in range(num_measures): # loop through biases
@@ -307,11 +314,12 @@ def main():
 					print(power_arr)
 					if len(power_arr) > 1:
 						# If more than one measurement take statistics across multiple measurements
-						power = Q_(np.mean([x.magnitude for x in power_arr])).plus_minus(np.std([x.magnitude for x in power_arr]))
+						power_mag_arr = np.array([x.value.magnitude for x in power_arr])
+						power = Q_(np.mean(power_mag_arr)).plus_minus(np.std(power_mag_arr))
 					else:
 						power = power_arr[0]
 				else:
-					print('Counter is still measuring')
+					print('Counter is still measuring. tap power {}'.format(power_arr[-1]))
 
 			print('Fetching interarrival times')
 			time_list = COUNTER.query('FETC?') # Read from counter
@@ -328,8 +336,8 @@ def main():
 
 			data = np.array(time_list.split(",")).astype(np.float) # Converts the output string to a float list
 
-			Pap, DCR = histogramFit(data, info=imgname+'_{:.3e}V'.format(vec_overbias[i].magnitude))
-			print('Fitted DCR: {:.4g}, Pap={:.4g}%\n'.format(DCR, Pap*100) \
+			Pap, CR = histogramFit(data, info=imgname+'_{:.3e}V'.format(vec_overbias[i].magnitude))
+			print('Fitted CR: {:.4g}, Pap={:.4g}%\n'.format(CR, Pap*100) \
 				+ 'at Bias={:.4g}V and Threshold={:.4g}V'.format(vec_overbias[i].magnitude, threshold))
 
 			raw_data_array.append(data)
@@ -337,13 +345,13 @@ def main():
 			act_power_vec.append(act_power)
 			inc_cps_vec.append(inc_cps)
 			pap_vec.append(Pap)
-			dcr_vec.append(DCR)
+			cr_vec.append(CR)
 
 
 		print('Measurement finished...')
 
 		print(np.array(pap_vec).shape)
-		print(np.array(dcr_vec).shape)
+		print(np.array(cr_vec).shape)
 		print(np.array(vec_overbias.magnitude).shape)
 
 		# Save results to csvname
@@ -351,11 +359,11 @@ def main():
 		print('power array shape {}'.format(pwr_array.shape))
 
 		bias_arr = np.array(vec_overbias.magnitude)
-		count_arr = np.array(dcr_vec)
+		count_arr = np.array(cr_vec)
 		if illum == 'Dark':
 			output_array = np.vstack((bias_arr, np.array(pap_vec), count_arr))
 		elif illum == "Light":
-			pdp_array = count_arr / pwr_array[2, :]
+			pdp_array = (count_arr - dcr_vec) / pwr_array[2, :]
 			output_array = np.vstack((bias_arr, np.array(pap_vec), count_arr, pwr_array, pdp_array))
 		np.savetxt(csvname, output_array, delimiter=',', header=experiment_info, comments="#")
 
@@ -375,56 +383,6 @@ def main():
 		except:
 			print("Unexpected error:", sys.exc_info()[0])
 			data = None
-
-	# Parameter fit
-	# if data is not None:
-	# 	# Histogram method
-	# 	plt.figure()
-	# 	N, bin_borders, patches = plt.hist(data, bins=500, label='Data') # Try: Calculate the apropiate num of bins from data
-	# 	bin_center = bin_borders[:-1] + np.diff(bin_borders) / 2
-	# 	plt.xlabel('Interarrival time [s]')
-	# 	plt.ylabel('Counts per bin')
-	#
-	#
-	# 	# poisson = lambda k, A, euler: euler**k *  np.exp(-euler) / np.factorial(k)
-	# 	single_exp = lambda t, DCR, A: A* np.exp(-DCR*t)
-	# 	bounds = (0, [1.e9, 1.e9])
-	# 	p0 = [1/np.mean(data), N[1]]
-	#
-	# 	Nshift = np.roll(N, -1)
-	# 	ap_index = max(1, (N>Nshift+num_samples/100).argmin())
-	# 	print('afterpulses included before {}'.format(ap_index))
-	# 	Pap = np.sum(N[0:ap_index])/num_samples
-	# 	print('Pap from histogram = {:.4g}%'.format(Pap*100))
-	# 	# final fit excluding afterpulses are in first bin
-	# 	popt, pcov = curve_fit(single_exp, bin_center[ap_index:], N[ap_index:], p0=p0, bounds=bounds)
-	#
-	#
-	# 	plt.plot(bin_center[1:]*1e3, single_exp(bin_center[1:], *popt), label='Fit')
-	# 	plt.yscale('log')
-	# 	plt.title("\n".join(wrap('Interarrival time Histogram for {}\n'.format(fname) \
-	# 		+ 'Fitted DCR: {:.4g}, Pap={:.4g}%\n'.format(popt[0], Pap*100) \
-	# 		+ 'at Bias={:.4g}V and Threshold={:.4g}V'.format(Vbd.magnitude, threshold), 60)))
-	# 	plt.legend()
-	# 	plt.xlabel('Interarrival Time [ms]')
-	#
-	# 	plt.savefig(imgname+'-Histogram.png', dpi=300, bbox_inches='tight')
-	#
-	# 	fig,ax = plt.subplots(2,1, figsize=(15,10))
-	# 	ax[0].set_title('Bias vs $P_{ap}$'+' and DCR Plot for {}'.format(fname))
-	# 	ax[0].plot(vec_overbias.magnitude, np.array(pap_vec)*100)
-	# 	ax[0].set_xlabel('Bias [V]')
-	# 	ax[0].set_ylabel('$P_{ap}$ [%]')
-	#
-	# 	# ax[1].set_title('Primary DCR Bias dependence')
-	# 	ax[1].plot(vec_overbias.magnitude, np.array(dcr_vec))
-	# 	ax[1].set_xlabel('Bias [V]')
-	# 	ax[1].set_ylabel('Primary DCR [Hz]')
-	# 	ax[1].set_yscale('log')
-	#
-	# 	plt.savefig(imgname+'-fitted.png'.format(illum), dpi=300, bbox_inches='tight')
-
-
 
 
 #############################################################################
@@ -485,7 +443,8 @@ def histogramFit(data, bin_borders=None, info=''):
 	min_err = 1e9
 	min_index = 0
 
-	log_exp = lambda t, DCR, A, d: np.log10(A* np.exp(-DCR*t)+d)
+	log_exp = lambda t, CR, A, d: np.log10(A* np.exp(-CR*t)+d)
+	single_exp = lambda t, CR, A, d: A* np.exp(-CR*t)+d
 	for ap_index in range(1, 10,1):
 		# final fit excluding afterpulses are in first bin
 		popt, pcov = curve_fit(log_exp, bin_centers[ap_index:max_index], np.log10(N_fit[ap_index:max_index]), p0=p0, bounds=bounds)
@@ -494,15 +453,15 @@ def histogramFit(data, bin_borders=None, info=''):
 		if perr[0]/popt[0]<min_err: # and perr[0]<90.0:
 			min_err = perr[0]/popt[0]
 			min_index = ap_index
-			DCR = popt[0]
+			CR = popt[0]
 			min_popt = popt
-			print('abs err {}, prop err {}, DCR {}, freq {} Hz'.format(perr[0], min_err, DCR, bin_center[ap_index]))
+			print('abs err {}, prop err {}, CR {}, freq {} Hz'.format(perr[0], min_err, CR, bin_center[ap_index]))
 
 	ap_index = min_index
 	print('afterpulses included before {}'.format(ap_index))
 	Pap = np.sum(N[0:ap_index])/num_samples
 	print('Pap from histogram = {:.4g}%'.format(Pap*100))
-	print('CR = {:.4g}'.format(DCR))
+	print('CR = {:.4g}'.format(CR))
 
 
 	# plt.figure(figsize=(3.5,2.5), dpi=300)
@@ -516,17 +475,17 @@ def histogramFit(data, bin_borders=None, info=''):
 	ax.xaxis.set_major_formatter(formatter0)
 	ax.set_xlabel('Interarrival time (s)')
 	ax.set_ylabel('Counts per bin')
-	ax.semilogy(bin_center, log_exp(bin_center, *min_popt), label='Fit: {:.3g} cps'.format(min_popt[0]), color='#5e89b7')
+	ax.semilogy(bin_center, single_exp(bin_center, *min_popt), label='Fit: {:.3g} cps'.format(min_popt[0]), color='#5e89b7')
 	ax.semilogy(bin_center, N, label='Data', linewidth=0.5, alpha=0.5, color='#5e89b7')
 	ax.set_ylim([0.1, np.max(N)*10])
 	ax.legend()
 
+	# plt.show(block=False)
 	plt.savefig(info+'.png')
 
-	return Pap, DCR
+	return Pap, CR
 
 if __name__ == '__main__':
-
 	start = time.time()
 
 	main()
@@ -534,7 +493,10 @@ if __name__ == '__main__':
 	print('Experiment took {}'.format(time.strftime("%H:%M:%S", time.gmtime(time.time()-start))))
 
 	try:
-	    import winsound
-	    winsound.Beep(1500, 1000)
+		import winsound
+
+		winsound.Beep(1500, 1000)
+		plt.show()
+
 	except:
-	    print('winsound not available no beeping')
+		print('winsound not available no beeping')
