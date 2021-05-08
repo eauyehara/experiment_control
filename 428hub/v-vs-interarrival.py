@@ -36,9 +36,9 @@ def main():
 	##############################################################################
 	## Variables to set
 	##############################################################################
-	fname = 'TC1_W12-14_PD6D-16um'
+	# fname = 'TC1_W12-14_PD6D-16um'
 	# fname = 'TC1_W12-7_PD6D-12um-9K11p5um'
-	# fname ='TC1_W12-14_PD6D-12um-9K10um'
+	fname ='TC1_W12-14_PD6D-12um-9K10um'
 
 	which_measurement = "itimes"
 	if len(sys.argv) > 1:
@@ -54,9 +54,9 @@ def main():
 
 
 	# device = 'PD6D-zoom'
-	# device = 'PD6D-12um-9K'
+	device = 'PD6D-12um-9K'
 	# device = 'PD6D-16um-50'
-	device = 'PD6D-16um'
+	# device = 'PD6D-16um'
 	# device = 'test'
 	exp_setting = {
 	# device: Vbd, max bias, num of points, number of samples, threshold]
@@ -137,7 +137,7 @@ def main():
 	# Frequency counter settings
 	# num_samples = 1000
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
-	Zin=  50 #1.0e6 # 50.0
+	Zin=  1.0e6 # 50.0
 
 	reps = 10
 	if illum =='Dark':
@@ -266,16 +266,26 @@ def main():
 			COUNTER.timeout = 100.0
 			COUNTER.display = 'OFF'
 
-		# initialize source meter
+		# # initialize source meter
+		# try:
+		# 	from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
+		# 	SOURCEMETER = Keithley_2400(visa_address=address_SOURCEMETER)
+		# except:
+		# 	print('no sourcemeter available. exiting.')
+		# 	# exit()
+		# else:
+		# 	print('Keithley connected.')
+		# 	SOURCEMETER.set_current_compliance(Q_(8e-3, 'A'))
+
 		try:
-			from instrumental.drivers.sourcemeasureunit.keithley import Keithley_2400
-			SOURCEMETER = Keithley_2400(visa_address=address_SOURCEMETER)
+			from instrumental.drivers.sourcemeasureunit.hp import HP_4156C
+			SOURCEMETER = HP_4156C(visa_address='GPIB0::17::INSTR')
 		except:
 			print('no sourcemeter available. exiting.')
-			# exit()
+			exit()
 		else:
-			print('Keithley connected.')
-			SOURCEMETER.set_current_compliance(Q_(8e-3, 'A'))
+			print('HP opened')
+			SOURCEMETER.set_channel(channel=2)
 
 
 		# perform measurement
@@ -496,7 +506,7 @@ if __name__ == '__main__':
 		import winsound
 
 		winsound.Beep(1500, 1000)
-		plt.show()
+		# plt.show()
 
 	except:
 		print('winsound not available no beeping')
