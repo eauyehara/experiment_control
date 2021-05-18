@@ -300,6 +300,7 @@ def main():
 		tap_power_vec = []
 		act_power_vec = []
 		inc_cps_vec = []
+		inc_cps_std_vec = []
 		pap_vec = []
 		cr_vec = []
 
@@ -338,9 +339,12 @@ def main():
 			time_list = COUNTER.query('FETC?') # Read from counter
 
 			act_power = power.value.magnitude*tap_to_incident
+			act_power_std = power.error.magnitude*tap_to_incident
 			for nd_filter in nd_cfg: # attenuate
 				act_power = act_power*nd_filters[nd_filter]
+				act_power_std = act_power_std*nd_filters[nd_filter]
 			inc_cps = act_power/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
+			inc_cps_std = act_power_std/(6.62607015E-34*299792458/(wavelength.magnitude*1e-9))
 
 			# except:
 			# 	print("Unexpected error:", sys.exc_info()[0])
@@ -357,6 +361,7 @@ def main():
 			tap_power_vec.append(power.value.magnitude)
 			act_power_vec.append(act_power)
 			inc_cps_vec.append(inc_cps)
+			inc_cps_std_vec.append(inc_cps_std)
 			pap_vec.append(Pap)
 			cr_vec.append(CR)
 
@@ -368,7 +373,7 @@ def main():
 		print(np.array(vec_overbias.magnitude).shape)
 
 		# Save results to csvname
-		pwr_array = np.array([tap_power_vec, act_power_vec, inc_cps_vec])
+		pwr_array = np.array([tap_power_vec, act_power_vec, inc_cps_vec, inc_cps_std_vec])
 		print('power array shape {}'.format(pwr_array.shape))
 
 		bias_arr = np.array(vec_overbias.magnitude)
