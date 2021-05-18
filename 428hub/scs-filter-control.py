@@ -79,10 +79,10 @@ class Window(QtGui.QMainWindow):
         self.motor_steps = 0
 
         # Voltage sweep parameters
-        self.biasV_start = Q_(1.0, 'V')
-        self.biasV_stop = Q_(-25.0, 'V')
-        self.biasV_step = Q_(-0.25, 'V')
-        self.exp_biasV_N = 250
+        self.biasV_start = Q_(-1.0, 'V')
+        self.biasV_stop = Q_(39.5, 'V')
+        self.biasV_step = Q_(0.25, 'V')
+        self.exp_biasV_N = 50
 
         # Wavelength sweep parameters
         self.wavelength_start = Q_(650.0, 'nm')

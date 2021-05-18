@@ -38,7 +38,8 @@ def main():
 	##############################################################################
 	# fname = 'TC1_W12-14_PD6D-16um'
 	# fname = 'TC1_W12-7_PD6D-12um-9K11p5um'
-	fname ='TC1_W12-14_PD6D-12um-9K10um'
+	# fname ='TC1_W12-14_PD6D-12um-9K10um'
+	fname ='TC1_W12-14_PD4A-16um'
 
 	which_measurement = "itimes"
 	if len(sys.argv) > 1:
@@ -54,10 +55,11 @@ def main():
 
 
 	# device = 'PD6D-zoom'
-	device = 'PD6D-12um-9K'
+	# device = 'PD6D-12um-9K'
 	# device = 'PD6D-16um-50'
 	# device = 'PD6D-16um'
 	# device = 'test'
+	device = 'PD4A-12um'
 	exp_setting = {
 	# device: Vbd, max bias, num of points, number of samples, threshold]
 		'PD6D': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1000, -0.05],
@@ -68,6 +70,7 @@ def main():
 		'PD6D-16um-50': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 10000, -0.020],
 		'PD6D-12um-9K': [Q_(25.9, 'V'), Q_(26.9, 'V'), 21, 10000, -0.05],
 		'PD4A': [Q_(33.5, 'V'), Q_(40.2, 'V'), 21, 1000, -0.05],
+		'PD4A-12um': [Q_(35.0, 'V'), Q_(37.0, 'V'), 21, 10000, -0.05],
 		'test': [Q_(25, 'V'), Q_(25.5, 'V'), 2, 1000, -0.05],
 	}
 
@@ -137,7 +140,7 @@ def main():
 	# Frequency counter settings
 	# num_samples = 1000
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
-	Zin=  1.0e6 # 50.0
+	Zin=  50.0 #1.0e6 # 50.0
 
 	reps = 10
 	if illum =='Dark':
