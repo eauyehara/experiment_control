@@ -489,7 +489,7 @@ def histogramFit(data, bin_borders=None, info=''):
 
 	ap_index = min_index
 	print('afterpulses included before {}'.format(ap_index))
-	Pap = np.sum(N[0:ap_index])/num_samples
+	Pap = np.sum(N[0:ap_index]-single_exp(bin_centers[0:ap_index], *min_popt))/num_samples
 	print('Pap from histogram = {:.4g}%'.format(Pap*100))
 	print('CR = {:.4g}'.format(CR))
 
