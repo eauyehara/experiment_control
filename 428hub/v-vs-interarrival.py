@@ -39,7 +39,8 @@ def main():
 	# fname = 'TC1_W12-14_PD6D-16um'
 	# fname = 'TC1_W12-7_PD6D-12um-9K11p5um'
 	# fname ='TC1_W12-14_PD6D-12um-9K10um'
-	fname ='TC1_W12-14_PD4A-16um'
+	# fname ='TC1_W12-14_PD4A-16um'
+	fname ='TC2_W3-29_PD6D-12um'
 
 	which_measurement = "itimes"
 	if len(sys.argv) > 1:
@@ -56,28 +57,31 @@ def main():
 
 	# device = 'PD6D-zoom'
 	# device = 'PD6D-12um-9K'
+	device = 'PD6D-12um-zoom'
 	# device = 'PD6D-16um-50'
 	# device = 'PD6D-16um'
 	# device = 'test'
 	# device = 'PD4A-12um'
 	# device = 'PD4A-high'
-	device='PD4A-wide'
+	# device='PD4A-wide'
 	exp_setting = {
 	# device: Vbd, max bias, num of points, number of samples, threshold]
-		'PD6D': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1000, -0.05],
-		'PD6D-wide': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1000, -0.05],
-		'PD6D-4um': [Q_(30.0, 'V'), Q_(36.0, 'V'), 21, 1000, -0.05],
-		'PD6D-12um': [Q_(24.5, 'V'), Q_(26.95, 'V'), 21, 10000, -0.05],
-		'PD6D-16um': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 10000, -0.05],
-		'PD6D-16um-50': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 10000, -0.020],
-		'PD6D-12um-9K': [Q_(25.9, 'V'), Q_(26.9, 'V'), 21, 10000, -0.05],
-		'PD4A': [Q_(33.5, 'V'), Q_(40.2, 'V'), 21, 1000, -0.05],
-		'PD4A-12um': [Q_(35.0, 'V'), Q_(37.0, 'V'), 21, 10000, -0.05],
-		'PD4A-high': [Q_(37.0, 'V'), Q_(39.5, 'V'), 21, 10000, -0.05],
-		'PD4A-mid': [Q_(36.0, 'V'), Q_(38.0, 'V'), 21, 10000, -0.05],
-		'PD4A-wide': [Q_(35.0, 'V'), Q_(39.0, 'V'), 21, 10000, -0.05],
-		'test': [Q_(25, 'V'), Q_(25.5, 'V'), 2, 1000, -0.05],
+		'PD6D': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1000, -0.05, 1.0e6],
+		'PD6D-wide': [Q_(24, 'V'), Q_(28.8, 'V'), 21, 1000, -0.05, 1.0e6],
+		'PD6D-4um': [Q_(30.0, 'V'), Q_(36.0, 'V'), 21, 1000, -0.05, 1.0e6],
+		'PD6D-12um': [Q_(24.5, 'V'), Q_(26.95, 'V'), 21, 10000, -0.05, 1.0e6],
+		'PD6D-12um-zoom': [Q_(24.5, 'V'), Q_(25.5, 'V'), 11, 10000, -0.025, 1.0e6],
+		'PD6D-16um': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 10000, -0.05, 1.0e6],
+		'PD6D-16um-50': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 10000, -0.025, 50.0],
+		'PD6D-12um-9K': [Q_(25.9, 'V'), Q_(26.9, 'V'), 21, 10000, -0.05, 1.0e6],
+		'PD4A': [Q_(33.5, 'V'), Q_(40.2, 'V'), 21, 1000, -0.05, 50.0],
+		'PD4A-12um': [Q_(35.0, 'V'), Q_(37.0, 'V'), 21, 10000, -0.05, 50.0],
+		'PD4A-high': [Q_(37.0, 'V'), Q_(39.5, 'V'), 21, 10000, -0.05, 50.0],
+		'PD4A-mid': [Q_(36.0, 'V'), Q_(38.0, 'V'), 21, 10000, -0.05, 50.0],
+		'PD4A-wide': [Q_(35.0, 'V'), Q_(39.0, 'V'), 21, 10000, -0.05, 50.0],
+		'test': [Q_(25, 'V'), Q_(25.5, 'V'), 2, 1000, -0.05, 50.0],
 	}
+	print(exp_setting[device])
 
 	Vbd = exp_setting[device][0]
 	max_bias = exp_setting[device][1]
@@ -145,7 +149,7 @@ def main():
 	# Frequency counter settings
 	# num_samples = 1000
 	slope = 'NEG' # Positive('POS')/ Negative('NEG') slope trigger
-	Zin=  50.0 #1.0e6 # 50.0
+	Zin=  exp_setting[device][5]  #50.0 #1.0e6 # 50.0
 
 	reps = 10
 	if illum =='Dark':
@@ -167,17 +171,19 @@ def main():
 	temperature = 25.0
 
 
-	target_wavelength = 830
+	target_wavelength = 513 #830
 	# power_measurement = np.genfromtxt('./output/850-cal-20210311.csv', delimiter=',', skip_header=1)
 	# power_measurement = np.genfromtxt('./output/nd-cal/{}-od0.csv'.format(target_wavelength), delimiter=',', skip_header=1)
-	power_file = './output/20210430 830nm PDP/830-od0.csv'
+	# power_file = './output/20210430 830nm PDP/830-od0.csv'
+	power_file = './output/20210525 nd-cal 513nm/513-od0.csv'
 	power_measurement = np.genfromtxt(power_file, delimiter=',', skip_header=1)
 	wavelength = Q_(float(np.round(power_measurement[0], decimals=1)), 'nm')
 	print(wavelength)
 	tap_to_incident = power_measurement[5]
 
 	# ND filter calibration values -
-	nd_cfg = ["od5-1", "od4-1", "od2-2"] #"od4-2"] #     "od5-2"] 'od2-2']
+	nd_cfg = ["od5-2", "od2-2"] #  ["od5-1", "od4-1"] # ["od5-2"] #, "od2-2"] #"od4-2"] #     "od5-2"] 'od2-2']
+	print(nd_cfg)
 	if illum=="Light":
 		experiment_info = experiment_info + '; ND filters: {}'.format(nd_cfg)
 	try:
@@ -331,7 +337,7 @@ def main():
 				status = int(COUNTER.query('STAT:OPER:COND?'))
 				if status & (1<<4) == 0:
 					measuring = False
-					print(power_arr)
+					print('{} power measurements taken'.format(len(power_arr)))
 					if len(power_arr) > 1:
 						# If more than one measurement take statistics across multiple measurements
 						power_mag_arr = np.array([x.value.magnitude for x in power_arr])
@@ -339,7 +345,7 @@ def main():
 					else:
 						power = power_arr[0]
 				else:
-					print('Counter is still measuring. tap power {}'.format(power_arr[-1]))
+					print('{} Counter is still measuring. tap power {}'.format(len(power_arr), power_arr[-1]), end='\r')
 
 			print('Fetching interarrival times')
 			time_list = COUNTER.query('FETC?') # Read from counter

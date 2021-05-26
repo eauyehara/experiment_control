@@ -72,7 +72,7 @@ class Window(QtGui.QMainWindow):
         self.Kd = 0.0 #10.0
         self.feedback_timeout = 60.0
 
-        self.target_wl = Q_(850.0, 'nm')
+        self.target_wl = Q_(513.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
         self.smu_channel = 2
         self.smu_bias = Q_(0, 'V')
