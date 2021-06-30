@@ -40,7 +40,8 @@ def main():
 	# fname = 'TC1_W12-7_PD6D-12um-9K11p5um'
 	# fname ='TC1_W12-14_PD6D-12um-9K10um'
 	# fname ='TC1_W12-14_PD4A-16um'
-	fname ='TC2_W3-29_PD6D-12um'
+	# fname ='TC2_W3-29_PD6D-12um'
+	fname ='TC2_W3-xef2_PD6D-12um'
 
 	which_measurement = "itimes"
 	if len(sys.argv) > 1:
@@ -57,7 +58,9 @@ def main():
 
 	# device = 'PD6D-zoom'
 	# device = 'PD6D-12um-9K'
-	device = 'PD6D-12um-zoom'
+	device = 'PD6D-12um-wide'
+	# device = 'PD6D-12um-zoom'
+
 	# device = 'PD6D-16um-50'
 	# device = 'PD6D-16um'
 	# device = 'test'
@@ -71,6 +74,7 @@ def main():
 		'PD6D-4um': [Q_(30.0, 'V'), Q_(36.0, 'V'), 21, 1000, -0.05, 1.0e6],
 		'PD6D-12um': [Q_(24.5, 'V'), Q_(26.95, 'V'), 21, 10000, -0.05, 1.0e6],
 		'PD6D-12um-zoom': [Q_(24.5, 'V'), Q_(25.5, 'V'), 11, 10000, -0.025, 1.0e6],
+		'PD6D-12um-wide': [Q_(24.5, 'V'), Q_(28.0, 'V'), 11, 10000, -0.025, 1.0e6],
 		'PD6D-16um': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 10000, -0.05, 1.0e6],
 		'PD6D-16um-50': [Q_(25.5, 'V'), Q_(25.7, 'V'), 21, 10000, -0.025, 50.0],
 		'PD6D-12um-9K': [Q_(25.9, 'V'), Q_(26.9, 'V'), 21, 10000, -0.05, 1.0e6],
@@ -143,7 +147,7 @@ def main():
 		exit()
 
 
-	bias_settle_time = 5.0 # sec
+	bias_settle_time = 10.0 # sec
 	integration_time = 1.0
 
 	# Frequency counter settings
@@ -182,7 +186,7 @@ def main():
 	tap_to_incident = power_measurement[5]
 
 	# ND filter calibration values -
-	nd_cfg = ["od5-2", "od2-2"] #  ["od5-1", "od4-1"] # ["od5-2"] #, "od2-2"] #"od4-2"] #     "od5-2"] 'od2-2']
+	nd_cfg = ["od5-2", "od2-2"] # ["od5-1", "od4-1"] #  ["od5-2"] #, "od2-2"] #"od4-2"] #     "od5-2"] 'od2-2']
 	print(nd_cfg)
 	if illum=="Light":
 		experiment_info = experiment_info + '; ND filters: {}'.format(nd_cfg)
