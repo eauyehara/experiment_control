@@ -100,6 +100,10 @@ class Window(QtGui.QMainWindow):
         self.timer.start(Window.timer_factor*self.hr4000_params['IntegrationTime_micros']) # in msec
 
     def initialize_instruments(self):
+        self.spec=None
+        self.mc= None
+        self.pm = None
+        """
         # Initialize HR4000 Spectrometer
         try:
             import seabreeze.spectrometers as sb
@@ -139,7 +143,7 @@ class Window(QtGui.QMainWindow):
         else:
             self.pm.wavelength = self.target_wl
             self.pm.set_no_filter()
-
+"""
 
         # Initialize tap Power meter
         try:
@@ -382,6 +386,7 @@ class Window(QtGui.QMainWindow):
         # SMU UI elements
         if self.smu is not None:
             col = 0
+            # If HP parameter analyzer
             if self.smu_channel is not None:
                 self.layout.addWidget(QtGui.QLabel('SMU channel [1~4]'), row,col,  1,1)
                 col = col+1
@@ -412,6 +417,30 @@ class Window(QtGui.QMainWindow):
             self.check_smu.setCheckState(0) # off
             self.layout.addWidget(self.check_smu, row, 3, 1, 1)
             row = row+1
+
+            # Integration time Parameters
+            # If HP parameter analyzer
+            if self.smu_channel is not None:
+                self.label_smu_intTime = QtGui.QLabel('SMU Integration time:')
+
+                self.chkbox1 = QtGui.QCheckBox('short', self)
+                self.chkbox2 = QtGui.QCheckBox('medium', self)
+                self.chkbox3 = QtGui.QCheckBox('long', self)
+                self.smu_intTime_group = QtGui.QButtonGroup(self)
+                self.smu_intTime_group.addButton(self.chkbox1)
+                self.smu_intTime_group.addButton(self.chkbox2)
+                self.smu_intTime_group.addButton(self.chkbox3)
+
+                self.layout.addWidget(self.label_smu_intTime, row, 0, 1, 1)
+                self.layout.addWidget(self.chkbox1, row, 1, 1, 1)
+                self.layout.addWidget(self.chkbox2, row, 2, 1, 1)
+                self.layout.addWidget(self.chkbox3, row, 3, 1, 1)
+
+                self.chkbox1.setChecked(True)
+
+                self.smu_intTime_group.buttonClicked.connect(self.set_smu_intTime)
+
+                row = row+1
 
             # IV curve related parameters
             self.layout.addWidget(QtGui.QLabel('Voltage Sweep Parameters'), row,0,  1,1)
@@ -638,7 +667,8 @@ class Window(QtGui.QMainWindow):
                 if self.smu_channel== None:
                     self.smu.set_integration_time(0.2)
                 else:
-                    self.smu.set_integration_time('short')
+                    self.chkbox1.setChecked(True)
+                    # self.smu.set_integration_time('short')
 
                 #  Load measurement parameters
                 wl = self.target_wl
@@ -684,7 +714,8 @@ class Window(QtGui.QMainWindow):
                 if self.smu_channel== None:
                     self.smu.set_integration_time(0.2)
                 else:
-                    self.smu.set_integration_time('short')
+                    self.chkbox1.setChecked(True)
+                    # self.smu.set_integration_time('short')
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
             else:
@@ -764,6 +795,10 @@ class Window(QtGui.QMainWindow):
 
         self.statusBar().showMessage('Setting Voltage IV sweep parameters', 1000)
 
+    def set_smu_intTime(self, btn):
+        self.smu.set_integration_time(time=btn.text())
+        self.statusBar().showMessage('Setting SMU integration time to '+btn.text(), 1000)
+
     def toggle_feedback(self, state):
         self.feedback_state = int(state)
         if state >0:
@@ -803,7 +838,8 @@ class Window(QtGui.QMainWindow):
             if self.smu_channel== None:
                 self.smu.set_integration_time(0.5)
             else:
-                self.smu.set_integration_time('medium')
+                self.chkbox2.setChecked(True)
+                # self.smu.set_integration_time('medium')
             self.label_photocurrent.setStyleSheet("font: bold 10pt Arial")
             self.current_data = []
             self.current_data_timestamps = []
@@ -1060,7 +1096,8 @@ class Window(QtGui.QMainWindow):
                 if self.smu_channel== None:
                     self.smu.set_integration_time(0.2)
                 else:
-                    self.smu.set_integration_time('short')
+                    self.chkbox1.setChecked(True)
+                    # self.smu.set_integration_time('short')
 
                 #  Load measurement parameters
                 wl = self.wavelength_start
@@ -1114,7 +1151,8 @@ class Window(QtGui.QMainWindow):
                     self.smu.set_integration_time(0.2)
                 else:
                     # HP Parameter analyzer
-                    self.smu.set_integration_time('short')
+                    self.chkbox1.setChecked(True)
+                    # self.smu.set_integration_time('short')
                 self.smu.set_voltage(self.smu_bias)
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
@@ -1153,7 +1191,8 @@ class Window(QtGui.QMainWindow):
                     self.smu.set_integration_time(1.0)
                 else:
                     # HP Parameter analyzer
-                    self.smu.set_integration_time('long')
+                    self.chkbox3.setChecked(True)
+                    # self.smu.set_integration_time('long')
 
                 #  Load measurement parameters
                 bias = self.biasV_start
@@ -1208,7 +1247,8 @@ class Window(QtGui.QMainWindow):
                     self.smu.set_integration_time(0.2)
                 else:
                     # HP Parameter analyzer
-                    self.smu.set_integration_time('short')
+                    self.chkbox1.setChecked(True)
+                    # self.smu.set_integration_time('short')
                 self.smu.set_voltage(self.smu_bias)
 
                 print('Experiment lasted {} seconds'.format(time.time()-start))
