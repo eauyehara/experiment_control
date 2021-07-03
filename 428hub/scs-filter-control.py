@@ -787,13 +787,34 @@ class Window(QtGui.QMainWindow):
 
     # Set parameters for bias voltage sweep
     def set_biasV_sweep_params(self):
-        self.biasV_start = Q_(float(self.edit_biasV_start.text()), 'V')
-        self.biasV_stop = Q_(float(self.edit_biasV_stop.text()), 'V')
-        self.biasV_step = Q_(float(self.edit_biasV_step.text()), 'V')
-
-        self.exp_biasV_N = int(self.edit_exp_biasV_N.text())
-
         self.statusBar().showMessage('Setting Voltage IV sweep parameters', 1000)
+
+        try:
+            self.biasV_start = Q_(float(self.edit_biasV_start.text()), 'V')
+        except:
+            self.statusBar().showMessage('Error setting start bias', 1000)
+            self.edit_biasV_start.setText(str(self.biasV_start.magnitude))
+
+        try:
+            self.biasV_stop = Q_(float(self.edit_biasV_stop.text()), 'V')
+        except:
+            self.statusBar().showMessage('Error setting stop bias', 1000)
+            self.edit_biasV_stop.setText(str(self.biasV_stop.magnitude))
+
+        try:
+            self.biasV_step = Q_(float(self.edit_biasV_step.text()), 'V')
+        except:
+            self.statusBar().showMessage('Error setting bias step', 1000)
+            self.edit_biasV_step.setText(str(self.biasV_step.magnitude))
+
+        try:
+            self.exp_biasV_N = int(self.edit_exp_biasV_N.text())
+        except:
+            self.statusBar().showMessage('Error setting N', 1000)
+            self.edit_exp_biasV_N.setText(str(self.exp_biasV_N))
+
+
+
 
     def set_smu_intTime(self, btn):
         self.smu.set_integration_time(time=btn.text())
