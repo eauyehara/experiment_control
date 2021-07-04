@@ -130,7 +130,7 @@ class Window(QtGui.QMainWindow):
         except:
             print('Klinger Motor controller not connected')
             self.mc = None
-
+"""
         # Initialize Power meter
         try:
             from instrumental.drivers.powermeters.ilx_lightwave import OMM_6810B
@@ -143,7 +143,7 @@ class Window(QtGui.QMainWindow):
         else:
             self.pm.wavelength = self.target_wl
             self.pm.set_no_filter()
-"""
+
 
         # Initialize tap Power meter
         try:
@@ -230,6 +230,8 @@ class Window(QtGui.QMainWindow):
             measIVAction.setStatusTip('Probe device before taking measurement')
             measIVAction.triggered.connect(self.exp_iv)
             experimentMenu.addAction(measIVAction)
+        else:
+            print('SMU not available disabling IV curve menu')
 
         if self.pm is not None:
             measIllumAction = QtGui.QAction("Measure &Illumination", self)
@@ -237,6 +239,8 @@ class Window(QtGui.QMainWindow):
             measIllumAction.setStatusTip('Place over power meter to measure illumination')
             measIllumAction.triggered.connect(self.exp_illum)
             experimentMenu.addAction(measIllumAction)
+        else:
+            print('PM not available disabling illumination calibration menu')
 
         if self.spec is not None:
             measSpectraAction = QtGui.QAction("Measure &Spectra", self)
@@ -251,6 +255,8 @@ class Window(QtGui.QMainWindow):
                 measPhotocurrentAction.setStatusTip('Place over device to measure Photocurrent')
                 measPhotocurrentAction.triggered.connect(self.exp_photocurrent)
                 experimentMenu.addAction(measPhotocurrentAction)
+        else:
+            print('Spectrometer not available, disabling spectra measurement menu')
 
         # Generate status bar
         self.statusBar()
