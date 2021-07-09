@@ -70,7 +70,7 @@ class Window(QtGui.QMainWindow):
 
         self.target_wl = Q_(550.0, 'nm')
         self.hr4000_params={'IntegrationTime_micros':100000}
-        
+
         self.smu_channel = 2
         self.smu_settle_time = 1.0 # seconds
 
@@ -314,10 +314,10 @@ class Window(QtGui.QMainWindow):
             self.layout.addWidget(self.edit_bias, row, col,  1,1)
 
             col = col+1
-            
+
             self.layout.addWidget(QtGui.QLabel('SMU settle time [sec]'), row,col,  1,1)
             col = col+1
-            
+
             self.edit_bias_settle_time = QtGui.QLineEdit('{:.4g}'.format(self.smu_settle_time))
             self.edit_bias_settle_time.editingFinished.connect(self.set_smu_params)
             self.layout.addWidget(self.edit_bias_settle_time, row, col,  1,1)
@@ -1090,7 +1090,9 @@ class Window(QtGui.QMainWindow):
                 sleep(self.smu_settle_time)
                 power1 = self.pm.power(channel=1) # Q_(1.0, 'W') #
                 power2 = self.pm.power(channel=2)
-                voltage = self.smu.measure_voltage() # Q_(1.0, 'V') #
+                voltage = self.smu.m
+
+                easure_voltage() # Q_(1.0, 'V') #
 
                 data_out.append([li_current.magnitude, power1.magnitude, power2.magnitude, voltage.magnitude])
 
