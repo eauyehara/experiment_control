@@ -121,7 +121,7 @@ def save_spectra():
     # create an exporter instance, as an argument give it
     # the item you wish to export
     exporter = pg.exporters.ImageExporter(p.scene())
-    exporter.export(fname)
+    exporter.export(fpath)
 
     statusbar.showMessage('Saved spectra to {}'.format(fpath), 5000)
     # restart timer
