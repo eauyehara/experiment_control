@@ -1,5 +1,6 @@
 # import socketserver
 from instrumental import u
+from numpy import argmax
 import seabreeze.spectrometers as sb
 import struct
 import socketserver
@@ -7,21 +8,14 @@ import socket
 import threading
 
 # Server Parameters
-server_port = 9997
+server_port = 9998
 
 # Setup spectrometer
 devices = sb.list_devices()
 spec = sb.Spectrometer(devices[0])
-spec.integration_time_micros(20)
-
-# class for fake Bristol instrument that opens and immediately closes, just in case errors persist
-# class bristol_temp:
-#     def __enter__(self):
-#         spec = instrument(**bristol_params)
-#         self.inst = spec
-#         return spec
-#     def __exit__(self,type,value,thing):
-#         self.inst.close()
+spec.integration_time_micros(10000)
+λ_nm = spec.wavelengths()
+λ_nm_ba = λ_nm.tobytes()
 
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
     """
@@ -37,22 +31,22 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         self.data = self.request.recv(1024).strip()
         print("{} wrote:".format(self.client_address[0]))
         print(self.data)
-        in_out = str(self.data, "utf-8")[:2]
-        channel = int(str(self.data, "utf-8")[2])
-        """
-        if in_out=='LM':
-            lm_nm = spec.get_wavelength().m
-            lm_ba = bytearray(struct.pack("f", lm_nm))
-            self.request.sendall(lm_ba)
-        """
+        # in_out = str(self.data, "utf-8")[:2]
+        # channel = int(str(self.data, "utf-8")[2])
+        in_out = self.data.decode("utf-8")[:2]
+        # channel = int(self.data.decode("utf-8")[2])
         if in_out=='SP':
-            sp_nm = spec.spectrum()
-            sp_ba = bytearray(struct.pack("f", sp_nm))
-            self.request.sendall(sp_ba)
+            cts = spec.intensities()
+            cts_ba = bytearray(cts.tobytes())
+            self.request.sendall(cts_ba)
+        elif in_out=='LM':
+            self.request.sendall(λ_nm_ba)
+        elif in_out=='PK':
+            λ_peak_nm = λ_nm[argmax(spec.intensities())]
+            λ_peak_nm_ba = bytearray(struct.pack("f", λ_peak_nm))
+            self.request.sendall(λ_peak_nm_ba)
         else:
             self.request.sendall('request not understood')
-
-
 
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
