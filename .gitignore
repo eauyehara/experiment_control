@@ -1,1 +1,12 @@
+
 *.pyc
+
+# Data files
+*.csv
+*.png
+
+# ipython checkpoint directory
+.ipynb_checkpoints
+
+# output data directory
+output
