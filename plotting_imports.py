@@ -8,6 +8,7 @@ from matplotlib.colors import  ListedColormap, LogNorm, Normalize, BoundaryNorm
 import matplotlib.patches as patches
 from matplotlib.colors import  ListedColormap
 from matplotlib import rcParamsDefault
+from instrumental import Q_, u
 
 ## my default Parameters
 
@@ -68,14 +69,15 @@ def lm2f_tickfn(X):
     X_f = (u.speed_of_light / X_lm ).to(u.THz).m
     return ["%3.3f" % z for z in X_f]
 
-def lm2f_tickfn_offset(X,offset):
+def lm2f_tickfn_offset(X,offset,units='GHz',w=4,p=1):
     X_lm = X * u.nm
     offset_lm = offset * u.nm
-    X_f_GHz = (u.speed_of_light / X_lm ).to(u.GHz).m
-    offset_f_GHz = (u.speed_of_light / offset_lm ).to(u.GHz).m
+    X_f_GHz = (u.speed_of_light / X_lm).to(units).m
+    offset_f_GHz = (u.speed_of_light / offset_lm).to(units).m
     offset_f_THz = (u.speed_of_light / offset_lm ).to(u.THz).m
     X_offset_GHz = X_f_GHz - offset_f_GHz
-    return "{:3.3f}".format(offset_f_THz), ["%3.1f" % z for z in X_offset_GHz]
+
+    return f"{offset_f_THz:{w}.{p}f}", [f"{z:{w}.{p}f}" for z in X_offset_GHz]
 
 def f2lm_tickfn(X):
     X_f = X * u.THz
@@ -91,16 +93,16 @@ def lm2f_twiny(ax):
     ax2.set_xlabel('frequency [THz]')
     return ax2
 
-def lm2f_twiny_offset(ax,offset=None):
+def lm2f_twiny_offset(ax,offset=None,units='GHz',w=4,p=1):
     ax2=ax.twiny()
     ticks = ax.get_xticks()
     ax2.set_xticks(ticks)
     ax2.set_xbound(ax.get_xbound())
     if offset is None:
         offset = np.median(ticks)
-    offset_THz_str, tick_str_list = lm2f_tickfn_offset(ticks,offset)
+    offset_THz_str, tick_str_list = lm2f_tickfn_offset(ticks,offset,units=units,w=w,p=p)
     ax2.set_xticklabels(tick_str_list)
-    ax2.set_xlabel('frequency [GHz] offset from ' + offset_THz_str + ' THz')
+    ax2.set_xlabel('frequency [' + str(units) + '] offset from ' + offset_THz_str + ' THz')
     return ax2
 
 
