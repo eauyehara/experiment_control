@@ -5,8 +5,9 @@
 *.csv
 *.png
 
-# ipython checkpoint directory
+# Auto-generated Directories
 .ipynb_checkpoints
+__pycache__
 
 # output data directory
 output

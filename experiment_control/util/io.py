@@ -6,7 +6,8 @@ import os
 import glob
 import h5py
 from datetime import datetime
-from units import Q_, u
+from numpy import ndarray
+from .units import Q_, u
 
 timestamp_format = '%Y-%m-%d-%H-%M-%S'  # used by `datetime.strftime` in `new_timestamp()`
 
@@ -44,6 +45,32 @@ def new_path(name=None,data_dir=None,ds_type=None,extension='',timestamp=True):
     full_path = os.path.normpath(os.path.join(data_dir,full_name))
     return full_path
 
+def resolve_sample_dir(sample_dir,data_dir=default_data_dir):
+    if sample_dir is None:
+        return newest_subdir(data_dir)
+    elif not(os.path.isdir(sample_dir)):
+        newest = newest_subdir(data_dir=data_dir,filter=("_".join(["Sample",sample_dir])+'*'))
+        if newest:
+            sample_dir = newest
+        else:
+            sample_dir = new_path(name=sample_dir,ds_type="Sample",data_dir=data_dir)
+            os.mkdir(sample_dir)
+        return sample_dir
+    else:
+        return sample_dir
+
+def resolve_fpath(filter,fpath,sample_dir,data_dir=default_data_dir):
+    if fpath is None:
+        if sample_dir is None:
+            return newest_file(data_dir=newest_subdir(data_dir),filter=filter)
+        else:
+            return newest_file(data_dir=sample_dir,filter=filter)
+    else:
+        return fpath
+
+"""
+HDF5 utilities for unitful quantities and arrays
+"""
 def dump_hdf5(ds,fpath,open_mode='a'):
     with h5py.File(fpath, open_mode) as f:
         for k,v in ds.items():
@@ -53,7 +80,7 @@ def dump_hdf5(ds,fpath,open_mode='a'):
                 v = v.m
             except:
                 units = False
-            if type(v) is np.ndarray:
+            if type(v) is ndarray:
                 h5_ds = f.create_dataset(k,
                                         v.shape,
                                         dtype=v.dtype,

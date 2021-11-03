@@ -7,15 +7,18 @@ from matplotlib import cm
 from matplotlib.colors import ListedColormap
 from scipy.interpolate import griddata
 from scipy.optimize import curve_fit
-# import instrumental
-from instrumental import Q_, u, instrument
+
+# import stuff from instrumental
+from instrumental import instrument
 from instrumental.drivers.daq.ni import Task # NIDAQ,
 from instrumental.drivers.motion.filter_flipper import Position
 from instrumental.drivers.lockins import sr844
 # from instrumental.drivers.motion.filter_flipper import FilterFlipper
-from data_io import *
-from zelux import grab_image
-from powermeter import get_power
+
+from ..util.units import Q_, u
+from ..util.io import *
+from .zelux import grab_image
+from .powermeter import get_power
 
 daq     = instrument("NIDAQ_USB-6259")
 # daq2    = instrument('DAQ2_NIDAQ_USB-6259_21146242')
@@ -135,29 +138,29 @@ ff_pos_out = Position.one
 ff_pos_in  = Position.two
 
 ## SHG microscope data i/o
-
-def resolve_sample_dir(sample_dir):
-    if sample_dir is None:
-        return newest_subdir(data_dir)
-    elif not(os.path.isdir(sample_dir)):
-        newest = newest_subdir(data_dir=data_dir,filter=("_".join(["Sample",sample_dir])+'*'))
-        if newest:
-            sample_dir = newest
-        else:
-            sample_dir = new_path(name=sample_dir,ds_type="Sample",data_dir=data_dir)
-            os.mkdir(sample_dir)
-        return sample_dir
-    else:
-        return sample_dir
-
-def resolve_fpath(filter,fpath,sample_dir):
-    if fpath is None:
-        if sample_dir is None:
-            return newest_file(data_dir=newest_subdir(data_dir),filter=filter)
-        else:
-            return newest_file(data_dir=sample_dir,filter=filter)
-    else:
-        return fpath
+,data_dir=data_dir
+# def resolve_sample_dir(sample_dir,data_dir=data_dir):
+#     if sample_dir is None:
+#         return newest_subdir(data_dir)
+#     elif not(os.path.isdir(sample_dir)):
+#         newest = newest_subdir(data_dir=data_dir,filter=("_".join(["Sample",sample_dir])+'*'))
+#         if newest:
+#             sample_dir = newest
+#         else:
+#             sample_dir = new_path(name=sample_dir,ds_type="Sample",data_dir=data_dir)
+#             os.mkdir(sample_dir)
+#         return sample_dir
+#     else:
+#         return sample_dir
+#
+# def resolve_fpath(filter,fpath,sample_dir,data_dir=data_dir):
+#     if fpath is None:
+#         if sample_dir is None:
+#             return newest_file(data_dir=newest_subdir(data_dir),filter=filter)
+#         else:
+#             return newest_file(data_dir=sample_dir,filter=filter)
+#     else:
+#         return fpath
 
 
 
@@ -316,7 +319,7 @@ def polarization_scan(n_angles=100,n_samples=50,time_constant=3*u.ms,wait=100*u.
 
 
 def collect_polarization_scan(sample_dir=None,n_angles=100,n_samples=50,time_constant=3*u.ms,wait=100*u.ms):
-    sample_dir = resolve_sample_dir(sample_dir)
+    sample_dir = resolve_sample_dir(sample_dir,data_dir=data_dir)
     fpath = new_path(dir=sample_dir,identifier_string="PolScan",extension='.csv')
     # fname = "pol_scan_" + timestamp() + ".csv"
     # fpath = os.path.normpath(os.path.join(shg_data_dir,sample_dir,fname))
@@ -327,7 +330,7 @@ def collect_polarization_scan(sample_dir=None,n_angles=100,n_samples=50,time_con
     return θ, Pshg
 
 def load_polarization_scan(fpath=None,sample_dir=None):
-    θ_deg, Pshg_W = np.loadtxt(resolve_fpath("PolScan*.csv",fpath,sample_dir),delimiter=',')
+    θ_deg, Pshg_W = np.loadtxt(resolve_fpath("PolScan*.csv",fpath,sample_dir,data_dir=data_dir),delimiter=',')
     return θ_deg*u.degree, Pshg_W*u.watt
 
 def pol_dep(x,a,x0):
@@ -437,7 +440,7 @@ def process_scan(read_data,nx,ny,ΔVx,ΔVy,Vx0=Vx0,Vy0=Vy0):
 
 def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exposure_time=3*u.ms):
     maximize_excitation_power()
-    sample_dir = resolve_sample_dir(sample_dir)
+    sample_dir = resolve_sample_dir(sample_dir,data_dir=data_dir)
     fpath = new_path(name=name,data_dir=sample_dir,ds_type='GalvoScan',extension='h5',timestamp=True)
     print("saving data to: ")
     print(fpath)
