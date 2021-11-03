@@ -25,11 +25,12 @@ data_dir = os.path.join(home_dir,"Dropbox (MIT)","data","poling")
 
 
 # Configure DAQ and oscilloscope channels
-ch_Vctl     =   daq.ao1
-ch_Vtrig    =   daq.ao3
-ch_Vctl_sc  =   1
-ch_Vamp_sc  =   2
-ch_Vtrig_sc =   4
+ch_Vctl         =   daq.ao1
+ch_Vtrig        =   daq.ao3
+ch_Vctl_sc      =   1
+ch_Vamp_sc      =   2
+ch_Vsense_sc    =   3
+ch_Vtrig_sc     =   4
 # ch_Vcur     =   3
 # daq.port0.as_output()
 
@@ -78,9 +79,9 @@ def grab_image(savepath=False):
         if grabResult.GrabSucceeded():
             img = grabResult.Array
             if savepath:
-                # pyimg = pylon.PylonImage()
-                # pyimg.AttachGrabResultBuffer(grabResult)
-                grabResult.Save(pylon.ImageFileFormat_Png, savepath)
+                pyimg = pylon.PylonImage()
+                pyimg.AttachGrabResultBuffer(grabResult)
+                pyimg.Save(pylon.ImageFileFormat_Png, savepath+".png")
         else:
             print("Basler framegrab Error: ", grabResult.ErrorCode, grabResult.ErrorDescription)
         grabResult.Release()
@@ -186,6 +187,9 @@ def apply_pulses(t_wait=0.2,name=None,sample_dir=None,max_num_pts=100000,**kwarg
     print("saving data to: ")
     print(fpath)
 
+    img_before = grab_image(savepath=fpath.rstrip(".h5"))
+    dump_hdf5({"img_before":img_before,},fpath)
+
     task, write_data = pulse_task(**kwargs)
     # dump_hdf5(write_data,fpath)
     time.sleep(t_wait)
@@ -200,19 +204,23 @@ def apply_pulses(t_wait=0.2,name=None,sample_dir=None,max_num_pts=100000,**kwarg
     dump_hdf5(write_data,fpath)
 
     scope_data = scope.get_data(
-        ch = [ch_Vctl_sc, ch_Vamp_sc, ch_Vtrig_sc],
-        max_num_pts=100000,
+        ch = [ch_Vctl_sc, ch_Vamp_sc, ch_Vsense_sc, ch_Vtrig_sc],
+        max_num_pts=max_num_pts,
         t_wait=t_wait,
     )
     for kk in list(scope_data.keys()):
         scope_data["scope/"+kk] = scope_data.pop(kk)
     dump_hdf5(scope_data,fpath)
     scope.write(":run")
+
+    img_after = grab_image(savepath=fpath.rstrip(".h5"))
+    dump_hdf5({"img_after":img_after,},fpath)
+
     ds = load_hdf5(fpath=fpath)
     plot_pulse_data(ds,savepath=fpath.rstrip(".h5"))
     return ds
 
-def plot_pulse_data(ds,gain=80,savepath=False,ms_scat=1.,scope_alpha=0.6,colors=["C1","C2","C3","C4"]):
+def plot_pulse_data(ds,gain=80,savepath=False,ms_scat=1.,scope_alpha=0.6,colors=["C1","C2","C3","C4","C5"]):
     # load data into unitless arrays to avoid matplotlib complaints
     t_daq = ds["daq"]["t"].m_as(u.ms)
     Vctl = ds["daq"]["ao1"].m_as(u.volt)
@@ -220,18 +228,22 @@ def plot_pulse_data(ds,gain=80,savepath=False,ms_scat=1.,scope_alpha=0.6,colors=
     t_scope = ds["scope"]["t"].m_as(u.ms)
     Vctl_scope = ds["scope"]["V1"].m_as(u.volt)
     Vamp_scope = ds["scope"]["V2"].m_as(u.volt)
+    Vsense_scope = ds["scope"]["V3"].m_as(u.volt)
     Vtrig_scope = ds["scope"]["V4"].m_as(u.volt)
 
     fig = plt.figure()
     # manually set axis box to place legend outside
     ax = fig.add_axes([0.12, 0.1, 0.6, 0.75])
-    # plot control signals in the back
-    ax.plot(t_daq,Vtrig*gain,lw=2,label=f"{gain}*Vctl (daq)",color=colors[0],rasterized=True)
-    ax.plot(t_daq,Vctl*gain,lw=2,label=f"{gain}*Vtrig (daq)",color=colors[1],rasterized=True)
+    # plot trigger signals in the back
+    ax.plot(t_daq,Vtrig*gain,lw=2,label=f"{gain}*Vtrig (daq)",color=colors[0],rasterized=True)
+    ax.scatter(t_scope,Vtrig_scope*gain,marker=".",s=ms_scat,c=colors[4],alpha=scope_alpha,label=f"{gain}*Vtrig (scope)",rasterized=True,zorder=9)
+
+    ax.plot(t_daq,Vctl*gain,lw=2,label=f"{gain}*Vctl (daq)",color=colors[1],rasterized=True)
     # plot measured data that should match on top
     # ax.scatter(t_scope,Vctl_scope*gain,label=f"{gain}*Vctl (scope)",rasterized=True)
-    ax.scatter(t_scope,Vamp_scope,marker=".",s=ms_scat,c=colors[2],alpha=scope_alpha,label="Vamp (scope)",rasterized=True)
-    ax.scatter(t_scope,Vtrig_scope*gain,marker=".",s=ms_scat,c=colors[3],alpha=scope_alpha,label=f"{gain}*Vtrig (scope)",rasterized=True)
+    ax.plot(t_scope,Vsense_scope,color=colors[2],label="Vsense (scope)",rasterized=True)
+    ax.scatter(t_scope,Vamp_scope,marker=".",s=ms_scat,c=colors[3],alpha=scope_alpha,label="Vamp (scope)",rasterized=True,zorder=10)
+
     # format plot axes and save if necessary
     ax.grid()
     ax.set_xlabel("time (ms)")
