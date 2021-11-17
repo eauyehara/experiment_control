@@ -138,7 +138,7 @@ ff_pos_out = Position.one
 ff_pos_in  = Position.two
 
 ## SHG microscope data i/o
-,data_dir=data_dir
+# ,data_dir=data_dir
 # def resolve_sample_dir(sample_dir,data_dir=data_dir):
 #     if sample_dir is None:
 #         return newest_subdir(data_dir)
@@ -318,9 +318,12 @@ def polarization_scan(n_angles=100,n_samples=50,time_constant=3*u.ms,wait=100*u.
     return θ, Pshg
 
 
-def collect_polarization_scan(sample_dir=None,n_angles=100,n_samples=50,time_constant=3*u.ms,wait=100*u.ms):
+def collect_polarization_scan(sample_dir=None,name=None,n_angles=100,n_samples=50,time_constant=3*u.ms,wait=100*u.ms):
     sample_dir = resolve_sample_dir(sample_dir,data_dir=data_dir)
-    fpath = new_path(dir=sample_dir,identifier_string="PolScan",extension='.csv')
+    fpath = new_path(name=name,data_dir=sample_dir,ds_type="PolScan",extension='.csv')
+    # fpath = new_path(name=name,data_dir=sample_dir,ds_type='GalvoScan',extension='h5',timestamp=True)
+    print("saving data to: ")
+    print(fpath)
     # fname = "pol_scan_" + timestamp() + ".csv"
     # fpath = os.path.normpath(os.path.join(shg_data_dir,sample_dir,fname))
     θ, Pshg = polarization_scan(n_angles=n_angles,n_samples=n_samples,time_constant=time_constant,wait=wait)

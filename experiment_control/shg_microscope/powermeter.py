@@ -1,6 +1,6 @@
 from datetime import datetime
 from ctypes import cdll,c_long, c_ulong, c_uint32,byref,create_string_buffer,c_bool,c_char_p,c_int,c_int16,c_double, sizeof, c_voidp
-from TLPM import TLPM, TLPM_ATTR_SET_VAL
+from .TLPM import TLPM, TLPM_ATTR_SET_VAL
 import time
 from instrumental import u
 
