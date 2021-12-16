@@ -19,7 +19,7 @@ camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
 
 # daq     = instrument("NIDAQ_USB-6259")
 daq     =   instrument('DAQ2_NIDAQ_USB-6259_21146242')
-scope   =   instrument('Rigol_DS1054Z_DS1ZA224211034')
+# scope   =   instrument('Rigol_DS1054Z_DS1ZA224211034')
 data_dir = os.path.join(home_dir,"Dropbox (MIT)","data","poling")
 
 
@@ -60,11 +60,11 @@ def instrument_info():
     print("\t" + "model"  + ":\t" + str(daq._paramset["model"].decode("utf-8")))
     print("\t" + "serial" + ":\t" + str(daq._paramset["serial"]))
 
-    print("scope:")
-    print("\t" + "module" + ":\t" + str(scope._paramset["module"]))
-    print("\t" + "model"  + ":\t" + str(scope.model))
-    print("\t" + "serial" + ":\t" + str(scope.serial))
-    print("\t" + "visa address" + ":\n\t\t" + str(scope._paramset["visa_address"]))
+    # print("scope:")
+    # print("\t" + "module" + ":\t" + str(scope._paramset["module"]))
+    # print("\t" + "model"  + ":\t" + str(scope.model))
+    # print("\t" + "serial" + ":\t" + str(scope.serial))
+    # print("\t" + "visa address" + ":\n\t\t" + str(scope._paramset["visa_address"]))
 
 
 """
