@@ -73,7 +73,7 @@ statusbar = QtGui.QStatusBar()
 p = pg.PlotWidget()
 xlabel = p.setLabel('bottom',text='Wavelength',units='nm')
 ylabel = p.setLabel('left',text='Counts',units='Arb. Unit')
-
+title = p.setTitle("OceanOptics HR4000 Spectrum") #,color=(255,255,255))
 
 
 
@@ -156,11 +156,42 @@ btn_setdirec.clicked.connect(set_directory)
 # Timer function
 def refresh_live_spectra():
     global spectra_data
-
     # print('Refreshing plot')
     spectra_data = np.transpose( spec.spectrum() )
-
     p.plot(spectra_data, clear=True)
+    lmpeak = spectra_data[spectra_data[:,1].argmax(),0] # peak wavelength in nm
+    p.setTitle(f"OceanOptics HR4000 Spectrum, Peak Wavelength: {lmpeak:3.2f} nm") #,color=(255,255,255))
+
+#### animated text example code ####
+
+# ## Create text object, use HTML tags to specify color/size
+# text = pg.TextItem(html='<div style="text-align: center"><span style="color: #FFF;">This is the</span><br><span style="color: #FF0; font-size: 16pt;">PEAK</span></div>', anchor=(-0.3,0.5), angle=45, border='w', fill=(0, 0, 255, 100))
+# plot.addItem(text)
+# text.setPos(0, y.max())
+#
+# ## Draw an arrowhead next to the text box
+# arrow = pg.ArrowItem(pos=(0, y.max()), angle=-45)
+# plot.addItem(arrow)
+#
+#
+# ## Set up an animated arrow and text that track the curve
+# curvePoint = pg.CurvePoint(curve)
+# plot.addItem(curvePoint)
+# text2 = pg.TextItem("test", anchor=(0.5, -1.0))
+# text2.setParentItem(curvePoint)
+# arrow2 = pg.ArrowItem(angle=90)
+# arrow2.setParentItem(curvePoint)
+#
+# ## update position every 10ms
+# index = 0
+# def update():
+#     global curvePoint, index
+#     index = (index + 1) % len(x)
+#     curvePoint.setPos(float(index)/(len(x)-1))
+#     text2.setText('[%0.1f, %0.1f]' % (x[index], y[index]))
+
+####################################
+
 
 timer_factor = 1.2e-3
 timer = QtCore.QTimer()

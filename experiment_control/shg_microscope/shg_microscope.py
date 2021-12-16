@@ -88,7 +88,6 @@ Vpeak_per_Vx_lia =  (Vpeak_ref_1uWave / Vx_ref_1uWave).to(u.dimensionless).m
 Vpeak_per_Vave_scope =  (Vpeak_ref_1uWave / Vave_ref_1uWave).to(u.dimensionless).m
 Pave_per_Vx_ref = (1 * u.uW) / Vx_ref_1uWave
 
-
 # trans_BP70plus
 VperW_shg = (gain_SR445A*tia_gain_APD430A2*resp_APD430A2).to(u.volt/u.watt)
 
@@ -163,6 +162,31 @@ ff_pos_in  = Position.two
 #         return fpath
 
 
+import matplotlib as mpl
+
+shg_rc_params = {
+    'lines.linewidth': 1.5,
+    'lines.markersize': 8,
+    'legend.fontsize': 12,
+    'text.usetex': False,
+    'font.family': "serif",
+    'font.serif': "cm",
+    'xtick.labelsize': 14,
+    'ytick.labelsize': 14,
+    'axes.labelsize': 14,
+    'axes.titlesize': 14,
+    'font.size': 14,
+    'axes.linewidth': 1,
+    "grid.color": '#707070',
+    'grid.linestyle':':',
+    'grid.linewidth':0.7,
+    'axes.grid': True,
+    'axes.grid.axis': 'both',
+    'axes.grid.which': 'both',
+    'image.cmap':'winter',
+    'savefig.dpi': 150,
+    'figure.dpi': 75,
+}
 
 ## Widefield imaging ##
 
@@ -429,52 +453,27 @@ def process_scan(read_data,nx,ny,ΔVx,ΔVy,Vx0=Vx0,Vy0=Vy0):
     Vx_g, Vy_g = np.meshgrid(Vx.m,Vy.m)
     Vshg_x_g = griddata((Vx_meas.m,Vy_meas.m),Vshg_x.m,(Vx_g,Vy_g))*u.volt
     Vshg_y_g = griddata((Vx_meas.m,Vy_meas.m),Vshg_y.m,(Vx_g,Vy_g))*u.volt
+
+    x = ((Vx-Vx0)*dx_dVx).to(u.um)
+    y = ((Vy-Vy0)*dy_dVy).to(u.um)
+    Pave_shg = (Pave_per_Vx_ref * Vshg_x_g).to(u.picowatt)
+
     proc_data = {
         "Vx"      : Vx,
         "Vy"      : Vy,
         "dx_dVx"  : dx_dVx,
         "dy_dVy"  : dy_dVy,
-        "x"       : ((Vx-Vx0)*dx_dVx).to(u.um),
-        "y"       : ((Vy-Vy0)*dy_dVy).to(u.um),
+        # "x"       : ((Vx-Vx0)*dx_dVx).to(u.um),
+        # "y"       : ((Vy-Vy0)*dy_dVy).to(u.um),
         "Vshg_x_g": Vshg_x_g,
         "Vshg_y_g": Vshg_y_g,
+        "x"       : x,
+        "y"       : y,
+        "Pave_shg"       : Pave_shg,
     }
     return proc_data
 
-def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exposure_time=3*u.ms):
-    maximize_excitation_power()
-    sample_dir = resolve_sample_dir(sample_dir,data_dir=data_dir)
-    fpath = new_path(name=name,data_dir=sample_dir,ds_type='GalvoScan',extension='h5',timestamp=True)
-    print("saving data to: ")
-    print(fpath)
-    θ_pow_hwp   = pow_hwp.position
-    θ_pol_hwp   = pol_hwp.get_position()
-    P_ex        = get_excitation_power()
-    wf_img, laser_spot_img = wf_and_laser_spot_images(exposure_time=wf_exposure_time)
-    x_img,y_img = img_spatial_axes(laser_spot_img)
-    dump_hdf5(
-        {   'wf_img': wf_img.astype("int"),
-            'laser_spot_img': laser_spot_img.astype("int"),
-            'dx_dpix': dx_dpix,
-            'x_img': x_img,
-            'y_img': y_img,
-            'θ_pow_hwp': θ_pow_hwp,
-            'θ_pol_hwp': θ_pol_hwp,
-            'P_ex': P_ex,
-        },
-        fpath,
-        open_mode='x',
-    )
-    scan_task, write_data = configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp)
-    dump_hdf5(write_data,fpath)
-    read_data = scan_task.run(write_data)
-    dump_hdf5(read_data,fpath)
-    scan_task.unreserve()
-    center_spot(Vx0,Vy0)
-    proc_data = process_scan(read_data,nx,ny,ΔVx,ΔVy)
-    dump_hdf5(proc_data,fpath)
-    ds = load_hdf5(fpath=fpath)
-    return ds
+
 
 ## Plotting ##
 
@@ -512,3 +511,194 @@ def plot_scan_data(ds,wf_cmap=cm.binary,laser_cmap=cm.Reds):
     ax[1,1].set_aspect("equal")
     plt.show()
     return fig
+
+
+
+
+def img_max_pixel_inds(img):
+    return np.unravel_index(np.argmax(img),img.shape)
+
+def img_spatial_axes(laser_spot_img,dx_dpix=dx_dpix):
+    x_pix_laser, y_pix_laser = img_max_pixel_inds(laser_spot_img)
+    # x_pix_laser, y_pix_laser = img_max_pixel_inds(np.flip(laser_spot_img,(0,1)))
+    npix_x,npix_y = laser_spot_img.shape
+    # x_img, y_img = dx_dpix*(np.arange(npix_x)-x_pix_laser), dx_dpix*(np.arange(npix_y)-y_pix_laser)
+    x_img, y_img = dx_dpix*(np.arange(npix_x)-x_pix_laser), dx_dpix*(np.arange(npix_y)-y_pix_laser)
+    return x_img, y_img
+#
+# for dd in ds:
+#     dd["dx_dVx"] = dx_dVx
+#     dd["dy_dVy"] = dy_dVy
+#     dd["Vx0"] = Vx0
+#     dd["Vy0"] = Vy0
+#     dd["dx_dpix"] = dx_dpix
+#     dd["x"] = ((dd["Vx"]-Vx0)*dx_dVx).to(u.um)
+#     dd["y"] = ((dd["Vy"]-Vy0)*dy_dVy).to(u.um)
+#     x_img,y_img = img_spatial_axes(dd["laser_spot_img"])
+#     dd["x_img"] = x_img
+#     dd["y_img"] = y_img
+#     dd["Pave_shg"] = (Pave_per_Vx_ref * dd["Vshg_x_g"]).to(u.picowatt)
+
+def wf_img_inds(ds):
+    i_xmax = np.nanargmin(np.abs(ds['x_img'] - ds['x'].max()))
+    i_xmin = np.nanargmin(np.abs(ds['x_img'] - ds['x'].min()))
+    i_ymax = np.nanargmin(np.abs(ds['y_img'] - ds['y'].max()))
+    i_ymin = np.nanargmin(np.abs(ds['y_img'] - ds['y'].min()))
+    return i_xmax, i_xmin, i_ymax, i_ymin
+
+def spotzoom_inds(ds,Dxy=10*u.um):
+    ix0,iy0 = [np.nanargmin(np.abs(xx)) for xx in [ds["x_img"],ds["y_img"]]]
+    npix_half = np.round((Dxy/2./ds["dx_dpix"]).m_as(u.dimensionless))
+    ix_min, ix_max = int((ix0 - npix_half)), int((ix0 + npix_half))
+    iy_min, iy_max = int((iy0 - npix_half)), int((iy0 + npix_half))
+    return ix_min, ix_max, iy_min, iy_max
+
+def gaussian(x,w,x0,A):
+    return A*np.exp(-2*(x-x0)**2/w**2)
+
+def plot_spotzoom(ds,Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,
+    x_wtext=-3,y_wtext=-3,rc_params=shg_rc_params):
+    laser_cmap = transparent_cmap(laser_cmap)
+    ix_min_sz, ix_max_sz, iy_min_sz, iy_max_sz = spotzoom_inds(ds,Dxy=Dxy)
+    ix0 = int(np.round((ix_min_sz + ix_max_sz)/2.)) - ix_min_sz
+    iy0 = int(np.round((iy_min_sz + iy_max_sz)/2.)) - iy_min_sz
+    X = ds["x_img"][ix_min_sz:ix_max_sz]
+    Y = ds["y_img"][iy_min_sz:iy_max_sz]
+    Z_bg = ds["laser_spot_img"].min()
+    Z = ds["laser_spot_img"][ix_min_sz:ix_max_sz,iy_min_sz:iy_max_sz] - Z_bg
+    Z_xcut = (1.0 * Z[:,iy0]) / Z.max()
+    Z_ycut = (1.0 * Z[ix0,:]) / Z.max()
+    p_x,pcov_x = curve_fit(gaussian,X.m_as(u.um),Z_xcut,[1.0,0.0,1.0])
+    p_y,pcov_y = curve_fit(gaussian,Y.m_as(u.um),Z_ycut,[1.0,0.0,1.0])
+    wx,x0_fit,I0x = p_x
+    wy,y0_fit,I0y = p_y
+    x_fit = np.linspace(X.m_as(u.um).min(),X.m_as(u.um).max(),100)
+    y_fit = np.linspace(Y.m_as(u.um).min(),Y.m_as(u.um).max(),100)
+    Z_xcut_fit = gaussian(x_fit,wx,x0_fit,I0x)
+    Z_ycut_fit = gaussian(y_fit,wy,y0_fit,I0y)
+    with mpl.rc_context(rc_params):
+        fig, ax = plt.subplots(2,2,
+        figsize=figsize,
+        sharex="col",
+        sharey="row",
+        gridspec_kw={"wspace":0,"hspace":0,"width_ratios":[1,0.2],"height_ratios":[0.2,1]},
+    )
+        p0 = ax[1,0].pcolormesh(X,Y,np.fliplr(Z.T),cmap=laser_cmap)
+        ax[1,0].set_aspect("equal")
+        ly_fit = ax[1,1].plot(Z_ycut_fit,y_fit,'k--')
+        lx_fit = ax[0,0].plot(x_fit,Z_xcut_fit,'k--')
+        sy = ax[1,1].scatter(Z_ycut,Y)
+        sx = ax[0,0].scatter(X,Z_xcut,)
+        ax[1,0].set_xlabel("x (μm)")
+        ax[1,0].set_ylabel("y (μm)")
+        ax[1,0].text(x_wtext,y_wtext,f"x waist: {wx:2.2f} μm"+"\n"+f"y waist: {wy:2.2f} μm")
+    return fig,ax
+
+def save_spotzoom(ds,fname,fpath=False,Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,
+    x_wtext=-3,y_wtext=-3,rc_params=shg_rc_params,format="png",dpi=400,pad_inches=0.5):
+    fig,ax = plot_spotzoom(ds,Dxy=Dxy,figsize=figsize,laser_cmap=laser_cmap,
+        x_wtext=x_wtext,y_wtext=y_wtext,rc_params=rc_params)
+    if fpath:
+        fname=os.path.normpath(os.path.join(fpath,fname))
+    plt.savefig(fname, dpi=dpi, facecolor=None, edgecolor=None,
+        orientation='landscape', papertype=None, format=format,
+        transparent=True, bbox_inches=None, pad_inches=pad_inches)
+    return fig,ax
+
+
+def plot_scan_data(ds,wf_cmap=cm.binary,laser_cmap=cm.Reds):
+    laser_cmap = transparent_cmap(laser_cmap)
+    fig, ax = plt.subplots(2,2)
+    im0 = ax[0,0].pcolormesh(ds["x_img"].m,ds["y_img"].m,np.fliplr(ds["wf_img"].transpose()),cmap=wf_cmap)
+    im1  = ax[0,0].pcolormesh(ds["x_img"].m,ds["y_img"].m,np.fliplr(ds["laser_spot_img"].transpose()),cmap=laser_cmap)
+    # cb1 = plt.colorbar(im1,ax=ax[1,0])
+    ax[0,0].set_aspect("equal")
+    i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
+    p0 = ax[0,1].pcolormesh(ds["x"].m,ds["y"].m,np.fliplr(np.flipud(ds["Vshg_x_g"].m)))
+    cb0 = plt.colorbar(p0,ax=ax[0,1])
+    ax[0,1].set_aspect("equal")
+    im2 = ax[1,1].pcolormesh(ds["x_img"][i_xmin:i_xmax].m,ds["y_img"][i_ymin:i_ymax].m,np.fliplr(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),cmap=wf_cmap)
+    im3  = ax[1,1].pcolormesh(ds["x_img"][i_xmin:i_xmax].m,ds["y_img"][i_ymin:i_ymax].m,np.fliplr(ds["laser_spot_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),cmap=laser_cmap)
+    cb3 = plt.colorbar(im3,ax=ax[1,1])
+    ax[1,1].set_aspect("equal")
+    plt.show()
+    return fig
+
+
+
+def save_single_img(X,Y,Z,cmap,fname,fpath=False,xlabel="x (μm)",ylabel="y (μm)",cbar=False,cbar_label=None,figsize=(4,6),format='png',rc_params=shg_rc_params,**kwargs):
+    with mpl.rc_context(rc_params):
+        fig,ax = plt.subplots(1,1) #,figsize=figsize) #**kwargs)
+        ps = [ ax.pcolormesh(X,Y,zz,cmap=ccmm,vmin=0,vmax=np.nanmax(zz)) for (zz,ccmm) in zip(Z,cmap) ]
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        if cbar:
+            cb = plt.colorbar(ps[-1],ax=ax,label=cbar_label)
+        ax.set_aspect("equal")
+        # fig.tight_layout()
+        if fpath:
+            fname=os.path.normpath(os.path.join(fpath,fname))
+        plt.savefig(fname, dpi=None, facecolor=None, edgecolor=None,
+            orientation='portrait', papertype=None, format=format,
+            transparent=True, bbox_inches=None, pad_inches=0.5)
+    return fig
+
+def save_scan_images(ds,fname,fpath=False,wf_cmap=cm.binary_r,laser_cmap=cm.winter,shg_cmap=cm.inferno,rc_params=shg_rc_params,format='png',**kwargs):
+    i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
+    laser_cmap = transparent_cmap(laser_cmap)
+    img_data = [
+        (ds["x_img"].m,ds["y_img"].m,(np.fliplr(ds["wf_img"].transpose()),),(wf_cmap,),"wf_"+fname+"."+format),
+        (ds["x_img"].m,ds["y_img"].m,(np.fliplr(ds["wf_img"].transpose()),np.fliplr(ds["laser_spot_img"].transpose())),(wf_cmap,laser_cmap),"wfls_"+fname+"."+format),
+        (ds["x_img"][i_xmin:i_xmax].m,ds["y_img"][i_ymin:i_ymax].m,(np.fliplr(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),),(wf_cmap,),"wfzoom_"+fname+"."+format),
+        (ds["x_img"][i_xmin:i_xmax].m,ds["y_img"][i_ymin:i_ymax].m,(np.fliplr(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),np.fliplr(ds["laser_spot_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),),(wf_cmap,laser_cmap),"wflszoom_"+fname+"."+format),
+        (ds["x"].m,ds["y"].m,(np.flip(ds["Vshg_x_g"].m,(0,1)),),(shg_cmap,),"shg_"+fname+"."+format),
+        # (ds["x"].m,ds["y"].m,(np.flip(ds["Pave_shg"].m,(0,1)),),(shg_cmap,),"shgcb_"+fname+"."+format),
+    ]
+    for X,Y,Z,cmap,fname in img_data:
+         save_single_img(X,Y,Z,cmap,fname,fpath=fpath,xlabel="x (μm)",ylabel="y (μm)",cbar=False,cbar_label=None,rc_params=rc_params,format=format,**kwargs)
+    return
+
+
+def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exposure_time=3*u.ms):
+    maximize_excitation_power()
+    sample_dir = resolve_sample_dir(sample_dir,data_dir=data_dir)
+    fpath = new_path(name=name,data_dir=sample_dir,ds_type='GalvoScan',extension='h5',timestamp=True)
+    print("saving data to: ")
+    print(fpath)
+    θ_pow_hwp   = pow_hwp.position
+    θ_pol_hwp   = pol_hwp.get_position()
+    P_ex        = get_excitation_power()
+    wf_img, laser_spot_img = wf_and_laser_spot_images(exposure_time=wf_exposure_time)
+    x_img,y_img = img_spatial_axes(laser_spot_img)
+    dump_hdf5(
+        {   'wf_img': wf_img.astype("int"),
+            'laser_spot_img': laser_spot_img.astype("int"),
+            'dx_dpix': dx_dpix,
+            'x_img': x_img,
+            'y_img': y_img,
+            'θ_pow_hwp': θ_pow_hwp,
+            'θ_pol_hwp': θ_pol_hwp,
+            'P_ex': P_ex,
+            # "dx_dVx" : dx_dVx,
+            # "dy_dVy" : dy_dVy,
+            "Vx0" : Vx0,
+            "Vy0" : Vy0,
+            "dx_dpix" : dx_dpix,
+
+        },
+        fpath,
+        open_mode='x',
+    )
+    scan_task, write_data = configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp)
+    dump_hdf5(write_data,fpath)
+    read_data = scan_task.run(write_data)
+    dump_hdf5(read_data,fpath)
+    scan_task.unreserve()
+    center_spot(Vx0,Vy0)
+    proc_data = process_scan(read_data,nx,ny,ΔVx,ΔVy)
+    dump_hdf5(proc_data,fpath)
+    ds = load_hdf5(fpath=fpath)
+
+    save_scan_images(ds,name,fpath=sample_dir,wf_cmap=cm.binary_r,laser_cmap=cm.winter,shg_cmap=cm.inferno,rc_params=shg_rc_params,format='png')
+    save_spotzoom(ds,name,fpath=sample_dir,Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,x_wtext=-3,y_wtext=-3,rc_params=shg_rc_params,format="png",dpi=400,pad_inches=0.5)
+    return ds
