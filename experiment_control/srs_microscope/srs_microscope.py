@@ -75,11 +75,11 @@ ff_pos_out = Position.two
 
 """ Calibration data """
 ## Galvo scan distance/voltage calibrations
-#    Using Nikon 20x objective with cover slip, 0.5V/deg galvo mechanical scan angle setting, (temporary) 180mm achromat tube lens, and 80um x80um bonding pads on TC2 chip - 4/23
-#    Optical scan angle is 2x the mechanical scan angle (nominally 0.25V/deg)
-Vx0, Vy0 = 0.16*u.volt, 0.36*u.volt # Galvo voltages for centered output beam, given centered input beam
-dx_dVx = 200 * u.um / u.volt    # dx_dVx =  174.7178 * u.um / u.volt
-dy_dVy = 200 * u.um / u.volt    # dy_dVy = 172.72 * u.um / u.volt
+# Using Nikon 20x objective with cover slip, 0.5V/deg galvo mechanical scan angle setting, and 80umx80um bonding pads on TC2 chip - 3/2024
+# Optical scan angle is 2x the mechanical scan angle (nominally 0.25V/deg)
+Vx0, Vy0 = (0.21)*u.volt, (0.43)*u.volt # Galvo voltages for centered output beam, given centered input beam
+dx_dVx = 174.2919 * u.um / u.volt   
+dy_dVy = 173.1602 * u.um / u.volt   
 Vmeas_Vwrite = 2  # Measured voltage at J6P1 is 2x the write voltage - Specify meas voltage throughout for consistency and convert before writing
 
 ## DCC1545M camera pixel to distance
@@ -132,7 +132,7 @@ def laser_spot_image(exposure_time=3*u.ms):
     wf_illum_init = daq.port0.read()
     wf_illum_off()
     insert_bs()
-    img = cam.grab_image(exposure_time=exposure_time)
+    laser_spot_img = cam.grab_image(exposure_time=exposure_time)
     remove_bs()
 
     if wf_illum_init:
@@ -219,14 +219,15 @@ def get_spot_pos(Vx0=Vx0,Vy0=Vy0):
 
 
 """ Preview Scan """
-def preview_scan_area(Vx, Vy):
+def preview_scan_area(nx,ny,ΔVx,ΔVy, exposure_time=3*u.ms):
     """
-    Take a widefield laser spot image.  Given galvo scan voltage 1d arrays, plot the widefield image cropped to
-    the galvo scan area
+    Take a widefield laser spot image.  Given galvo scan voltage inputs (nx,ny,ΔVx,ΔVy), plot the widefield image cropped to the galvo scan area
     :return fig
     """
-    laser_spot_img = laser_spot_image()
-    plot_laser_widefield_img_zoom(laser_spot_image, wf_cmap=cm.binary)
+    center_spot()
+    Vx, Vy = scan_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0)
+    wf_img, laser_spot_img = wf_and_laser_spot_images(exposure_time)
+    fig = plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.binary)
     return fig
 
 """ Scanning Galvo image acquisition """
@@ -310,7 +311,7 @@ def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp):
     return scan_task, write_data
 
 
-def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exposure_time=3*u.ms):
+def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exposure_time=10*u.ms):
     """
     Runs DAQ task - writes voltage arrays to galvos and reads signal / galvo scanner position. Processes data and dumps write_data, read_data, and proc_data to hdf5 file.
     Saves png image of scan. Loads hdf5 file and returns dataset ds. Recenters spot after scan
@@ -352,8 +353,8 @@ def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_expo
     dump_hdf5(proc_data,fpath)
     ds = load_hdf5(fpath=fpath)
 
-    save_scan_images(ds,name,fpath=sample_dir,wf_cmap=cm.binary_r,laser_cmap=cm.winter,shg_cmap=cm.inferno,rc_params=shg_rc_params,format='png')
-    # save_spotzoom(ds,name,fpath=sample_dir,Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,x_wtext=-3,y_wtext=-3,rc_params=shg_rc_params,format="png",dpi=400,pad_inches=0.5)
+    save_scan_images(ds,name,fpath=sample_dir,wf_cmap=cm.binary_r,laser_cmap=cm.winter,shg_cmap=cm.inferno,rc_params=sig_rc_params,format='png')
+    # save_spotzoom(ds,name,fpath=sample_dir,Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,x_wtext=-3,y_wtext=-3,rc_params=sig_rc_params,format="png",dpi=400,pad_inches=0.5)
     return ds
 
 def process_scan(read_data,nx,ny,ΔVx,ΔVy,Vx0=Vx0,Vy0=Vy0):
@@ -518,27 +519,26 @@ def transparent_cmap(cmap):
 
 def plot_scan_data(ds,wf_cmap=cm.binary,laser_cmap=cm.Reds):
     """
-    Plot 1x2 subplots with [0,0] laser spot superimposed on cropped widefield image, and [0,1] SRS image
+    Plot 2x1 subplots with [0] laser spot superimposed on cropped widefield image, and [1] SRS image
     :param ds: from collect_scan()
     :return: fig with (2) subplots
     """
     laser_cmap = transparent_cmap(laser_cmap)
-    fig, ax = plt.subplots(1,2)
-
-    # [0,0] Laser spot + cropped widefield image
+    fig, ax = plt.subplots(2,1, figsize = (10,10))
+ 
+    # [0] Laser spot + cropped widefield image
     i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
-    im0 = ax[0,0].pcolormesh(ds["x_img"][i_xmin:i_xmax], ds["y_img"][i_ymin:i_ymax],
-                              ds["wf_img"][i_xmin:i_xmax, i_ymin:i_ymax].transpose(), cmap=wf_cmap)
-    im1 = ax[0,0].pcolormesh(ds["x_img"][i_xmin:i_xmax], ds["y_img"][i_ymin:i_ymax],
-                              ds["laser_spot_img"][i_xmin:i_xmax, i_ymin:i_ymax].transpose(), cmap=laser_cmap)
-    cb0 = plt.colorbar(im3, ax=ax[0,0])
-    ax[0,0].set_aspect("equal")
+    im0 = ax[0].pcolormesh(ds["y_img"][i_ymin:i_ymax], ds["x_img"][i_xmin:i_xmax],
+                              ds["wf_img"][i_xmax:i_xmin:-1, i_ymin:i_ymax], cmap=wf_cmap)
+    im1 = ax[0].pcolormesh(ds["y_img"][i_ymin:i_ymax], ds["x_img"][i_xmin:i_xmax],
+                              ds["laser_spot_img"][i_xmax:i_xmin:-1, i_ymin:i_ymax], cmap=laser_cmap)
+    cb0 = plt.colorbar(im1, ax=ax[0])
+    ax[0].set_aspect("equal")
 
-    # [0,1] SRS (galvo) image
-    p0 = ax[0,1].pcolormesh(ds["x"].m, ds["y"].m, np.fliplr(np.flipud(ds["Vsig_g"].m)))
-    # p0 = ax.pcolormesh(ds["y"].m, ds["x"].m, np.flipud(np.transpose(ds["Vsig_g"].m)))
-    cb1 = plt.colorbar(p0, ax=ax[0,1])
-    ax[0,1].set_aspect("equal")
+    # [1] SRS (galvo) image
+    p0 = ax[1].pcolormesh(ds["y"].m, ds["x"].m, np.flipud(np.transpose(ds["Vsig_g"].m)))
+    cb1 = plt.colorbar(p0, ax=ax[1])
+    ax[1].set_aspect("equal")
 
     plt.show()
     return fig
@@ -551,40 +551,43 @@ def plot_widefield_img(img, wf_cmap=cm.binary):
     """
     x_img, y_img = img_spatial_axes_nolaser(img)
     fig, ax = plt.subplots()
-    im0 = ax.pcolormesh(x_img, y_img, img.transpose(), cmap=wf_cmap)
+    im0 = ax.pcolormesh(y_img, x_img, img[::-1,:], cmap=wf_cmap)
     ax.set_aspect("equal")
     plt.show
     return fig
 
-def plot_laser_widefield_img(img, laser_spot_img, wf_cmap=cm.binary, laser_cmap=cm.Reds):
+def plot_laser_widefield_img(wf_img, laser_spot_img, wf_cmap=cm.binary, laser_cmap=cm.Reds):
     """
     Plot full widefield image with laser spot (no scan data), axis centered around laser spot
     :param img, laser_spot_image: from wf_and_laser_spot_images()
     :return: fig with (1) subplot
     """
-    x_img, y_img = img_spatial_axes(img)
+    x_img, y_img = img_spatial_axes(wf_img)
     laser_cmap = transparent_cmap(laser_cmap)
 
     fig, ax = plt.subplots()
-    im0 = ax.pcolormesh(x_img, y_img, wf_img.transpose(), cmap=wf_cmap)
-    im1 = ax.pcolormesh(x_img, y_img, laser_spot_img.transpose(), cmap=laser_cmap)
-    cb1 = plt.colorbar(im1, ax=ax[1, 0])
+    im0 = ax.pcolormesh(y_img, x_img, wf_img[::-1,:], cmap=wf_cmap)
+    im1 = ax.pcolormesh(y_img, x_img, laser_spot_img[::-1,:], cmap=laser_cmap)
+    cb1 = plt.colorbar(im1, ax=ax)
     ax.set_aspect("equal")
     plt.show
     return fig
 
-def plot_laser_widefield_img_zoom(laser_spot_img, wf_cmap=cm.binary):
+def plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.binary, laser_cmap=cm.Reds):
     """
     Plot widefield image with laser spot (no scan data) cropped to scan area, axis centered around laser spot
-    :param laser_spot_img: from laser_spot_images()
+    :param laser_spot_img: from laser_spot_images(); Vx, Vy: from scan_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0)
     :return: fig with (1) subplot
     """
-    x_img, y_img = img_spatial_axes(img)
+    x_img, y_img = img_spatial_axes(laser_spot_img)
     i_xmax, i_xmin, i_ymax, i_ymin = scan_volt_to_wf_inds(Vx, Vy, laser_spot_img)
-
-    im = ax.pcolormesh(x_img[i_xmin:i_xmax], y_img[i_ymin:i_ymax],
-                              laser_spot_img[i_xmin:i_xmax, i_ymin:i_ymax].transpose(), cmap=wf_cmap)
-    cb3 = plt.colorbar(im, ax=ax[1, 1])
+    
+    fig, ax = plt.subplots()
+    im0 = ax.pcolormesh(y_img[i_ymin:i_ymax], x_img[i_xmin:i_xmax],
+                              np.flipud(wf_img[i_xmin:i_xmax, i_ymin:i_ymax]), cmap=wf_cmap)
+    im1 = ax.pcolormesh(y_img[i_ymin:i_ymax], x_img[i_xmin:i_xmax], np.flipud(laser_spot_img[i_xmin:i_xmax, i_ymin:i_ymax]), cmap=transparent_cmap(laser_cmap))
+    
+    cb1 = plt.colorbar(im1, ax=ax)
     ax.set_aspect("equal")
     plt.show()
     return fig
