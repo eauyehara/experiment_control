@@ -352,8 +352,7 @@ def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_expo
     proc_data = process_scan(read_data,nx,ny,ΔVx,ΔVy)
     dump_hdf5(proc_data,fpath)
     ds = load_hdf5(fpath=fpath)
-
-    save_scan_images(ds,name,fpath=sample_dir,wf_cmap=cm.binary_r,laser_cmap=cm.winter,shg_cmap=cm.inferno,rc_params=sig_rc_params,format='png')
+    save_scan_images(ds,name,fpath=sample_dir,wf_cmap=cm.binary_r,laser_cmap=cm.winter,sig_cmap=cm.inferno,rc_params=sig_rc_params,format='png')
     # save_spotzoom(ds,name,fpath=sample_dir,Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,x_wtext=-3,y_wtext=-3,rc_params=sig_rc_params,format="png",dpi=400,pad_inches=0.5)
     return ds
 
@@ -365,7 +364,6 @@ def process_scan(read_data,nx,ny,ΔVx,ΔVy,Vx0=Vx0,Vy0=Vy0):
     """
     t = read_data['t']
     Vsig = read_data[ch_Vsig_str]
-    # Vshg_x = read_data[ch_Vshg_x_str]
     # Vshg_y = read_data[ch_Vshg_y_str]
     # Vpm  = read_data[ch_Vpm_str]
     Vx_meas = read_data[ch_Vx_meas_str]  #J6P1 (scanner position) on x galvo board
@@ -375,7 +373,6 @@ def process_scan(read_data,nx,ny,ΔVx,ΔVy,Vx0=Vx0,Vy0=Vy0):
     Vx,Vy = scan_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0)
     Vx_g, Vy_g = np.meshgrid(Vx.m,Vy.m)
     Vsig_g = griddata((Vx_meas.m, Vy_meas.m), Vsig.m, (Vx_g, Vy_g)) * u.volt
-    # Vshg_x_g = griddata((Vx_meas.m,Vy_meas.m),Vshg_x.m,(Vx_g,Vy_g))*u.volt
     # Vshg_y_g = griddata((Vx_meas.m,Vy_meas.m),Vshg_y.m,(Vx_g,Vy_g))*u.volt  #quadrature output of lock-in
 
     x = ((Vx-Vx0)*dx_dVx).to(u.um)
@@ -613,6 +610,27 @@ def save_single_img(X,Y,Z,cmap,fname,fpath=False,xlabel="x (μm)",ylabel="y (μm
             transparent=True, bbox_inches=None, pad_inches=0.5)
     return fig
 
+# def save_scan_images(ds,fname,fpath=False,wf_cmap=cm.binary_r,laser_cmap=cm.winter,sig_cmap=cm.inferno,rc_params=sig_rc_params,format='png',**kwargs):
+#     """
+#     Save data and figs for following images:
+#     (1) Widefield image
+#     (2) Laser spot superimposed on widefield image
+#     (3) Laser spot superimposed on cropped widefield image
+#     (4) SRS image
+#     """
+#     i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
+#     laser_cmap = transparent_cmap(laser_cmap)
+#     img_data = [
+#         (ds["x_img"].m,ds["y_img"].m,(np.fliplr(ds["wf_img"].transpose()),),(wf_cmap,),"wf_"+fname+"."+format),
+#         (ds["x_img"].m,ds["y_img"].m,(np.fliplr(ds["wf_img"].transpose()),np.fliplr(ds["laser_spot_img"].transpose())),(wf_cmap,laser_cmap),"wfls_"+fname+"."+format),
+#         (ds["x_img"][i_xmin:i_xmax].m,ds["y_img"][i_ymin:i_ymax].m,(np.fliplr(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),),(wf_cmap,),"wfzoom_"+fname+"."+format),
+#         (ds["x_img"][i_xmin:i_xmax].m,ds["y_img"][i_ymin:i_ymax].m,(np.fliplr(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),np.fliplr(ds["laser_spot_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),),(wf_cmap,laser_cmap),"wflszoom_"+fname+"."+format),
+#         (ds["x"].m,ds["y"].m,(np.flip(ds["Vsig_g"].m,(0,1)),),(sig_cmap,),"sig_"+fname+"."+format),
+#     ]
+#     for X,Y,Z,cmap,fname in img_data:
+#          save_single_img(X,Y,Z,cmap,fname,fpath=fpath,xlabel="x (μm)",ylabel="y (μm)",cbar=False,cbar_label=None,rc_params=rc_params,format=format,**kwargs)
+#     return
+
 def save_scan_images(ds,fname,fpath=False,wf_cmap=cm.binary_r,laser_cmap=cm.winter,sig_cmap=cm.inferno,rc_params=sig_rc_params,format='png',**kwargs):
     """
     Save data and figs for following images:
@@ -624,11 +642,11 @@ def save_scan_images(ds,fname,fpath=False,wf_cmap=cm.binary_r,laser_cmap=cm.wint
     i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
     laser_cmap = transparent_cmap(laser_cmap)
     img_data = [
-        (ds["x_img"].m,ds["y_img"].m,(np.fliplr(ds["wf_img"].transpose()),),(wf_cmap,),"wf_"+fname+"."+format),
-        (ds["x_img"].m,ds["y_img"].m,(np.fliplr(ds["wf_img"].transpose()),np.fliplr(ds["laser_spot_img"].transpose())),(wf_cmap,laser_cmap),"wfls_"+fname+"."+format),
-        (ds["x_img"][i_xmin:i_xmax].m,ds["y_img"][i_ymin:i_ymax].m,(np.fliplr(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),),(wf_cmap,),"wfzoom_"+fname+"."+format),
-        (ds["x_img"][i_xmin:i_xmax].m,ds["y_img"][i_ymin:i_ymax].m,(np.fliplr(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),np.fliplr(ds["laser_spot_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),),(wf_cmap,laser_cmap),"wflszoom_"+fname+"."+format),
-        (ds["x"].m,ds["y"].m,(np.flip(ds["Vsig_g"].m,(0,1)),),(sig_cmap,),"sig_"+fname+"."+format),
+        (ds["y_img"].m, ds["x_img"].m, (np.flipud(ds["wf_img"]), ), (wf_cmap,),"wf_"+fname+"."+format),
+        (ds["y_img"].m, ds["x_img"].m, (np.flipud(ds["wf_img"]), np.flipud(ds["laser_spot_img"])),(wf_cmap,laser_cmap),"wfls_"+fname+"."+format),
+        (ds["y_img"][i_ymin:i_ymax].m, ds["x_img"][i_xmin:i_xmax].m, (np.flipud(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax]), ), (wf_cmap,), "wfzoom_"+fname+"."+format),
+        (ds["y_img"][i_ymin:i_ymax].m, ds["x_img"][i_xmin:i_xmax].m, (np.flipud(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax]), np.flipud(ds["laser_spot_img"][i_xmin:i_xmax,i_ymin:i_ymax])), (wf_cmap,laser_cmap), "wflszoom_"+fname+"."+format),
+        (ds["y"].m, ds["x"].m, (np.flipud(np.transpose(ds["Vsig_g"].m)), ), (sig_cmap,), "sig_"+fname+"."+format),
     ]
     for X,Y,Z,cmap,fname in img_data:
          save_single_img(X,Y,Z,cmap,fname,fpath=fpath,xlabel="x (μm)",ylabel="y (μm)",cbar=False,cbar_label=None,rc_params=rc_params,format=format,**kwargs)
