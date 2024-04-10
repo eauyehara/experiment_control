@@ -18,6 +18,7 @@ from scipy.optimize import curve_fit
 from instrumental import instrument
 from instrumental.drivers.daq.ni import Task # NIDAQ,
 from instrumental.drivers.motion.filter_flipper import Position
+from instrumental.drivers.lasers import M2_solstis
 # from instrumental.drivers.lockins import sr844
 
 from ..util.units import Q_, u
@@ -25,7 +26,7 @@ from ..util.io import *         # hdf5 utilites
 # from .powermeter import get_power
 
 ## This code is derived from Dodd's shg_microscope.py
-sig_rc_params = {
+srs_rc_params = {
     'lines.linewidth': 1.5,
     'lines.markersize': 8,
     'legend.fontsize': 12,
@@ -54,9 +55,11 @@ daq = instrument("NIDAQ_USB-6259", reopen_policy='reuse')
 ff = instrument("Thorlabs_FilterFlipper", reopen_policy='reuse')
 cam = instrument('Thorlabs_camera', reopen_policy='reuse')
 stage = instrument("NanoMax_stage", reopen_policy='reuse')
+laser = instrument("M2_Solstis", reopen_policy='reuse')
 
 # Directory for data save
-data_dir = os.path.join(home_dir,"Documents","data","srs_microscope")
+# data_dir = os.path.join(home_dir,"Documents","data","srs_microscope")
+data_dir = os.path.join(home_dir,"Dropbox (MIT)","POE","srs_microscope_data","srs_microscope_scans")
 
 # Configure DAQ output channels for differential (0V-centered) control of x and y galvo mirrors
 ch_Vx_p, ch_Vx_p_str = daq.ao0, 'Dev2/ao0'
@@ -65,7 +68,7 @@ ch_Vy_p, ch_Vy_p_str = daq.ao2, 'Dev2/ao2'
 ch_Vy_n, ch_Vy_n_str = daq.ao3, 'Dev2/ao3'
 
 # Configure DAQ input channels
-ch_Vsig, ch_Vsig_str = daq.ai0, 'Dev2/ai0'
+ch_Vsrs, ch_Vsrs_str = daq.ai0, 'Dev2/ai0'
 ch_Vx_meas, ch_Vx_meas_str = daq.ai2, 'Dev2/ai2'
 ch_Vy_meas, ch_Vy_meas_str = daq.ai3, 'Dev2/ai3'
 
@@ -161,8 +164,8 @@ def wf_and_laser_spot_images(exposure_time=3*u.ms):
 def scan_single_axis(scan_length, axis, step_size, wait=0.5*u.s):
     """
     Scan scan_length in [um] along specified axis (x,y,z) from initial position with specified step size (- if backward, + if forward)
-    Read signal at each position
-    :return: [pos_arr, sig_arr]
+    Read srs at each position
+    :return: [pos_arr, srs_arr]
     """
     ax0 = stage.get_position()
     if step_size > 0:
@@ -174,14 +177,14 @@ def scan_single_axis(scan_length, axis, step_size, wait=0.5*u.s):
         raise ValueError("End position out of range")
 
     pos_arr = np.arange(ax0, end_pos, step_size)
-    sig_arr =[]
+    srs_arr =[]
 
     for pos in pos_arr:
         stage.set_axis_position(axis, pos)
         sleep(wait.m)
-        sig_arr.append(ch_Vsig.read())
+        srs_arr.append(ch_Vsrs.read())
 
-    return [pos_arr, sig_arr]
+    return [pos_arr, srs_arr]
 
 
 """ Galvo Motion """
@@ -201,12 +204,14 @@ def move_spot(Vx,Vy,Vx0=Vx0,Vy0=Vy0,wait=True,Verr=0.001*u.volt,t_polling=10*u.m
         #     time.sleep(t_polling.m_as('s'))
     return
 
+
 def center_spot(Vx0=Vx0,Vy0=Vy0):
     """
     Move spot to center position (Vx0, Vyo) [volts]
     """
     move_spot(0*u.volt,0*u.volt,Vx0=Vx0,Vy0=Vy0)
     return
+
 
 def get_spot_pos(Vx0=Vx0,Vy0=Vy0):
     """
@@ -230,6 +235,7 @@ def preview_scan_area(nx,ny,ΔVx,ΔVy, exposure_time=3*u.ms):
     fig = plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.binary)
     return fig
 
+
 """ Scanning Galvo image acquisition """
 def scan_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0):
     """
@@ -246,6 +252,7 @@ def scan_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0):
     Vx = np.linspace(Vx0V-(ΔVxV/2.0),Vx0V+(ΔVxV/2.0),nx)*u.volt  # 1d array of x voltages
     Vy = np.linspace(Vy0V-(ΔVyV/2.0),Vy0V+(ΔVyV/2.0),ny)*u.volt  # 1d array of y voltages
     return Vx, Vy
+
 
 def raster_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0):
     """
@@ -270,6 +277,7 @@ def raster_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0):
 
     return Vx_scan, Vy_scan
 
+
 def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp):
     """
     Configure DAQ task with input/output channels specified above, set timing, and specify data to write to outputs (doesn't run task)
@@ -288,7 +296,7 @@ def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp):
         ch_Vx_n,
         ch_Vy_p,
         ch_Vy_n,
-        ch_Vsig,
+        ch_Vsrs,
         ch_Vx_meas,
         ch_Vy_meas
     )
@@ -311,9 +319,10 @@ def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp):
     return scan_task, write_data
 
 
-def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exposure_time=10*u.ms):
+def collect_Rscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exposure_time=10*u.ms):
     """
-    Runs DAQ task - writes voltage arrays to galvos and reads signal / galvo scanner position. Processes data and dumps write_data, read_data, and proc_data to hdf5 file.
+    Collects reflection scan. 
+    Runs DAQ task - writes voltage arrays to galvos and reads srs signal / galvo scanner position. Processes data and dumps write_data, read_data, and proc_data to hdf5 file.
     Saves png image of scan. Loads hdf5 file and returns dataset ds. Recenters spot after scan
     :return: ds
     """
@@ -352,19 +361,67 @@ def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_expo
     proc_data = process_scan(read_data,nx,ny,ΔVx,ΔVy)
     dump_hdf5(proc_data,fpath)
     ds = load_hdf5(fpath=fpath)
-    save_scan_images(ds,name,fpath=sample_dir,wf_cmap=cm.binary_r,laser_cmap=cm.winter,sig_cmap=cm.inferno,rc_params=sig_rc_params,format='png')
-    # save_spotzoom(ds,name,fpath=sample_dir,Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,x_wtext=-3,y_wtext=-3,rc_params=sig_rc_params,format="png",dpi=400,pad_inches=0.5)
+    save_scan_images(ds,name,fpath=sample_dir,wf_cmap=cm.binary_r,laser_cmap=cm.winter,srs_cmap=cm.inferno,rc_params=srs_rc_params,format='png')
+    # save_spotzoom(ds,name,fpath=sample_dir,Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,x_wtext=-3,y_wtext=-3,rc_params=srs_rc_params,format="png",dpi=400,pad_inches=0.5)
     return ds
+
+
+def collect_Tscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,wf_img,laser_spot_img,name=None,sample_dir=None,wf_exposure_time=10*u.ms):
+    """
+    Collects trasmission scan. (No trasmission flipper yet - manually acquire widefield/laser spot image beforehand).
+    Runs DAQ task - writes voltage arrays to galvos and reads srs signal / galvo scanner position. Processes data and dumps write_data, read_data, and proc_data to hdf5 file.
+    Saves png image of scan. Loads hdf5 file and returns dataset ds. Recenters spot after scan
+    :return: ds
+    """
+    #Specify location of data save
+    sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
+    fpath = new_path(name=name,data_dir=sample_dir,ds_type='GalvoScan',extension='h5',timestamp=True)
+    print("saving data to: ")
+    print(fpath)
+
+#     wf_img, laser_spot_img = wf_and_laser_spot_images(exposure_time=wf_exposure_time)
+    x_img,y_img = img_spatial_axes(laser_spot_img)
+
+    #Data here is saved as hdf5 attributes since not arrays
+    dump_hdf5(
+        {   'wf_img': wf_img.astype("int"),
+            'laser_spot_img': laser_spot_img.astype("int"),
+            'dx_dpix': dx_dpix,
+            'x_img': x_img,
+            'y_img': y_img,
+    #         'P_ex': P_ex,
+            "dx_dVx" : dx_dVx,
+            "dy_dVy" : dy_dVy,
+            "Vx0" : Vx0,
+            "Vy0" : Vy0,
+            "dx_dpix" : dx_dpix,
+        },
+        fpath,
+        open_mode='x',
+    )
+    scan_task, write_data = configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp)
+    dump_hdf5(write_data,fpath)
+    read_data = scan_task.run(write_data)
+    dump_hdf5(read_data,fpath)
+    scan_task.unreserve()
+    center_spot(Vx0,Vy0)
+    proc_data = process_scan(read_data,nx,ny,ΔVx,ΔVy)
+    dump_hdf5(proc_data,fpath)
+    ds = load_hdf5(fpath=fpath)
+    save_scan_images(ds,name,fpath=sample_dir,wf_cmap=cm.binary_r,laser_cmap=cm.winter,srs_cmap=cm.inferno,rc_params=srs_rc_params,format='png')
+    # save_spotzoom(ds,name,fpath=sample_dir,Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,x_wtext=-3,y_wtext=-3,rc_params=srs_rc_params,format="png",dpi=400,pad_inches=0.5)
+    return ds
+
 
 def process_scan(read_data,nx,ny,ΔVx,ΔVy,Vx0=Vx0,Vy0=Vy0):
     """
-    Parses read_data dict and writes into variables.  Creates meshgrids of Vx and Vy write scan voltages and interpolates Vsig data at these points.
+    Parses read_data dict and writes into variables.  Creates meshgrids of set Vx and Vy write scan voltages and interpolates Vsrs data at these points from measured Vx and Vy.
     Converts galvo voltages to position in microns (x, y).
     :return: proc_data: dictionary of processed data
     """
     t = read_data['t']
-    Vsig = read_data[ch_Vsig_str]
-    # Vshg_y = read_data[ch_Vshg_y_str]
+    Vsrs = read_data[ch_Vsrs_str]
+    # Vsrs_y = read_data[ch_Vsrs_y_str]
     # Vpm  = read_data[ch_Vpm_str]
     Vx_meas = read_data[ch_Vx_meas_str]  #J6P1 (scanner position) on x galvo board
     Vy_meas = read_data[ch_Vy_meas_str]  #J6P1 (scanner position) on y galvo board
@@ -372,7 +429,7 @@ def process_scan(read_data,nx,ny,ΔVx,ΔVy,Vx0=Vx0,Vy0=Vy0):
     # Vy_scan = write_data[ch_Vy_p_str] - write_data[ch_Vy_n_str]
     Vx,Vy = scan_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0)
     Vx_g, Vy_g = np.meshgrid(Vx.m,Vy.m)
-    Vsig_g = griddata((Vx_meas.m, Vy_meas.m), Vsig.m, (Vx_g, Vy_g)) * u.volt
+    Vsrs_g = griddata((Vx_meas.m, Vy_meas.m), Vsrs.m, (Vx_g, Vy_g)) * u.volt
     # Vshg_y_g = griddata((Vx_meas.m,Vy_meas.m),Vshg_y.m,(Vx_g,Vy_g))*u.volt  #quadrature output of lock-in
 
     x = ((Vx-Vx0)*dx_dVx).to(u.um)
@@ -384,13 +441,14 @@ def process_scan(read_data,nx,ny,ΔVx,ΔVy,Vx0=Vx0,Vy0=Vy0):
         "Vy"      : Vy,
         "dx_dVx"  : dx_dVx,
         "dy_dVy"  : dy_dVy,
-        "Vsig_g": Vsig_g,
+        "Vsrs_g": Vsrs_g,
         # "Vshg_y_g": Vshg_y_g,
         "x"       : x,
         "y"       : y,
         # "Pave_shg"       : Pave_shg,
     }
     return proc_data
+
 
 """ Laser Spot Analysis """
 def spotzoom_inds(ds, Dxy=10*u.um):
@@ -404,11 +462,13 @@ def spotzoom_inds(ds, Dxy=10*u.um):
     iy_min, iy_max = int((iy0 - npix_half)), int((iy0 + npix_half))
     return ix_min, ix_max, iy_min, iy_max
 
+
 def gaussian(x,w,x0,A):
     return A*np.exp(-2*(x-x0)**2/w**2)
 
+
 def plot_spotzoom(ds, Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,
-    x_wtext=-3,y_wtext=-3,rc_params=sig_rc_params):
+    x_wtext=-3,y_wtext=-3,rc_params=srs_rc_params):
     laser_cmap = transparent_cmap(laser_cmap)
     ix_min_sz, ix_max_sz, iy_min_sz, iy_max_sz = spotzoom_inds(ds, Dxy=Dxy)
     ix0 = int(np.round((ix_min_sz + ix_max_sz)/2.)) - ix_min_sz  #Center around 0
@@ -453,6 +513,7 @@ def img_max_pixel_inds(img):
     """
     return np.unravel_index(np.argmax(img),img.shape)
 
+
 def img_spatial_axes(laser_spot_img, dx_dpix=dx_dpix):
     """
     Return x axis and y axis (in microns) of laser spot widefield image, centered around laser spot
@@ -462,8 +523,9 @@ def img_spatial_axes(laser_spot_img, dx_dpix=dx_dpix):
     """
     x_pix_laser, y_pix_laser = img_max_pixel_inds(laser_spot_img)   #Find indices of laser spot
     npix_x,npix_y = laser_spot_img.shape    #Dimensions of laser spot image
-    x_img, y_img = dx_dpix*(np.arange(npix_x)-x_pix_laser), dx_dpix*(np.arange(npix_y)-y_pix_laser) #Convert pixel to microns and shift image center to laser spot position
+    x_img, y_img = dx_dpix*(np.arange(npix_x)-x_pix_laser), dx_dpix*(np.arange(npix_y)-y_pix_laser) #Shift image center to laser spot position and convert pixels to microns 
     return x_img, y_img
+
 
 def img_spatial_axes_nolaser(img, dx_dpix=dx_dpix):
     """
@@ -476,6 +538,7 @@ def img_spatial_axes_nolaser(img, dx_dpix=dx_dpix):
     x_img, y_img = dx_dpix * (np.arange(npix_x)), dx_dpix * (np.arange(npix_y))
     return x_img, y_img
 
+
 def wf_img_inds(ds):
     """
     Return min and max indices of widefield image cropped to galvo scan image area
@@ -485,6 +548,7 @@ def wf_img_inds(ds):
     i_ymax = np.nanargmin(np.abs(ds['y_img'] - ds['y'].max()))
     i_ymin = np.nanargmin(np.abs(ds['y_img'] - ds['y'].min()))
     return i_xmax, i_xmin, i_ymax, i_ymin
+
 
 def scan_volt_to_wf_inds(Vx, Vy, laser_spot_img, dx_dpix=dx_dpix):
     """
@@ -503,6 +567,7 @@ def scan_volt_to_wf_inds(Vx, Vy, laser_spot_img, dx_dpix=dx_dpix):
     i_ymin = np.nanargmin(np.abs(y_img - y.min()))
     return i_xmax, i_xmin, i_ymax, i_ymin
 
+
 """ Plotting """
 def transparent_cmap(cmap):
     """
@@ -514,7 +579,8 @@ def transparent_cmap(cmap):
     cmap_tr = ListedColormap(cmap_tr)
     return cmap_tr
 
-def plot_scan_data(ds,wf_cmap=cm.binary,laser_cmap=cm.Reds):
+
+def plot_scan_data(ds,wf_cmap=cm.binary,laser_cmap=cm.Reds, srs_cmap=cm.inferno):
     """
     Plot 2x1 subplots with [0] laser spot superimposed on cropped widefield image, and [1] SRS image
     :param ds: from collect_scan()
@@ -522,9 +588,17 @@ def plot_scan_data(ds,wf_cmap=cm.binary,laser_cmap=cm.Reds):
     """
     laser_cmap = transparent_cmap(laser_cmap)
     fig, ax = plt.subplots(2,1, figsize = (10,10))
+    
+    # Find wf image indices corresponding to scan area, add manual offset to match scan area
+    i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
+    x_off = 10
+    y_off = 20
+    i_xmax += x_off
+    i_xmin += x_off
+    i_ymin += y_off
+    i_ymax += y_off
  
     # [0] Laser spot + cropped widefield image
-    i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
     im0 = ax[0].pcolormesh(ds["y_img"][i_ymin:i_ymax], ds["x_img"][i_xmin:i_xmax],
                               ds["wf_img"][i_xmax:i_xmin:-1, i_ymin:i_ymax], cmap=wf_cmap)
     im1 = ax[0].pcolormesh(ds["y_img"][i_ymin:i_ymax], ds["x_img"][i_xmin:i_xmax],
@@ -533,12 +607,13 @@ def plot_scan_data(ds,wf_cmap=cm.binary,laser_cmap=cm.Reds):
     ax[0].set_aspect("equal")
 
     # [1] SRS (galvo) image
-    p0 = ax[1].pcolormesh(ds["y"].m, ds["x"].m, np.flipud(np.transpose(ds["Vsig_g"].m)))
+    p0 = ax[1].pcolormesh(ds["y"].m, ds["x"].m, np.flipud(np.transpose(ds["Vsrs_g"].m)), cmap=srs_cmap)
     cb1 = plt.colorbar(p0, ax=ax[1])
     ax[1].set_aspect("equal")
 
     plt.show()
     return fig
+
 
 def plot_widefield_img(img, wf_cmap=cm.binary):
     """
@@ -552,6 +627,7 @@ def plot_widefield_img(img, wf_cmap=cm.binary):
     ax.set_aspect("equal")
     plt.show
     return fig
+
 
 def plot_laser_widefield_img(wf_img, laser_spot_img, wf_cmap=cm.binary, laser_cmap=cm.Reds):
     """
@@ -570,14 +646,23 @@ def plot_laser_widefield_img(wf_img, laser_spot_img, wf_cmap=cm.binary, laser_cm
     plt.show
     return fig
 
+
 def plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.binary, laser_cmap=cm.Reds):
     """
-    Plot widefield image with laser spot (no scan data) cropped to scan area, axis centered around laser spot
+    Plot widefield image with laser spot (before acquiring scan data) cropped to scan area, axis centered around laser spot
     :param laser_spot_img: from laser_spot_images(); Vx, Vy: from scan_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0)
     :return: fig with (1) subplot
     """
     x_img, y_img = img_spatial_axes(laser_spot_img)
+    
+    # Find wf image indices corresponding to scan area, add manual offset to match scan area
     i_xmax, i_xmin, i_ymax, i_ymin = scan_volt_to_wf_inds(Vx, Vy, laser_spot_img)
+    x_off = 10
+    y_off = 20
+    i_xmax += x_off
+    i_xmin += x_off
+    i_ymin += y_off
+    i_ymax += y_off
     
     fig, ax = plt.subplots()
     im0 = ax.pcolormesh(y_img[i_ymin:i_ymax], x_img[i_xmin:i_xmax],
@@ -589,14 +674,15 @@ def plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.bin
     plt.show()
     return fig
 
+
 """ Saving Images """
-def save_single_img(X,Y,Z,cmap,fname,fpath=False,xlabel="x (μm)",ylabel="y (μm)",cbar=False,cbar_label=None,figsize=(4,6),format='png',rc_params=sig_rc_params,**kwargs):
+def save_single_img(X,Y,Z,cmap,fname,fpath=False,xlabel="x (μm)",ylabel="y (μm)",cbar=False,cbar_label=None,figsize=(4,6),format='png',rc_params=srs_rc_params,**kwargs):
     """
     Given X,Y,Z arrays, plot and save figure
     """
     with mpl.rc_context(rc_params):
         fig,ax = plt.subplots(1,1) #,figsize=figsize) #**kwargs)
-        ps = [ax.pcolormesh(X,Y,zz,cmap=ccmm,vmin=0,vmax=np.nanmax(zz)) for (zz,ccmm) in zip(Z,cmap) ]
+        ps = [ax.pcolormesh(X,Y,zz,cmap=ccmm,vmin=np.nanmin(zz),vmax=np.nanmax(zz)) for (zz,ccmm) in zip(Z,cmap) ]
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         if cbar:
@@ -610,47 +696,38 @@ def save_single_img(X,Y,Z,cmap,fname,fpath=False,xlabel="x (μm)",ylabel="y (μm
             transparent=True, bbox_inches=None, pad_inches=0.5)
     return fig
 
-# def save_scan_images(ds,fname,fpath=False,wf_cmap=cm.binary_r,laser_cmap=cm.winter,sig_cmap=cm.inferno,rc_params=sig_rc_params,format='png',**kwargs):
-#     """
-#     Save data and figs for following images:
-#     (1) Widefield image
-#     (2) Laser spot superimposed on widefield image
-#     (3) Laser spot superimposed on cropped widefield image
-#     (4) SRS image
-#     """
-#     i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
-#     laser_cmap = transparent_cmap(laser_cmap)
-#     img_data = [
-#         (ds["x_img"].m,ds["y_img"].m,(np.fliplr(ds["wf_img"].transpose()),),(wf_cmap,),"wf_"+fname+"."+format),
-#         (ds["x_img"].m,ds["y_img"].m,(np.fliplr(ds["wf_img"].transpose()),np.fliplr(ds["laser_spot_img"].transpose())),(wf_cmap,laser_cmap),"wfls_"+fname+"."+format),
-#         (ds["x_img"][i_xmin:i_xmax].m,ds["y_img"][i_ymin:i_ymax].m,(np.fliplr(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),),(wf_cmap,),"wfzoom_"+fname+"."+format),
-#         (ds["x_img"][i_xmin:i_xmax].m,ds["y_img"][i_ymin:i_ymax].m,(np.fliplr(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),np.fliplr(ds["laser_spot_img"][i_xmin:i_xmax,i_ymin:i_ymax].transpose()),),(wf_cmap,laser_cmap),"wflszoom_"+fname+"."+format),
-#         (ds["x"].m,ds["y"].m,(np.flip(ds["Vsig_g"].m,(0,1)),),(sig_cmap,),"sig_"+fname+"."+format),
-#     ]
-#     for X,Y,Z,cmap,fname in img_data:
-#          save_single_img(X,Y,Z,cmap,fname,fpath=fpath,xlabel="x (μm)",ylabel="y (μm)",cbar=False,cbar_label=None,rc_params=rc_params,format=format,**kwargs)
-#     return
 
-def save_scan_images(ds,fname,fpath=False,wf_cmap=cm.binary_r,laser_cmap=cm.winter,sig_cmap=cm.inferno,rc_params=sig_rc_params,format='png',**kwargs):
+def save_scan_images(ds,fname,fpath=False,wf_cmap=cm.binary_r,laser_cmap=cm.winter,srs_cmap=cm.inferno,rc_params=srs_rc_params,format='png',**kwargs):
     """
     Save data and figs for following images:
     (1) Widefield image
     (2) Laser spot superimposed on widefield image
-    (3) Laser spot superimposed on cropped widefield image
-    (4) SRS image
+    (3) Widefield image zoomed 
+    (4) Laser spot superimposed on cropped widefield image
+    (5) SRS image
     """
+    
+    # Find wf image indices corresponding to scan area, add manual offset to match scan area
     i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
+    x_off = 10
+    y_off = 20
+    i_xmax += x_off
+    i_xmin += x_off
+    i_ymin += y_off
+    i_ymax += y_off
+    
     laser_cmap = transparent_cmap(laser_cmap)
     img_data = [
-        (ds["y_img"].m, ds["x_img"].m, (np.flipud(ds["wf_img"]), ), (wf_cmap,),"wf_"+fname+"."+format),
+#         (ds["y_img"].m, ds["x_img"].m, (np.flipud(ds["wf_img"]), ), (wf_cmap,),"wf_"+fname+"."+format),
         (ds["y_img"].m, ds["x_img"].m, (np.flipud(ds["wf_img"]), np.flipud(ds["laser_spot_img"])),(wf_cmap,laser_cmap),"wfls_"+fname+"."+format),
-        (ds["y_img"][i_ymin:i_ymax].m, ds["x_img"][i_xmin:i_xmax].m, (np.flipud(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax]), ), (wf_cmap,), "wfzoom_"+fname+"."+format),
+#         (ds["y_img"][i_ymin:i_ymax].m, ds["x_img"][i_xmin:i_xmax].m, (np.flipud(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax]), ), (wf_cmap,), "wfzoom_"+fname+"."+format),
         (ds["y_img"][i_ymin:i_ymax].m, ds["x_img"][i_xmin:i_xmax].m, (np.flipud(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax]), np.flipud(ds["laser_spot_img"][i_xmin:i_xmax,i_ymin:i_ymax])), (wf_cmap,laser_cmap), "wflszoom_"+fname+"."+format),
-        (ds["y"].m, ds["x"].m, (np.flipud(np.transpose(ds["Vsig_g"].m)), ), (sig_cmap,), "sig_"+fname+"."+format),
+        (ds["y"].m, ds["x"].m, (np.flipud(np.transpose(ds["Vsrs_g"].m)), ), (srs_cmap,), "srs_"+fname+"."+format),
     ]
     for X,Y,Z,cmap,fname in img_data:
          save_single_img(X,Y,Z,cmap,fname,fpath=fpath,xlabel="x (μm)",ylabel="y (μm)",cbar=False,cbar_label=None,rc_params=rc_params,format=format,**kwargs)
     return
+
 
 """ Importing hdf5 """
 def load_data_from_file(sample_dir, filename):
@@ -660,3 +737,40 @@ def load_data_from_file(sample_dir, filename):
     file_dir = os.path.join(data_dir, sample_dir, filename)
     ds = load_hdf5(fpath=file_dir)
     return ds
+
+""" Spectral Acquisition """
+def acquire_spectrum(spectra_dir, filename, num_avg, wav_start, wav_stop, Δwav, fsamp):
+    """
+    Acquire spectra by sweeping laser wavelength at a single point
+    If averaging multiple measurements at each wavelength,
+    """
+    spec = []
+
+    # Create 1d array of wavelengths
+    wavelengths = np.arange(wav_start, wav_stop, Δwav)
+
+    # Create DAQ task
+    sweep_task = Task(
+        ch_Vsrs
+    )
+
+    # Set DAQ sampling rate and number of samples to write/read
+    sweep_task.set_timing(fsamp=fsamp, n_samples=num_avg)
+
+    # Print calculated scan time
+    scan_time = (1 / fsamp).to(u.second) * nx * ny
+    print(f"scan time: {scan_time:3.2f}")
+
+    # Create dictionary of data to write to each DAQ output channel
+    write_data = {
+        ch_Vx_p_str: Vx_scan / Vmeas_Vwrite,
+        ch_Vx_n_str: -Vx_scan / Vmeas_Vwrite,
+        ch_Vy_p_str: Vy_scan / Vmeas_Vwrite,
+        ch_Vy_n_str: -Vy_scan / Vmeas_Vwrite,
+    }
+    for wav in wavelengths:
+        laser.set_wavelength(wav)
+
+    return spec_ds
+
+
