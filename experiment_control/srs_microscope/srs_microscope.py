@@ -739,11 +739,29 @@ def load_data_from_file(sample_dir, filename):
     return ds
 
 """ Spectral Acquisition """
-def acquire_spectrum(spectra_dir, filename, num_avg, wav_start, wav_stop, Δwav, fsamp):
+def acquire_spectrum(sample_dir, name, num_avg, fsamp, wav_start, wav_stop, Δwav, wav_settle_time):
     """
     Acquire spectra by sweeping laser wavelength at a single point
     If averaging multiple measurements at each wavelength,
     """
+
+    spath = new_path(name=name, data_dir=sample_dir, ds_type='Spectra', extension='h5', timestamp=True)
+    print("saving data to: ")
+    print(spath)
+
+    # save sweep parameters to hdf5
+    dump_hdf5(
+        {'num_avg': num_avg,
+         'fsamp': fsamp,
+         'wav_start': wav_start,
+         'wav_stop': wav_stop,
+         'Δwav': Δwav,
+         "wav_settle_time": wav_settle_time,
+         },
+        spath,
+        open_mode='x',
+    )
+
     spec = []
 
     # Create 1d array of wavelengths
@@ -754,23 +772,31 @@ def acquire_spectrum(spectra_dir, filename, num_avg, wav_start, wav_stop, Δwav,
         ch_Vsrs
     )
 
-    # Set DAQ sampling rate and number of samples to write/read
+    # Set DAQ sampling rate and number of samples to write/read (for averaging)
     sweep_task.set_timing(fsamp=fsamp, n_samples=num_avg)
 
-    # Print calculated scan time
-    scan_time = (1 / fsamp).to(u.second) * nx * ny
-    print(f"scan time: {scan_time:3.2f}")
+    # Print calculated sweep time
+    sweep_time = ((1 / fsamp).to(u.second) * num_avg + wav_settle_time)* wavelengths.shape[0]
+    print(f"sweep time: {sweep_time:3.2f}")
 
-    # Create dictionary of data to write to each DAQ output channel
-    write_data = {
-        ch_Vx_p_str: Vx_scan / Vmeas_Vwrite,
-        ch_Vx_n_str: -Vx_scan / Vmeas_Vwrite,
-        ch_Vy_p_str: Vy_scan / Vmeas_Vwrite,
-        ch_Vy_n_str: -Vy_scan / Vmeas_Vwrite,
-    }
+    # Iterate over wavelengths
     for wav in wavelengths:
-        laser.set_wavelength(wav)
+        laser.set_wavelength(wav) #Set laser wavelength
+        time.sleep(wav_settle_time)
+        read_spec_rep = sweep_task.run() #take num_avg daq readings, append average
+        spec.append(np.mean(read_spec_rep))
 
-    return spec_ds
+    # Unreserve daq
+    sweep_task.unreserve()
+
+    # Convert spec list to np array
+    spec = np.array(spec)
+
+    # Save sweep data to hdf5
+    dump_hdf5(wavelengths, spath)
+    dump_hdf5(spec, spath)
+    ds_spec = load_hdf5(fpath=spath)
+
+    return ds_spec
 
 
