@@ -18,12 +18,13 @@ from scipy.optimize import curve_fit
 from instrumental import instrument
 from instrumental.drivers.daq.ni import Task # NIDAQ,
 from instrumental.drivers.motion.filter_flipper import Position
-from instrumental.drivers.lasers import M2_solstis
+from photonmover.instruments.Lasers.M2_solstis import M2_Solstis
+# from instrumental.drivers.lasers import m2_solstis
 # from instrumental.drivers.lockins import sr844
 
 from ..util.units import Q_, u
 from ..util.io import *         # hdf5 utilites
-# from .powermeter import get_power
+from .powermeter import get_power, set_wavelength
 
 ## This code is derived from Dodd's shg_microscope.py
 srs_rc_params = {
@@ -55,7 +56,8 @@ daq = instrument("NIDAQ_USB-6259", reopen_policy='reuse')
 ff = instrument("Thorlabs_FilterFlipper", reopen_policy='reuse')
 cam = instrument('Thorlabs_camera', reopen_policy='reuse')
 stage = instrument("NanoMax_stage", reopen_policy='reuse')
-laser = instrument("M2_Solstis", reopen_policy='reuse')
+laser = M2_Solstis()
+laser.initialize()
 
 # Directory for data save
 # data_dir = os.path.join(home_dir,"Documents","data","srs_microscope")
@@ -89,6 +91,16 @@ Vmeas_Vwrite = 2  # Measured voltage at J6P1 is 2x the write voltage - Specify m
 pix_size = 5.2 * u.um #per pixel
 obj_mag = 20  #Nikon 20x
 dx_dpix = pix_size / obj_mag  #u.um # dx_dpix =  0.3651 * u.um # per pixel
+
+""" Pump Laser Power """
+def get_excitation_power(center=True):
+    if center:
+        Vx_init, Vy_init = get_spot_pos()
+        center_spot()
+    P = get_power() / pm_attn
+    if center:
+        move_spot(Vx_init,Vy_init)
+    return P.to(u.mW)
 
 
 """ Widefield Image """
@@ -224,11 +236,15 @@ def get_spot_pos(Vx0=Vx0,Vy0=Vy0):
 
 
 """ Preview Scan """
-def preview_scan_area(nx,ny,ΔVx,ΔVy, exposure_time=3*u.ms):
+def preview_scan_area(nx,ny,ΔVx,ΔVy,fsamp, exposure_time=3*u.ms):
     """
     Take a widefield laser spot image.  Given galvo scan voltage inputs (nx,ny,ΔVx,ΔVy), plot the widefield image cropped to the galvo scan area
     :return fig
     """
+    # Print calculated scan time
+    scan_time = (1 / fsamp).to(u.second) * nx * ny
+    print(f"scan time: {scan_time:3.2f}")
+
     center_spot()
     Vx, Vy = scan_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0)
     wf_img, laser_spot_img = wf_and_laser_spot_images(exposure_time)
@@ -739,15 +755,30 @@ def load_data_from_file(sample_dir, filename):
     return ds
 
 """ Spectral Acquisition """
-def acquire_spectrum(sample_dir, name, num_avg, fsamp, wav_start, wav_stop, Δwav, wav_settle_time):
+def acquire_spectrum(sample_dir, name, num_avg, fsamp, wav_start, wav_stop, Δwav, wav_settle_time, fixed_wav):
     """
     Acquire spectra by sweeping laser wavelength at a single point
     If averaging multiple measurements at each wavelength,
     """
-
+    # Specify location of data save
+    sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
     spath = new_path(name=name, data_dir=sample_dir, ds_type='Spectra', extension='h5', timestamp=True)
     print("saving data to: ")
     print(spath)
+
+    # Create 1d array of wavelengths
+    wavelengths = np.arange(wav_start.m, wav_stop.m + Δwav.m, Δwav.m) * u.nm
+
+    # Identify pump and stokes wavelengths
+    if np.max(wavelengths.m) > fixed_wav.m:
+        stokes_wav = wavelengths
+        pump_wav = fixed_wav
+    elif np.max(wavelengths.m) < fixed_wav.m:
+        stokes_wav = fixed_wav
+        pump_wav = wavelengths
+
+    # Calculate raman shift
+    raman_shift = (1 / pump_wav - 1 / stokes_wav).to(1 / u.cm)
 
     # save sweep parameters to hdf5
     dump_hdf5(
@@ -756,16 +787,16 @@ def acquire_spectrum(sample_dir, name, num_avg, fsamp, wav_start, wav_stop, Δwa
          'wav_start': wav_start,
          'wav_stop': wav_stop,
          'Δwav': Δwav,
-         "wav_settle_time": wav_settle_time,
+         'wav_settle_time': wav_settle_time,
+         'wavelengths': wavelengths,
+         'fixed_wav': fixed_wav,
+         'raman_shift': raman_shift
          },
         spath,
         open_mode='x',
     )
 
-    spec = []
-
-    # Create 1d array of wavelengths
-    wavelengths = np.arange(wav_start, wav_stop, Δwav)
+    spec, tap_power = [], []
 
     # Create DAQ task
     sweep_task = Task(
@@ -776,27 +807,56 @@ def acquire_spectrum(sample_dir, name, num_avg, fsamp, wav_start, wav_stop, Δwa
     sweep_task.set_timing(fsamp=fsamp, n_samples=num_avg)
 
     # Print calculated sweep time
-    sweep_time = ((1 / fsamp).to(u.second) * num_avg + wav_settle_time)* wavelengths.shape[0]
+    sweep_time = ((1 / fsamp).to(u.second) * num_avg + wav_settle_time) * wavelengths.shape[0]
     print(f"sweep time: {sweep_time:3.2f}")
 
     # Iterate over wavelengths
-    for wav in wavelengths:
-        laser.set_wavelength(wav) #Set laser wavelength
-        time.sleep(wav_settle_time)
-        read_spec_rep = sweep_task.run() #take num_avg daq readings, append average
-        spec.append(np.mean(read_spec_rep))
+    for wav in wavelengths.m:
+        set_wavelength(wav*u.nm) #Set powermeter wavelength
+        laser.set_wavelength_instrumental(float(wav)) #Set laser wavelength
+        time.sleep(wav_settle_time.m) #Wait for wavelength to settle before measuring
+        read_spec = sweep_task.run() #take num_avg daq readings, append average
+        spec.append(np.mean(read_spec[ch_Vsrs_str].m))
+        power = get_power()
+        tap_power.append(power.m)
 
     # Unreserve daq
     sweep_task.unreserve()
 
-    # Convert spec list to np array
-    spec = np.array(spec)
-
     # Save sweep data to hdf5
-    dump_hdf5(wavelengths, spath)
-    dump_hdf5(spec, spath)
+    sweep_data = {
+        'spec': spec * u.volt,
+        'tap_power': tap_power * u.W
+    }
+    dump_hdf5(sweep_data, spath)
+
     ds_spec = load_hdf5(fpath=spath)
 
     return ds_spec
+
+def plot_spectra(ds_spec):
+    fixed_wav = ds_spec["fixed_wav"]
+    raman_shift = ds_spec["raman_shift"]
+    spec = ds_spec["spec"]
+    tap_power = ds_spec["tap_power"]
+    wavelengths = ds_spec["wavelengths"]
+
+    # Correct for wavelength-dependent power
+    power_corr = tap_power.m / tap_power[0].m
+    spec_corr = spec * power_corr
+
+    fig, ax = plt.subplots(3, 1, figsize=(15, 6))
+    ax[0].plot(raman_shift.m, spec_corr.m)
+    ax[0].set_xlabel("Raman Shift [1/cm]")
+    ax[0].set_ylabel("Voltage [V]")
+
+    ax[1].plot(raman_shift.m, spec.m)
+    ax[1].set_xlabel("Raman Shift [1/cm]")
+    ax[1].set_ylabel("Voltage [V]")
+
+    ax[2].plot(wavelengths.m, spec.m)
+    ax[2].set_xlabel("Wavelengths [nm]")
+    ax[2].set_ylabel("Voltage [V]")
+    return fig
 
 
