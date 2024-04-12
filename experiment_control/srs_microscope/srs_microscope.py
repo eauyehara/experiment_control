@@ -93,15 +93,14 @@ obj_mag = 20  #Nikon 20x
 dx_dpix = pix_size / obj_mag  #u.um # dx_dpix =  0.3651 * u.um # per pixel
 
 """ Pump Laser Power """
-def get_excitation_power(center=True):
-    if center:
-        Vx_init, Vy_init = get_spot_pos()
-        center_spot()
-    P = get_power() / pm_attn
-    if center:
-        move_spot(Vx_init,Vy_init)
-    return P.to(u.mW)
-
+# def get_excitation_power(center=True):
+#     if center:
+#         Vx_init, Vy_init = get_spot_pos()
+#         center_spot()
+#     P = get_power() / pm_attn
+#     if center:
+#         move_spot(Vx_init,Vy_init)
+#     return P.to(u.mW)
 
 """ Widefield Image """
 def remove_bs():
@@ -173,30 +172,84 @@ def wf_and_laser_spot_images(exposure_time=3*u.ms):
     return wf_img, laser_spot_img
 
 """ Stage Motion """
-def scan_single_axis(scan_length, axis, step_size, wait=0.5*u.s):
+def scan_single_axis(scan_length, axis, step_size, wait=1 * u.s, fsamp = 3*u.Hz, num_avg=10):
     """
     Scan scan_length in [um] along specified axis (x,y,z) from initial position with specified step size (- if backward, + if forward)
-    Read srs at each position
-    :return: [pos_arr, srs_arr]
+    Read photodiode signal (at DAQ ch_Vsrs) at each position
+    :return: [pos_arr (um), pd_arr (V)]
     """
-    ax0 = stage.get_position()
+    ax0 = stage.get_axis_position(axis)
     if step_size > 0:
-        end_pos = scan_length.m - ax0
+        end_pos = scan_length.m + ax0
     elif step_size < 0:
         end_pos = ax0 - scan_length.m
+    print(end_pos)
 
-    if not stage.check_valid_position(axis,end_pos):
+    if not stage.check_valid_position(axis, end_pos):
         raise ValueError("End position out of range")
 
-    pos_arr = np.arange(ax0, end_pos, step_size)
-    srs_arr =[]
+    pos_arr = np.arange(ax0, end_pos + step_size.m, step_size.m)
+    pd_arr = []
+
+    # Print calculated scan time
+    scan_time = (wait + (1/fsamp).to(u.second)*num_avg) * pos_arr.shape[0]
+    print(f"scan time: {scan_time:3.2f}")
+
+    # Create DAQ task
+    scan_task = Task(
+        ch_Vsrs
+    )
+
+    # Set DAQ sampling rate and number of samples to write/read
+    scan_task.set_timing(fsamp=fsamp, n_samples=num_avg)
+
 
     for pos in pos_arr:
-        stage.set_axis_position(axis, pos)
-        sleep(wait.m)
-        srs_arr.append(ch_Vsrs.read())
+        stage.set_axis_position(axis, float(pos))
+        time.sleep(wait.m)
+        read_data = scan_task.run()
+        time.sleep((1/fsamp).m*num_avg)
+        pd_arr.append(np.mean(read_data[ch_Vsrs_str].m))
 
-    return [pos_arr, srs_arr]
+    # Set stage back to initial position
+    stage.set_axis_position(axis, ax0)
+
+    return [pos_arr * u.um, pd_arr * u.V]
+
+
+def knife_edge_scan(scan_length, axis, step_size, wait=1*u.s, num_avg=10, sample_dir=None, name=None):
+    """
+    Beam spot size characterization - scans stage and acquires photodiode readings
+    :return: ds_spot
+    """
+
+    remove_bs()
+
+    # Specify location of data save
+    sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
+    fpath = new_path(name=name, data_dir=sample_dir, ds_type='knifeScan', extension='h5', timestamp=True)
+    print("saving data to: ")
+    print(fpath)
+
+    # Run scan
+    [pos_arr, pd_arr] = scan_single_axis(scan_length, axis, step_size, wait=wait, num_avg=num_avg)
+
+    # save scan parameters to hdf5
+    dump_hdf5(
+        {'scan_length': scan_length,
+         'axis': axis,
+         'step_size': step_size,
+         'num_avg': num_avg,
+         'pos_arr': pos_arr,
+         'pd_arr': pd_arr
+         },
+        fpath,
+        open_mode='x',
+    )
+
+    ds_spot = load_hdf5(fpath=fpath)
+
+    return ds_spot
 
 
 """ Galvo Motion """
@@ -485,6 +538,9 @@ def gaussian(x,w,x0,A):
 
 def plot_spotzoom(ds, Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,
     x_wtext=-3,y_wtext=-3,rc_params=srs_rc_params):
+    """
+    Estimate spot size from widefield image and laser spot image (in galvo scan ds)
+    """
     laser_cmap = transparent_cmap(laser_cmap)
     ix_min_sz, ix_max_sz, iy_min_sz, iy_max_sz = spotzoom_inds(ds, Dxy=Dxy)
     ix0 = int(np.round((ix_min_sz + ix_max_sz)/2.)) - ix_min_sz  #Center around 0
@@ -520,6 +576,16 @@ def plot_spotzoom(ds, Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,
         ax[1,0].set_ylabel("y (μm)")
         ax[1,0].text(x_wtext,y_wtext,f"x waist: {wx:2.2f} μm"+"\n"+f"y waist: {wy:2.2f} μm")
     return fig,ax
+
+def plot_knife_scan(ds_spot, figsize=(4.5,4.5)):
+    """
+    Extract beam waist from knife edge scan data
+    """
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
+    ax.plot(ds_spot["pos_arr"], ds_spot["pd_arr"])
+    ax.set_xlabel("x (μm)")
+    ax.set_ylabel("Voltage (V)")
+    return fig
 
 
 """ Widefield Image Pre-plotting Processing """
