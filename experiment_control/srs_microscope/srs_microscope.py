@@ -3,6 +3,7 @@ import time
 import numpy as np
 import sys
 import clr
+
 sys.path.append(r"C:\Program Files\Thorlabs\Kinesis")
 clr.AddReference("Thorlabs.MotionControl.DeviceManagerCLI")
 clr.AddReference("Thorlabs.MotionControl.FilterFlipperCLI")
@@ -14,6 +15,7 @@ from matplotlib.colors import ListedColormap
 from scipy.interpolate import griddata
 from scipy.optimize import curve_fit
 from scipy.stats import norm
+from scipy import io
 
 # import stuff from instrumental
 from instrumental import instrument
@@ -417,7 +419,6 @@ def collect_Rscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exp
             "dy_dVy" : dy_dVy,
             "Vx0" : Vx0,
             "Vy0" : Vy0,
-            "dx_dpix" : dx_dpix,
         },
         fpath,
         open_mode='x',
@@ -464,7 +465,6 @@ def collect_Tscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,wf_img,laser_spot_img,name=None,
             "dy_dVy" : dy_dVy,
             "Vx0" : Vx0,
             "Vy0" : Vy0,
-            "dx_dpix" : dx_dpix,
         },
         fpath,
         open_mode='x',
@@ -902,6 +902,59 @@ def save_wf_img(wf_img, fname, cmap = cm.gray, fpath=False):
     save_single_img(Y, X, Z, cmap=(cmap,), fname=fname, fpath=fpath, xlabel="x (μm)", ylabel="y (μm)", cbar=False, cbar_label=None)
     return
 
+def save_mat(fname, sample_dir):
+    """ Convert dataset (ds_scan (galvo scan), ds_spot (knife scan), ds_spec (spectra)) to .mat file
+    Input: .h5 file -> saves .mat file with same name as .h5 file
+    """
+
+    ds = load_data_from_file(sample_dir, fname)
+    mat_fname = fname[:-2] + 'mat'
+
+    file_dir = os.path.join(data_dir, sample_dir, mat_fname)
+    print("saving data to: ")
+    print(file_dir)
+
+    if 'GalvoScan' in fname:
+        ds_scan = ds
+        data = {'wf_img': ds_scan['wf_img'],
+                'laser_spot_img': ds_scan['laser_spot_img'],
+                'dx_dpix': ds_scan['ds_dpix'].to(u.m).m,
+                'x_img': ds_scan['x_img'].to(u.m).m,
+                'y_img': ds_scan['y_img'].to(u.m).m,
+                'dx_dVx': ds_scan['dx_dVx'].to(u.m/u.V).m,
+                'dx_dVy': ds_scan['dx_dVy'].to(u.m/u.V).m,
+                'Vx': ds_scan['Vx'].m,
+                'Vy': ds_scan['Vy'].m,
+                'Vsrs_g': ds_scan['Vsrs_g'].m,
+                'x': ds_scan['x'].to(u.m).m,
+                'y': ds_scan['y'].to(u.m).m
+        }
+    elif 'knifeScan' in fname:
+        ds_spot = ds
+        data = {'scan_length': ds_spot['scan_length'].to(u.m).m,
+         'axis': ds_spot['axis'],
+         'step_size': ds_spot['step_size'].to(u.m).m,
+         'num_avg': ds_spot['num_avg'],
+         'pos_arr': ds_spot['pos_arr'].to(u.m).m,
+         'pd_arr': ds_spot['pd_arr'].m
+         }
+    elif 'Spectra' in fname:
+        ds_spec = ds
+        data = {'num_avg': ds_spec['num_avg'],
+         'fsamp': ds_spec['fsamp'].m,
+         'wav_start': ds_spec['wav_start'].to(u.m).m,
+         'wav_stop': ds_spec['wav_stop'].to(u.m).m,
+         'dwav': ds_spec['Δwav'].to(u.m).m,
+         'wav_settle_time': ds_spec['wav_settle_time'].m,
+         'wavelengths': ds_spec['wavelengths'].to(u.m).m,
+         'fixed_wav': ds_spec['fixed_wav'].to(u.m).m,
+         'raman_shift': ds_spec['raman_shift'].m,
+         'spec': ds_spec['spec'].m,
+         'tap_power': ds_spec['tap_power'].m
+         }
+    io.savemat(file_dir, data)
+    return
+
 def load_data_from_file(sample_dir, filename):
     """
     Load saved hd5f file and return ds
@@ -946,7 +999,7 @@ def acquire_spectrum(sample_dir, name, num_avg, fsamp, wav_start, wav_stop, Δwa
          'wav_settle_time': wav_settle_time,
          'wavelengths': wavelengths,
          'fixed_wav': fixed_wav,
-         'raman_shift': raman_shift
+         'raman_shift': raman_shift,
          },
         spath,
         open_mode='x',
@@ -1004,15 +1057,15 @@ def plot_spectra(ds_spec, figsize=(7,4.5)):
     ax[0].plot(raman_shift.m, spec_corr.m)
     ax[0].set_xlabel("Raman Shift [1/cm]")
     ax[0].set_ylabel("Voltage [V]")
-    ax[0].set_xlim((np.min(x), np.max(x)))
+    ax[0].set_xlim((np.min(wavelengths), np.max(wavelengths)))
 
     ax[1].plot(raman_shift.m, spec.m)
     ax[1].set_xlabel("Raman Shift [1/cm]")
     ax[1].set_ylabel("Voltage [V]")
-    ax[1].set_xlim((np.min(x), np.max(x)))
+    ax[1].set_xlim((np.min(wavelengths), np.max(wavelengths)))
 
     ax[2].plot(wavelengths.m, spec.m)
     ax[2].set_xlabel("Wavelengths [nm]")
     ax[2].set_ylabel("Voltage [V]")
-    ax[2].set_xlim((np.min(x), np.max(x)))
+    ax[2].set_xlim((np.min(wavelengths), np.max(wavelengths)))
     return fig
