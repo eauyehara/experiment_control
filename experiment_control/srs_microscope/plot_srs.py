@@ -9,12 +9,13 @@ from matplotlib import cm
 from matplotlib.colors import ListedColormap
 from scipy.interpolate import griddata
 from scipy.optimize import curve_fit
+from scipy.stats import norm
 
 from ..util.units import Q_, u
 from ..util.io import *         # hdf5 utilites
 
 ## This code is derived from Dodd's shg_microscope.py
-sig_rc_params = {
+srs_rc_params = {
     'lines.linewidth': 1.5,
     'lines.markersize': 8,
     'legend.fontsize': 12,
@@ -39,9 +40,10 @@ sig_rc_params = {
 }
 
 # Directory for data save
-data_dir = os.path.join(home_dir,"Documents","data","srs_microscope")
+data_dir = os.path.join(home_dir,"Dropbox (MIT)","POE","srs_microscope_data","srs_microscope_scans")
 
 """ Calibration data """
+
 ## Galvo scan distance/voltage calibrations
 # Using Nikon 20x objective with cover slip, 0.5V/deg galvo mechanical scan angle setting, and 80umx80um bonding pads on TC2 chip - 3/2024
 # Optical scan angle is 2x the mechanical scan angle (nominally 0.25V/deg)
@@ -55,8 +57,8 @@ pix_size = 5.2 * u.um #per pixel
 obj_mag = 20  #Nikon 20x
 dx_dpix = pix_size / obj_mag  #u.um # dx_dpix =  0.3651 * u.um # per pixel
 
-""" Laser Spot Analysis """
 
+""" Laser Spot Analysis """
 
 def spotzoom_inds(ds, Dxy=10 * u.um):
     """
@@ -77,7 +79,7 @@ def gaussian(x, w, x0, A):
 
 
 def plot_spotzoom(ds, Dxy=10 * u.um, figsize=(4.5, 4.5), laser_cmap=cm.winter,
-                  x_wtext=-3, y_wtext=-3, rc_params=sig_rc_params):
+                  x_wtext=-3, y_wtext=-3, rc_params=srs_rc_params):
     laser_cmap = transparent_cmap(laser_cmap)
     ix_min_sz, ix_max_sz, iy_min_sz, iy_max_sz = spotzoom_inds(ds, Dxy=Dxy)
     ix0 = int(np.round((ix_min_sz + ix_max_sz) / 2.)) - ix_min_sz  # Center around 0
@@ -97,6 +99,7 @@ def plot_spotzoom(ds, Dxy=10 * u.um, figsize=(4.5, 4.5), laser_cmap=cm.winter,
     y_fit = np.linspace(Y.m_as(u.um).min(), Y.m_as(u.um).max(), 100)
     Z_xcut_fit = gaussian(x_fit, wx, x0_fit, I0x)
     Z_ycut_fit = gaussian(y_fit, wy, y0_fit, I0y)
+    fwhm = np.max(wx, wy) * np.sqrt(2 * np.log(2))
     with mpl.rc_context(rc_params):
         fig, ax = plt.subplots(2, 2,
                                figsize=figsize,
@@ -114,11 +117,99 @@ def plot_spotzoom(ds, Dxy=10 * u.um, figsize=(4.5, 4.5), laser_cmap=cm.winter,
         ax[1, 0].set_xlabel("x (μm)")
         ax[1, 0].set_ylabel("y (μm)")
         ax[1, 0].text(x_wtext, y_wtext, f"x waist: {wx:2.2f} μm" + "\n" + f"y waist: {wy:2.2f} μm")
+        ax[1, 0].set_title("FWHM: %2.2f μm" % fwhm)
+    return fig, ax
+
+def plot_spotzoom_wf(wf_img, Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,
+    x_wtext=-3,y_wtext=-3,rc_params=srs_rc_params):
+    """
+    Estimate spot size from widefield image and laser spot image (no galvo scan ds necessary)
+    """
+    x_img, y_img = img_spatial_axes(wf_img)
+
+    #find spot zoom inds
+    ix0, iy0 = [np.nanargmin(np.abs(xx)) for xx in
+                [x_img, y_img]]  # Find indices of min x and min y values (at center)
+    npix_half = np.round((Dxy / 2. / dx_dpix).m_as(u.dimensionless))  # Find (number of pixels)/2 making up Dxy
+    ix_min, ix_max = int((ix0 - npix_half)), int(
+        (ix0 + npix_half))  # Shift min and max pixel indices to boundary set by Dxy
+    iy_min, iy_max = int((iy0 - npix_half)), int((iy0 + npix_half))
+
+    laser_cmap = transparent_cmap(laser_cmap)
+    # ix_min_sz, ix_max_sz, iy_min_sz, iy_max_sz = spotzoom_inds(ds, Dxy=Dxy)
+    ix0 = int(np.round((ix_min + ix_max)/2.)) - ix_min  #Center around 0
+    iy0 = int(np.round((iy_min + iy_max)/2.)) - iy_min  #Center around 0
+    X = x_img[ix_min:ix_max]  #Cropped x axis
+    Y = y_img[iy_min:iy_max]  #Cropped y axis
+    Z_bg = wf_img.min()  #Intensity background
+    Z = wf_img[ix_min:ix_max,iy_min:iy_max] - Z_bg  #Subtract off intensity background of cropped laser spot image
+    Z_xcut = (1.0 * Z[:,iy0]) / Z.max()  #X-slice of laser_spot_image normalized to laser spot intensity
+    Z_ycut = (1.0 * Z[ix0,:]) / Z.max()  #Y-slice of laser_spot_image normalized to laser spot intensity
+    p_x,pcov_x = curve_fit(gaussian,X.m_as(u.um),Z_xcut,[1.0,0.0,1.0])
+    p_y,pcov_y = curve_fit(gaussian,Y.m_as(u.um),Z_ycut,[1.0,0.0,1.0])
+    wx,x0_fit,I0x = p_x
+    wy,y0_fit,I0y = p_y
+    x_fit = np.linspace(X.m_as(u.um).min(),X.m_as(u.um).max(),100)
+    y_fit = np.linspace(Y.m_as(u.um).min(),Y.m_as(u.um).max(),100)
+    Z_xcut_fit = gaussian(x_fit,wx,x0_fit,I0x)
+    Z_ycut_fit = gaussian(y_fit,wy,y0_fit,I0y)
+    fwhm = np.max([wx, wy]) * np.sqrt(2 * np.log(2))
+    with mpl.rc_context(rc_params):
+        fig, ax = plt.subplots(2,2,
+        figsize=figsize,
+        sharex="col",
+        sharey="row",
+        gridspec_kw={"wspace":0,"hspace":0,"width_ratios":[1,0.2],"height_ratios":[0.2,1]},
+    )
+        p0 = ax[1,0].pcolormesh(X,Y,np.fliplr(Z.T),cmap=laser_cmap)
+        ax[1,0].set_aspect("equal")
+        ly_fit = ax[1,1].plot(Z_ycut_fit,y_fit,'k--')
+        lx_fit = ax[0,0].plot(x_fit,Z_xcut_fit,'k--')
+        sy = ax[1,1].scatter(Z_ycut,Y)
+        sx = ax[0,0].scatter(X,Z_xcut,)
+        ax[1,0].set_xlabel("x (μm)")
+        ax[1,0].set_ylabel("y (μm)")
+        ax[1,0].text(x_wtext, y_wtext, f"x waist: {wx:2.2f} μm" + "\n" + f"y waist: {wy:2.2f} μm")
+        ax[0, 0].set_title("FWHM: %2.2f μm" % fwhm)
     return fig, ax
 
 
-""" Widefield Image Pre-plotting Processing """
+def plot_knife_scan(ds_spot, figsize=(4.5,4.5),rc_params=srs_rc_params):
+    """
+    Extract beam waist from knife edge scan data
+    Fits scan data to a gaussian cdf, extracts sigma and mu, then calculates FWHM of associated gaussian
+    """
+    x = ds_spot["pos_arr"].m
+    pd_arr = ds_spot["pd_arr"].m
 
+    if pd_arr[0] > pd_arr[-1]:  # scanning from exposed to covered beam
+        f = lambda x, mu, sigma, A, B: B + A * norm(mu, sigma).cdf(-x)
+        gauss_fit = lambda x, mu, sigma: norm(mu, sigma).pdf(-x) / np.max(norm(mu, sigma).pdf(-x))
+    elif pd_arr[-1] > pd_arr[0]:  # scanning from covered to exposed beam
+        f = lambda x, mu, sigma, A, B: B + A * norm(mu, sigma).cdf(x)
+        gauss_fit = lambda x, mu, sigma: norm(mu, sigma).pdf(x) / np.max(norm(mu, sigma).pdf(x))
+
+    mu, sigma, A, B = curve_fit(f, x, pd_arr)[0]
+    fwhm = 2 * sigma * np.sqrt(2 * np.log(2))
+    print("σ = %2.2fμm" %sigma)
+
+    with mpl.rc_context(rc_params):
+        fig, ax = plt.subplots(2, 1, figsize=figsize)
+        ax[0].set_title("FWHM = %3.3f μm" % fwhm)
+        ax[0].plot(x, pd_arr)
+        ax[0].plot(x, f(x, mu, sigma, A, B))
+        ax[0].set_xlabel("x [μm]")
+        ax[0].set_ylabel("Voltage [V]")
+        ax[0].set_xlim((np.min(x), np.max(x)))
+
+        ax[1].plot(x, gauss_fit(x, mu, sigma))
+        ax[1].set_xlabel("x [μm]")
+        ax[1].set_ylabel("Normalized [a.u.]")
+        ax[1].set_xlim((np.min(x), np.max(x)))
+    return fig
+
+
+""" Widefield Image Pre-plotting Processing """
 
 def img_max_pixel_inds(img):
     """
@@ -183,8 +274,6 @@ def scan_volt_to_wf_inds(Vx, Vy, laser_spot_img, dx_dpix=dx_dpix):
 
 
 """ Plotting """
-
-
 def transparent_cmap(cmap):
     """
     Generate colormap `cmap_tr` with graded transparency (transparent at 0, opaque
@@ -215,7 +304,7 @@ def plot_scan_data(ds, wf_cmap=cm.binary, laser_cmap=cm.Reds):
     ax[0].set_aspect("equal")
 
     # [1] SRS (galvo) image
-    p0 = ax[1].pcolormesh(ds["y"].m, ds["x"].m, np.flipud(np.transpose(ds["Vsig_g"].m)))
+    p0 = ax[1].pcolormesh(ds["y"].m, ds["x"].m, np.flipud(np.transpose(ds["Vsrs_g"].m)))
     cb1 = plt.colorbar(p0, ax=ax[1])
     ax[1].set_aspect("equal")
 
@@ -275,12 +364,40 @@ def plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.bin
     plt.show()
     return fig
 
+""" Spectral Acquisition """
+
+def plot_spectra(ds_spec, figsize=(7,4.5)):
+    raman_shift = ds_spec["raman_shift"]
+    spec = ds_spec["spec"]
+    tap_power = ds_spec["tap_power"]
+    wavelengths = ds_spec["wavelengths"]
+
+    # Correct for wavelength-dependent power
+    power_corr = tap_power.m / tap_power[0].m
+    spec_corr = spec * power_corr
+
+    fig, ax = plt.subplots(3, 1, figsize=figsize)
+    ax[0].plot(raman_shift.m, spec_corr.m)
+    ax[0].set_xlabel("Raman Shift [1/cm]")
+    ax[0].set_ylabel("Voltage [V]")
+    ax[0].set_xlim((np.min(x), np.max(x)))
+
+    ax[1].plot(raman_shift.m, spec.m)
+    ax[1].set_xlabel("Raman Shift [1/cm]")
+    ax[1].set_ylabel("Voltage [V]")
+    ax[1].set_xlim((np.min(x), np.max(x)))
+
+    ax[2].plot(wavelengths.m, spec.m)
+    ax[2].set_xlabel("Wavelengths [nm]")
+    ax[2].set_ylabel("Voltage [V]")
+    ax[2].set_xlim((np.min(x), np.max(x)))
+    return fig
+
 
 """ Saving Images """
 
-
 def save_single_img(X, Y, Z, cmap, fname, fpath=False, xlabel="x (μm)", ylabel="y (μm)", cbar=False, cbar_label=None,
-                    figsize=(4, 6), format='png', rc_params=sig_rc_params, **kwargs):
+                    figsize=(4, 6), format='png', rc_params=srs_rc_params, **kwargs):
     """
     Given X,Y,Z arrays, plot and save figure
     """
@@ -301,8 +418,8 @@ def save_single_img(X, Y, Z, cmap, fname, fpath=False, xlabel="x (μm)", ylabel=
     return fig
 
 
-def save_scan_images(ds, fname, fpath=False, wf_cmap=cm.binary_r, laser_cmap=cm.winter, sig_cmap=cm.inferno,
-                     rc_params=sig_rc_params, format='png', **kwargs):
+def save_scan_images(ds, fname, fpath=False, wf_cmap=cm.binary_r, laser_cmap=cm.winter, srs_cmap=cm.inferno,
+                     rc_params=srs_rc_params, format='png', **kwargs):
     """
     Save data and figs for following images:
     (1) Widefield image
@@ -325,7 +442,7 @@ def save_scan_images(ds, fname, fpath=False, wf_cmap=cm.binary_r, laser_cmap=cm.
         np.fliplr(ds["wf_img"][i_xmin:i_xmax, i_ymin:i_ymax].transpose()),
         np.fliplr(ds["laser_spot_img"][i_xmin:i_xmax, i_ymin:i_ymax].transpose()),), (wf_cmap, laser_cmap),
          "wflszoom_" + fname + "." + format),
-        (ds["x"].m, ds["y"].m, (np.flip(ds["Vsig_g"].m, (0, 1)),), (sig_cmap,), "sig_" + fname + "." + format),
+        (ds["x"].m, ds["y"].m, (np.flip(ds["Vsrs_g"].m, (0, 1)),), (srs_cmap,), "srs_" + fname + "." + format),
     ]
     for X, Y, Z, cmap, fname in img_data:
         save_single_img(X, Y, Z, cmap, fname, fpath=fpath, xlabel="x (μm)", ylabel="y (μm)", cbar=False,
@@ -334,7 +451,6 @@ def save_scan_images(ds, fname, fpath=False, wf_cmap=cm.binary_r, laser_cmap=cm.
 
 
 """ Importing hdf5 """
-
 
 def load_data_from_file(sample_dir, filename):
     """
