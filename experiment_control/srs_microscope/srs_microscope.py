@@ -76,6 +76,7 @@ ch_Vy_n, ch_Vy_n_str = daq.ao3, 'Dev2/ao3'
 ch_Vsrs, ch_Vsrs_str = daq.ai0, 'Dev2/ai0'
 ch_Vx_meas, ch_Vx_meas_str = daq.ai2, 'Dev2/ai2'
 ch_Vy_meas, ch_Vy_meas_str = daq.ai3, 'Dev2/ai3'
+ch_Vmon, ch_Vmon_str = daq.ai20, 'Dev2/ai20'
 
 # Configure filter flipper positions
 ff_pos_in = Position.one
@@ -966,8 +967,8 @@ def load_data_from_file(sample_dir, filename):
 """ Spectral Acquisition """
 def acquire_spectrum(num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
     """
-    Acquire spectra by sweeping laser wavelength at a single point
-    If averaging multiple measurements at each wavelength,
+    Acquire spectrum by setting laser wavelength to new wavelength in sweep range (at a fixed spatial point)
+    Slower acquisition (i.e. for Solstis) - sets wavelength, waits for wavelength to settle before acquiring data
     """
     # Specify location of data save
     sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
@@ -1045,6 +1046,64 @@ def acquire_spectrum(num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_
 
     ds_spec = load_hdf5(fpath=spath)
     return ds_spec
+
+def continuous_spectrum(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sample_dir=None, name=None):
+    """
+    Acquire spectrum by continuously sweeping wavelength for a specified time interval
+    Faster acquisition (i.e. for O-E land) - requires short integration times
+    """
+    fsamp = (1 / (4 * t_lia)).to(u.Hz)
+    num_samp = np.int(t_sweep.m / (1 / fsamp).m)
+
+    # Specify location of data save
+    sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
+    spath = new_path(name=name, data_dir=sample_dir, ds_type='SpectraSweep', extension='h5', timestamp=True)
+    print("saving data to: ")
+    print(spath)
+
+    # save sweep parameters to hdf5
+    dump_hdf5(
+        {'t_lia': t_lia,
+         'fsamp': fsamp,
+         'wav_start': wav_start,
+         'wav_stop': wav_stop,
+         't_sweep': t_sweep,
+         'fixed_wav': fixed_wav,
+         },
+        spath,
+        open_mode='x',
+    )
+
+    # Create DAQ task
+    sweep_task = Task(
+        ch_Vsrs,
+        ch_Vmon
+    )
+
+    # Set DAQ sampling rate and number of samples to acquire
+    sweep_task.set_timing(fsamp=fsamp, n_samples=num_samp)
+
+    # Print calculated sweep time
+    sweep_time = ((1 / fsamp).to(u.second) * num_samp)
+    print(f"sweep time: {sweep_time:3.2f}")
+
+    remove_bs()
+
+    read_data = sweep_task.run()  # take num_avg daq readings, append average
+
+    # Unreserve daq
+    sweep_task.unreserve()
+
+    # Save sweep data to hdf5
+    sweep_data = {
+        'spec': read_data[ch_Vsrs_str],
+        'wav_mon': read_data[ch_Vmon_str]
+    }
+
+    dump_hdf5(sweep_data, spath)
+    ds_spec = load_hdf5(fpath=spath)
+    return ds_spec
+
 
 def plot_spectra(ds_spec, figsize=(7,4.5)):
     raman_shift = ds_spec["raman_shift"]
