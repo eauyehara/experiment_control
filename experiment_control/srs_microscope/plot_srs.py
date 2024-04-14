@@ -381,17 +381,17 @@ def plot_spectra(ds_spec, figsize=(7,4.5)):
     ax[0].plot(raman_shift.m, spec_corr.m)
     ax[0].set_xlabel("Raman Shift [1/cm]")
     ax[0].set_ylabel("Voltage [V]")
-    ax[0].set_xlim((np.min(wavelengths), np.max(wavelengths)))
+    ax[0].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
 
     ax[1].plot(raman_shift.m, spec.m)
     ax[1].set_xlabel("Raman Shift [1/cm]")
     ax[1].set_ylabel("Voltage [V]")
-    ax[1].set_xlim((np.min(wavelengths), np.max(wavelengths)))
+    ax[1].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
 
     ax[2].plot(wavelengths.m, spec.m)
     ax[2].set_xlabel("Wavelengths [nm]")
     ax[2].set_ylabel("Voltage [V]")
-    ax[2].set_xlim((np.min(wavelengths), np.max(wavelengths)))
+    ax[2].set_xlim((np.min(wavelengths.m), np.max(wavelengths.m)))
     return fig
 
 

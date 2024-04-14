@@ -964,7 +964,7 @@ def load_data_from_file(sample_dir, filename):
     return ds
 
 """ Spectral Acquisition """
-def acquire_spectrum(sample_dir, name, num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=30*u.s):
+def acquire_spectrum(num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
     """
     Acquire spectra by sweeping laser wavelength at a single point
     If averaging multiple measurements at each wavelength,
@@ -999,13 +999,14 @@ def acquire_spectrum(sample_dir, name, num_avg, fsamp, wav_start, wav_stop, Δwa
          'wav_settle_time': wav_settle_time,
          'wavelengths': wavelengths,
          'fixed_wav': fixed_wav,
-         'raman_shift': raman_shift,
+         'raman_shift': raman_shift
          },
         spath,
         open_mode='x',
     )
 
     spec, tap_power = [], []
+    tuning_time = 15*u.s #estimated wavelength tuning time
 
     # Create DAQ task
     sweep_task = Task(
@@ -1016,14 +1017,16 @@ def acquire_spectrum(sample_dir, name, num_avg, fsamp, wav_start, wav_stop, Δwa
     sweep_task.set_timing(fsamp=fsamp, n_samples=num_avg)
 
     # Print calculated sweep time
-    sweep_time = ((1 / fsamp).to(u.second) * num_avg + wav_settle_time) * wavelengths.shape[0]
+    sweep_time = ((1 / fsamp).to(u.second) * num_avg + tuning_time) * wavelengths.shape[0]
     print(f"sweep time: {sweep_time:3.2f}")
+
+    remove_bs()
 
     # Iterate over wavelengths
     for wav in wavelengths.m:
         set_wavelength(wav*u.nm) #Set powermeter wavelength
         laser.set_wavelength_instrumental(float(wav)) #Set laser wavelength
-        time.sleep(1)  # Wait for wavelength to settle
+        time.sleep(wav_settle_time.m)  # Wait for wavelength to settle
         read_spec = sweep_task.run() #take num_avg daq readings, append average
         time.sleep((1/fsamp).m*num_avg)  #Wait for daq to acquire readings
         spec.append(np.mean(read_spec[ch_Vsrs_str].m))
@@ -1057,15 +1060,16 @@ def plot_spectra(ds_spec, figsize=(7,4.5)):
     ax[0].plot(raman_shift.m, spec_corr.m)
     ax[0].set_xlabel("Raman Shift [1/cm]")
     ax[0].set_ylabel("Voltage [V]")
-    ax[0].set_xlim((np.min(wavelengths), np.max(wavelengths)))
+    ax[0].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
 
     ax[1].plot(raman_shift.m, spec.m)
     ax[1].set_xlabel("Raman Shift [1/cm]")
     ax[1].set_ylabel("Voltage [V]")
-    ax[1].set_xlim((np.min(wavelengths), np.max(wavelengths)))
+    ax[1].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
 
     ax[2].plot(wavelengths.m, spec.m)
     ax[2].set_xlabel("Wavelengths [nm]")
     ax[2].set_ylabel("Voltage [V]")
-    ax[2].set_xlim((np.min(wavelengths), np.max(wavelengths)))
+    ax[2].set_xlim((np.min(wavelengths.m), np.max(wavelengths.m)))
+
     return fig
