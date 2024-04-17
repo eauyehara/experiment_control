@@ -488,18 +488,29 @@ def save_mat(fname, sample_dir):
          }
     elif 'Spectra' in fname:
         ds_spec = ds
-        data = {'num_avg': ds_spec['num_avg'],
-         'fsamp': ds_spec['fsamp'].m,
-         'wav_start': ds_spec['wav_start'].to(u.m).m,
-         'wav_stop': ds_spec['wav_stop'].to(u.m).m,
-         'dwav': ds_spec['Δwav'].to(u.m).m,
-         'wav_settle_time': ds_spec['wav_settle_time'].m,
-         'wavelengths': ds_spec['wavelengths'].to(u.m).m,
-         'fixed_wav': ds_spec['fixed_wav'].to(u.m).m,
-         'raman_shift': ds_spec['raman_shift'].m,
-         'spec': ds_spec['spec'].m,
-         'tap_power': ds_spec['tap_power'].m
-         }
+        if 'SpectraSweep' in fname:
+            data = {'t_lia': ds_spec['t_lia'].to(u.s).m,
+                    'fsamp': ds_spec['fsamp'].m,
+                    'wav_start': ds_spec['wav_start'].to(u.m).m,
+                    'wav_stop': ds_spec['wav_stop'].to(u.m).m,
+                    't_sweep': ds_spec['t_sweep'].to(u.s).m,
+                    'fixed_wav': ds_spec['fixed_wav'].to(u.m).m,
+                    'spec': ds_spec['spec'].m,
+                    'wav_mon': ds_spec['wav_mon'].m
+                    }
+        else:
+            data = {'num_avg': ds_spec['num_avg'],
+                    'fsamp': ds_spec['fsamp'].m,
+                    'wav_start': ds_spec['wav_start'].to(u.m).m,
+                    'wav_stop': ds_spec['wav_stop'].to(u.m).m,
+                    'dwav': ds_spec['Δwav'].to(u.m).m,
+                    'wav_settle_time': ds_spec['wav_settle_time'].m,
+                    'wavelengths': ds_spec['wavelengths'].to(u.m).m,
+                    'fixed_wav': ds_spec['fixed_wav'].to(u.m).m,
+                    'raman_shift': ds_spec['raman_shift'].m,
+                    'spec': ds_spec['spec'].m,
+                    'tap_power': ds_spec['tap_power'].m
+                    }
     io.savemat(file_dir, data)
     return
 
