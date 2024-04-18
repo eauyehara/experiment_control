@@ -22,7 +22,6 @@ from instrumental import instrument
 from instrumental.drivers.daq.ni import Task # NIDAQ,
 from instrumental.drivers.motion.filter_flipper import Position
 from photonmover.instruments.Lasers.M2_solstis import M2_Solstis
-# from instrumental.drivers.lasers import m2_solstis
 # from instrumental.drivers.lockins import sr844
 
 from ..util.units import Q_, u
@@ -58,7 +57,7 @@ srs_rc_params = {
 daq = instrument("NIDAQ_USB-6259", reopen_policy='reuse')
 ff = instrument("Thorlabs_FilterFlipper", reopen_policy='reuse')
 cam = instrument('Thorlabs_camera', reopen_policy='reuse')
-stage = instrument("NanoMax_stage", reopen_policy='reuse')
+# stage = instrument("NanoMax_stage", reopen_policy='reuse')
 laser = M2_Solstis()
 laser.initialize()
 
@@ -226,6 +225,8 @@ def knife_edge_scan(scan_length, axis, step_size, wait=1*u.s, num_avg=10, sample
     Beam spot size characterization - scans stage and acquires photodiode readings
     :return: ds_spot
     """
+    #Stage position jumps when initialize - only run if doing scan
+    stage = instrument("NanoMax_stage", reopen_policy='reuse')
 
     remove_bs()
 
