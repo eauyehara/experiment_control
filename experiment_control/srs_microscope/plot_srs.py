@@ -286,7 +286,7 @@ def transparent_cmap(cmap):
     return cmap_tr
 
 
-def plot_scan_data(ds, wf_cmap=cm.binary, laser_cmap=cm.Reds):
+def plot_scan_data(ds, wf_cmap=cm.binary, laser_cmap=cm.Reds, srs_cmap=cm.inferno):
     """
     Plot 2x1 subplots with [0] laser spot superimposed on cropped widefield image, and [1] SRS image
     :param ds: from collect_scan()
@@ -295,8 +295,16 @@ def plot_scan_data(ds, wf_cmap=cm.binary, laser_cmap=cm.Reds):
     laser_cmap = transparent_cmap(laser_cmap)
     fig, ax = plt.subplots(2, 1, figsize=(10, 10))
 
-    # [0] Laser spot + cropped widefield image
+    # Find wf image indices corresponding to scan area, add manual offset to match scan area
     i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
+    x_off = 0#10
+    y_off = 0#40
+    i_xmax += x_off
+    i_xmin += x_off
+    i_ymin += y_off
+    i_ymax += y_off
+
+    # [0] Laser spot + cropped widefield image
     im0 = ax[0].pcolormesh(ds["y_img"][i_ymin:i_ymax], ds["x_img"][i_xmin:i_xmax],
                            ds["wf_img"][i_xmax:i_xmin:-1, i_ymin:i_ymax], cmap=wf_cmap)
     im1 = ax[0].pcolormesh(ds["y_img"][i_ymin:i_ymax], ds["x_img"][i_xmin:i_xmax],
@@ -305,7 +313,7 @@ def plot_scan_data(ds, wf_cmap=cm.binary, laser_cmap=cm.Reds):
     ax[0].set_aspect("equal")
 
     # [1] SRS (galvo) image
-    p0 = ax[1].pcolormesh(ds["y"].m, ds["x"].m, np.flipud(np.transpose(ds["Vsrs_g"].m)))
+    p0 = ax[1].pcolormesh(ds["y"].m, ds["x"].m, np.flipud(np.transpose(ds["Vsrs_g"].m)), cmap=srs_cmap)
     cb1 = plt.colorbar(p0, ax=ax[1])
     ax[1].set_aspect("equal")
 
@@ -425,25 +433,32 @@ def save_scan_images(ds, fname, fpath=False, wf_cmap=cm.binary_r, laser_cmap=cm.
     Save data and figs for following images:
     (1) Widefield image
     (2) Laser spot superimposed on widefield image
-    (3) Laser spot superimposed on cropped widefield image
-    (4) SRS image
+    (3) Widefield image zoomed
+    (4) Laser spot superimposed on cropped widefield image
+    (5) SRS image
     """
+
+    # Find wf image indices corresponding to scan area, add manual offset to match scan area
     i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
+    x_off = 0#10
+    y_off = 0#40
+    i_xmax += x_off
+    i_xmin += x_off
+    i_ymin += y_off
+    i_ymax += y_off
+
     laser_cmap = transparent_cmap(laser_cmap)
     img_data = [
+        #         (ds["y_img"].m, ds["x_img"].m, (np.flipud(ds["wf_img"]), ), (wf_cmap,),"wf_"+fname+"."+format),
         (
-        ds["x_img"].m, ds["y_img"].m, (np.fliplr(ds["wf_img"].transpose()),), (wf_cmap,), "wf_" + fname + "." + format),
-        (ds["x_img"].m, ds["y_img"].m,
-         (np.fliplr(ds["wf_img"].transpose()), np.fliplr(ds["laser_spot_img"].transpose())), (wf_cmap, laser_cmap),
-         "wfls_" + fname + "." + format),
-        (ds["x_img"][i_xmin:i_xmax].m, ds["y_img"][i_ymin:i_ymax].m,
-         (np.fliplr(ds["wf_img"][i_xmin:i_xmax, i_ymin:i_ymax].transpose()),), (wf_cmap,),
-         "wfzoom_" + fname + "." + format),
-        (ds["x_img"][i_xmin:i_xmax].m, ds["y_img"][i_ymin:i_ymax].m, (
-        np.fliplr(ds["wf_img"][i_xmin:i_xmax, i_ymin:i_ymax].transpose()),
-        np.fliplr(ds["laser_spot_img"][i_xmin:i_xmax, i_ymin:i_ymax].transpose()),), (wf_cmap, laser_cmap),
+        ds["y_img"].m, ds["x_img"].m, (np.flipud(ds["wf_img"]), np.flipud(ds["laser_spot_img"])), (wf_cmap, laser_cmap),
+        "wfls_" + fname + "." + format),
+        #         (ds["y_img"][i_ymin:i_ymax].m, ds["x_img"][i_xmin:i_xmax].m, (np.flipud(ds["wf_img"][i_xmin:i_xmax,i_ymin:i_ymax]), ), (wf_cmap,), "wfzoom_"+fname+"."+format),
+        (ds["y_img"][i_ymin:i_ymax].m, ds["x_img"][i_xmin:i_xmax].m, (
+        np.flipud(ds["wf_img"][i_xmin:i_xmax, i_ymin:i_ymax]),
+        np.flipud(ds["laser_spot_img"][i_xmin:i_xmax, i_ymin:i_ymax])), (wf_cmap, laser_cmap),
          "wflszoom_" + fname + "." + format),
-        (ds["x"].m, ds["y"].m, (np.flip(ds["Vsrs_g"].m, (0, 1)),), (srs_cmap,), "srs_" + fname + "." + format),
+        (ds["y"].m, ds["x"].m, (np.flipud(np.transpose(ds["Vsrs_g"].m)),), (srs_cmap,), "srs_" + fname + "." + format),
     ]
     for X, Y, Z, cmap, fname in img_data:
         save_single_img(X, Y, Z, cmap, fname, fpath=fpath, xlabel="x (μm)", ylabel="y (μm)", cbar=False,

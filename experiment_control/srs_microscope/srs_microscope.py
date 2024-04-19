@@ -196,7 +196,11 @@ def scan_single_axis(scan_length, axis, step_size, wait=1 * u.s, fsamp = 3*u.Hz,
 
     # Print calculated scan time
     scan_time = (wait + (1/fsamp).to(u.second)*num_avg) * pos_arr.shape[0]
+    start_time = time.time()
+    end_time = start_time + scan_time.m
     print(f"scan time: {scan_time:3.2f}")
+    print(f"start time: {time.ctime(start_time):s}")
+    print(f"stop time: {time.ctime(end_time):s}")
 
     # Create DAQ task
     scan_task = Task(
@@ -380,7 +384,11 @@ def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp):
 
     # Print calculated scan time
     scan_time = (1/fsamp).to(u.second)*nx*ny
+    start_time = time.time()
+    end_time = start_time + scan_time.m
     print(f"scan time: {scan_time:3.2f}")
+    print(f"start time: {time.ctime(start_time):s}")
+    print(f"stop time: {time.ctime(end_time):s}")
 
     # Create dictionary of data to write to each DAQ output channel
     write_data = {
@@ -757,8 +765,8 @@ def plot_scan_data(ds,wf_cmap=cm.binary,laser_cmap=cm.Reds, srs_cmap=cm.inferno)
     
     # Find wf image indices corresponding to scan area, add manual offset to match scan area
     i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
-    x_off = 10
-    y_off = 40
+    x_off = 0#10
+    y_off = 0#40
     i_xmax += x_off
     i_xmin += x_off
     i_ymin += y_off
@@ -823,8 +831,8 @@ def plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.bin
     
     # Find wf image indices corresponding to scan area, add manual offset to match scan area
     i_xmax, i_xmin, i_ymax, i_ymin = scan_volt_to_wf_inds(Vx, Vy, laser_spot_img)
-    x_off = 10
-    y_off = 40
+    x_off = 0#10
+    y_off = 0#40
     i_xmax += x_off
     i_xmin += x_off
     i_ymin += y_off
@@ -875,8 +883,8 @@ def save_scan_images(ds,fname,fpath=False,wf_cmap=cm.binary_r,laser_cmap=cm.wint
     
     # Find wf image indices corresponding to scan area, add manual offset to match scan area
     i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
-    x_off = 10
-    y_off = 40
+    x_off = 0#10
+    y_off = 0#40
     i_xmax += x_off
     i_xmin += x_off
     i_ymin += y_off
@@ -1031,7 +1039,11 @@ def acquire_spectrum(num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_
 
     # Print calculated sweep time
     sweep_time = ((1 / fsamp).to(u.second) * num_avg + tuning_time) * wavelengths.shape[0]
+    start_time = time.time()
+    end_time = start_time + sweep_time
     print(f"sweep time: {sweep_time:3.2f}")
+    print(f"start time: {time.ctime(start_time):s}")
+    print(f"stop time: {time.ctime(end_time):s}")
 
     remove_bs()
 
