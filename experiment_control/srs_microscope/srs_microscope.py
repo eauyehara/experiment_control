@@ -175,7 +175,13 @@ def wf_and_laser_spot_images(exposure_time=3*u.ms):
     return wf_img, laser_spot_img
 
 """ Stage Motion """
-def scan_single_axis(scan_length, axis, step_size, wait=1 * u.s, fsamp = 3*u.Hz, num_avg=10):
+def initialize_stage():
+    # Stage position jumps when initialize - only run if doing stage scan
+    stage = instrument("NanoMax_stage", reopen_policy='reuse')
+    return stage
+
+
+def scan_single_axis(stage, scan_length, axis, step_size, wait=1 * u.s, fsamp = 3*u.Hz, num_avg=10):
     """
     Scan scan_length in [um] along specified axis (x,y,z) from initial position with specified step size (- if backward, + if forward)
     Read photodiode signal (at DAQ ch_Vsrs) at each position
@@ -224,14 +230,11 @@ def scan_single_axis(scan_length, axis, step_size, wait=1 * u.s, fsamp = 3*u.Hz,
     return [pos_arr * u.um, pd_arr * u.V]
 
 
-def knife_edge_scan(scan_length, axis, step_size, wait=1*u.s, num_avg=10, sample_dir=None, name=None):
+def knife_edge_scan(stage, scan_length, axis, step_size, wait=1*u.s, num_avg=10, sample_dir=None, name=None):
     """
     Beam spot size characterization - scans stage and acquires photodiode readings
     :return: ds_spot
     """
-    #Stage position jumps when initialize - only run if doing scan
-    stage = instrument("NanoMax_stage", reopen_policy='reuse')
-
     remove_bs()
 
     # Specify location of data save
@@ -241,7 +244,7 @@ def knife_edge_scan(scan_length, axis, step_size, wait=1*u.s, num_avg=10, sample
     print(fpath)
 
     # Run scan
-    [pos_arr, pd_arr] = scan_single_axis(scan_length, axis, step_size, wait=wait, num_avg=num_avg)
+    [pos_arr, pd_arr] = scan_single_axis(stage, scan_length, axis, step_size, wait=wait, num_avg=num_avg)
 
     # save scan parameters to hdf5
     dump_hdf5(
