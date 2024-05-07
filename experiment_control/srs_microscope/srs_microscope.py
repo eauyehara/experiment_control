@@ -404,9 +404,9 @@ def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp):
     return scan_task, write_data
 
 
-def collect_Rscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exposure_time=10*u.ms):
+def collect_wfscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exposure_time=10*u.ms):
     """
-    Collects reflection scan. 
+    Collects widefield image and scan.
     Runs DAQ task - writes voltage arrays to galvos and reads srs signal / galvo scanner position. Processes data and dumps write_data, read_data, and proc_data to hdf5 file.
     Saves png image of scan. Loads hdf5 file and returns dataset ds. Recenters spot after scan
     :return: ds
@@ -450,9 +450,9 @@ def collect_Rscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exp
     return ds
 
 
-def collect_Tscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,wf_img,laser_spot_img,name=None,sample_dir=None,wf_exposure_time=10*u.ms):
+def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,wf_img,laser_spot_img,name=None,sample_dir=None):
     """
-    Collects trasmission scan. (No trasmission flipper yet - manually acquire widefield/laser spot image beforehand).
+    Collects scan only. (manually acquire widefield/laser spot image beforehand.
     Runs DAQ task - writes voltage arrays to galvos and reads srs signal / galvo scanner position. Processes data and dumps write_data, read_data, and proc_data to hdf5 file.
     Saves png image of scan. Loads hdf5 file and returns dataset ds. Recenters spot after scan
     :return: ds
@@ -463,7 +463,6 @@ def collect_Tscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,wf_img,laser_spot_img,name=None,
     print("saving data to: ")
     print(fpath)
 
-#     wf_img, laser_spot_img = wf_and_laser_spot_images(exposure_time=wf_exposure_time)
     x_img,y_img = img_spatial_axes(laser_spot_img)
 
     #Data here is saved as hdf5 attributes since not arrays
