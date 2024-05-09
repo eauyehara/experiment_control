@@ -1117,6 +1117,10 @@ def continuous_spectrum(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sa
     # Print calculated sweep time
     sweep_time = ((1 / fsamp).to(u.second) * num_samp)
     print(f"sweep time: {sweep_time:3.2f}")
+    start_time = time.time()
+    end_time = start_time + sweep_time.m
+    print(f"start time: {time.ctime(start_time):s}")
+    print(f"stop time: {time.ctime(end_time):s}")
 
     remove_bs()
 
@@ -1133,6 +1137,21 @@ def continuous_spectrum(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sa
 
     dump_hdf5(sweep_data, spath)
     ds_spec = load_hdf5(fpath=spath)
+
+    # Save data to .mat file
+    mat_fname = spath[:-2] + 'mat'
+    file_dir = os.path.join(data_dir, sample_dir, mat_fname)
+
+    data = {'t_lia': ds_spec['t_lia'].to(u.s).m,
+            'fsamp': ds_spec['fsamp'].m,
+            'wav_start': ds_spec['wav_start'].to(u.m).m,
+            'wav_stop': ds_spec['wav_stop'].to(u.m).m,
+            't_sweep': ds_spec['t_sweep'].to(u.s).m,
+            'fixed_wav': ds_spec['fixed_wav'].to(u.m).m,
+            'spec': ds_spec['spec'].m,
+            'wav_mon': ds_spec['wav_mon'].m
+            }
+    io.savemat(file_dir, data)
     return ds_spec
 
 
