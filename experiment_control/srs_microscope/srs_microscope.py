@@ -66,16 +66,16 @@ laser.initialize()
 data_dir = os.path.join(home_dir,"Dropbox (MIT)","POE","srs_microscope_data","srs_microscope_scans")
 
 # Configure DAQ output channels for differential (0V-centered) control of x and y galvo mirrors
-ch_Vx_p, ch_Vx_p_str = daq.ao0, 'Dev2/ao0'
-ch_Vx_n, ch_Vx_n_str = daq.ao1, 'Dev2/ao1'
-ch_Vy_p, ch_Vy_p_str = daq.ao2, 'Dev2/ao2'
-ch_Vy_n, ch_Vy_n_str = daq.ao3, 'Dev2/ao3'
+ch_Vx_p, ch_Vx_p_str = daq.ao0, 'Dev1/ao0'
+ch_Vx_n, ch_Vx_n_str = daq.ao1, 'Dev1/ao1'
+ch_Vy_p, ch_Vy_p_str = daq.ao2, 'Dev1/ao2'
+ch_Vy_n, ch_Vy_n_str = daq.ao3, 'Dev1/ao3'
 
 # Configure DAQ input channels
-ch_Vsrs, ch_Vsrs_str = daq.ai0, 'Dev2/ai0'
-ch_Vx_meas, ch_Vx_meas_str = daq.ai2, 'Dev2/ai2'
-ch_Vy_meas, ch_Vy_meas_str = daq.ai3, 'Dev2/ai3'
-ch_Vmon, ch_Vmon_str = daq.ai20, 'Dev2/ai20'
+ch_Vsrs, ch_Vsrs_str = daq.ai0, 'Dev1/ai0'
+ch_Vx_meas, ch_Vx_meas_str = daq.ai2, 'Dev1/ai2'
+ch_Vy_meas, ch_Vy_meas_str = daq.ai3, 'Dev1/ai3'
+ch_Vmon, ch_Vmon_str = daq.ai20, 'Dev1/ai20'
 
 # Configure filter flipper positions
 ff_pos_in = Position.one
@@ -313,7 +313,7 @@ def preview_scan_area(nx,ny,ΔVx,ΔVy,fsamp, exposure_time=3*u.ms):
     center_spot()
     Vx, Vy = scan_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0)
     wf_img, laser_spot_img = wf_and_laser_spot_images(exposure_time)
-    fig = plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.binary)
+    fig = plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.gray)
     return fig
 
 
@@ -756,7 +756,7 @@ def transparent_cmap(cmap):
     return cmap_tr
 
 
-def plot_scan_data(ds,wf_cmap=cm.binary,laser_cmap=cm.Reds, srs_cmap=cm.inferno):
+def plot_scan_data(ds,wf_cmap=cm.gray,laser_cmap=cm.Reds, srs_cmap=cm.inferno):
     """
     Plot 2x1 subplots with [0] laser spot superimposed on cropped widefield image, and [1] SRS image
     :param ds: from collect_scan()
@@ -791,7 +791,7 @@ def plot_scan_data(ds,wf_cmap=cm.binary,laser_cmap=cm.Reds, srs_cmap=cm.inferno)
     return fig
 
 
-def plot_widefield_img(img, wf_cmap=cm.binary):
+def plot_widefield_img(img, wf_cmap=cm.gray):
     """
     Plot widefield image without scan data or laser
     :param img: from wf_image())
@@ -805,7 +805,7 @@ def plot_widefield_img(img, wf_cmap=cm.binary):
     return fig
 
 
-def plot_laser_widefield_img(wf_img, laser_spot_img, wf_cmap=cm.binary, laser_cmap=cm.Reds):
+def plot_laser_widefield_img(wf_img, laser_spot_img, wf_cmap=cm.gray, laser_cmap=cm.Reds):
     """
     Plot full widefield image with laser spot (no scan data), axis centered around laser spot
     :param img, laser_spot_image: from wf_and_laser_spot_images()
@@ -823,7 +823,7 @@ def plot_laser_widefield_img(wf_img, laser_spot_img, wf_cmap=cm.binary, laser_cm
     return fig
 
 
-def plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.binary, laser_cmap=cm.Reds):
+def plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.gray, laser_cmap=cm.Reds):
     """
     Plot widefield image with laser spot (before acquiring scan data) cropped to scan area, axis centered around laser spot
     :param laser_spot_img: from laser_spot_images(); Vx, Vy: from scan_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0)
@@ -867,9 +867,11 @@ def save_single_img(X,Y,Z,cmap,fname,fpath=False,xlabel="x (μm)",ylabel="y (μm
         # fig.tight_layout()
         if fpath:
             fname=os.path.normpath(os.path.join(fpath,fname))
+        # plt.savefig(fname, dpi=None, facecolor=None, edgecolor=None,
+        #     orientation='portrait', papertype=None, format=format,
+        #     transparent=True, bbox_inches=None, pad_inches=0.5)
         plt.savefig(fname, dpi=None, facecolor=None, edgecolor=None,
-            orientation='portrait', papertype=None, format=format,
-            transparent=True, bbox_inches=None, pad_inches=0.5)
+            orientation='portrait', transparent=True, bbox_inches=None, pad_inches=0.5)
     return fig
 
 
@@ -1084,7 +1086,7 @@ def continuous_spectrum(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sa
     Faster acquisition (i.e. for O-E land) - requires short integration times
     """
     fsamp = (1 / (4 * t_lia)).to(u.Hz)
-    num_samp = np.int(t_sweep.m / (1 / fsamp).m)
+    num_samp = int(t_sweep.m / (1 / fsamp).m)
 
     # Specify location of data save
     sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
