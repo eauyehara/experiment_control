@@ -55,7 +55,7 @@ srs_rc_params = {
 
 """ Initialize instruments """
 daq = instrument("NIDAQ_USB-6259", reopen_policy='reuse')
-ff = instrument("Thorlabs_FilterFlipper", reopen_policy='reuse')
+# ff = instrument("Thorlabs_FilterFlipper", reopen_policy='reuse')
 cam = instrument('Thorlabs_camera', reopen_policy='reuse')
 # stage = instrument("NanoMax_stage", reopen_policy='reuse')
 laser = M2_Solstis()
@@ -1126,7 +1126,7 @@ def continuous_spectrum(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sa
     print(f"start time: {time.ctime(start_time):s}")
     print(f"stop time: {time.ctime(end_time):s}")
 
-    remove_bs()
+#     remove_bs()
 
     read_data = sweep_task.run()  # take num_avg daq readings, append average
 
