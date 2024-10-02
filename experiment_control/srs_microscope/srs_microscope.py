@@ -21,7 +21,8 @@ from scipy import io
 from instrumental import instrument
 from instrumental.drivers.daq.ni import Task # NIDAQ,
 from instrumental.drivers.motion.filter_flipper import Position
-from photonmover.instruments.Lasers.M2_solstis import M2_Solstis
+from photonmover.instruments.Source_meters.Keithley2635A import Keithley2635A
+# from photonmover.instruments.Lasers.M2_solstis import M2_Solstis
 # from instrumental.drivers.lockins import sr844
 
 from ..util.units import Q_, u
@@ -55,15 +56,17 @@ srs_rc_params = {
 
 """ Initialize instruments """
 daq = instrument("NIDAQ_USB-6259", reopen_policy='reuse')
-# ff = instrument("Thorlabs_FilterFlipper", reopen_policy='reuse')
+ff = instrument("Thorlabs_FilterFlipper", reopen_policy='reuse')
 cam = instrument('Thorlabs_camera', reopen_policy='reuse')
+sm = Keithley2635A(current_compliance=100e-9, voltage_compliance=81)
+sm.initialize()
 # stage = instrument("NanoMax_stage", reopen_policy='reuse')
-laser = M2_Solstis()
-laser.initialize()
+# laser = M2_Solstis()
+# laser.initialize()
 
 # Directory for data save
-# data_dir = os.path.join(home_dir,"Documents","data","srs_microscope")
-data_dir = os.path.join(home_dir,"Dropbox (MIT)","POE","srs_microscope_data","srs_microscope_scans")
+data_dir = os.path.join(home_dir,"Documents","data","srs_microscope")
+# data_dir = os.path.join(home_dir,"Dropbox (MIT)","POE","srs_microscope_data","srs_microscope_scans")
 
 # Configure DAQ output channels for differential (0V-centered) control of x and y galvo mirrors
 ch_Vx_p, ch_Vx_p_str = daq.ao0, 'Dev1/ao0'
@@ -76,8 +79,8 @@ ch_Vsrs, ch_Vsrs_str = daq.ai0, 'Dev1/ai0'
 ch_Vx_meas, ch_Vx_meas_str = daq.ai2, 'Dev1/ai2'
 ch_Vy_meas, ch_Vy_meas_str = daq.ai3, 'Dev1/ai3'
 ch_Vmon, ch_Vmon_str = daq.ai20, 'Dev1/ai20'  #O-ELand wavelength monitor in continuous sweep
-ch_stokes_tap, ch_stokes_tap_str = daq.ai21, 'Dev1/ai21'  #Stokes laser power tap
-ch_pump_tap, ch_pump_tap_str = daq.ai22, 'Dev1/ai22'  #Pump laser power tap
+# ch_stokes_tap, ch_stokes_tap_str = daq.ai21, 'Dev1/ai21'  #Stokes laser power tap
+# ch_pump_tap, ch_pump_tap_str = daq.ai22, 'Dev1/ai22'  #Pump laser power tap
 
 # Configure filter flipper positions
 ff_pos_in = Position.one
@@ -991,10 +994,102 @@ def load_data_from_file(sample_dir, filename):
     return ds
 
 """ Spectral Acquisition """
-def acquire_spectrum(num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
+# def acquire_spectrum(num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
+#     """
+#     Acquire spectrum by setting laser wavelength to new wavelength in sweep range (at a fixed spatial point)
+#     Slower acquisition (i.e. for Solstis) - sets wavelength, waits for wavelength to settle before acquiring data
+#     """
+#     # Specify location of data save
+#     sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
+#     spath = new_path(name=name, data_dir=sample_dir, ds_type='Spectra', extension='h5', timestamp=True)
+#     print("saving data to: ")
+#     print(spath)
+#
+#     # Create 1d array of wavelengths
+#     wavelength_set = np.arange(wav_start.m, wav_stop.m + Δwav.m, Δwav.m) * u.nm
+#     wavelength_meas = []
+#
+#
+#     # save sweep parameters to hdf5
+#     dump_hdf5(
+#         {'num_avg': num_avg,
+#          'fsamp': fsamp,
+#          'wav_start': wav_start,
+#          'wav_stop': wav_stop,
+#          'Δwav': Δwav,
+#          'wav_settle_time': wav_settle_time,
+#          'wavelength_set': wavelength_set,
+#          'fixed_wav': fixed_wav
+#          },
+#         spath,
+#         open_mode='x',
+#     )
+#
+#     spec, tap_power = [], []
+#     tuning_time = 15*u.s #estimated wavelength tuning time
+#
+#     # Create DAQ task
+#     sweep_task = Task(
+#         ch_Vsrs
+#     )
+#
+#     # Set DAQ sampling rate and number of samples to write/read (for averaging)
+#     sweep_task.set_timing(fsamp=fsamp, n_samples=num_avg)
+#
+#     # Print calculated sweep time
+#     sweep_time = ((1 / fsamp).to(u.second) * num_avg + tuning_time) * wavelength_set.shape[0]
+#     start_time = time.time()
+#     end_time = start_time + sweep_time.m
+#     print(f"sweep time: {sweep_time:3.2f}")
+#     print(f"start time: {time.ctime(start_time):s}")
+#     print(f"stop time: {time.ctime(end_time):s}")
+#
+#     remove_bs()
+#
+#     # Iterate over wavelengths
+#     for wav in wavelength_set.m:
+#         set_wavelength(wav*u.nm) #Set powermeter wavelength
+#         laser.set_wavelength_instrumental(float(wav)) #Set laser wavelength
+#         time.sleep(wav_settle_time.m)  # Wait for wavelength to settle
+#         wavelength_meas.append(laser.get_wavelength()) #read actual wavelength
+#         read_spec = sweep_task.run() #take num_avg daq readings, append average
+#         time.sleep((1/fsamp).m*num_avg)  #Wait for daq to acquire readings
+#         spec.append(np.mean(read_spec[ch_Vsrs_str].m))
+#         power = get_power()
+#         tap_power.append(power.m)
+#
+#     # Unreserve daq
+#     sweep_task.unreserve()
+#     wavelength_meas = wavelength_meas*u.nm
+#
+#     # Identify pump and stokes wavelengths
+#     if np.max(wavelength_set.m) > fixed_wav.m:
+#         stokes_wav = wavelength_meas
+#         pump_wav = fixed_wav
+#     elif np.max(wavelength_set.m) < fixed_wav.m:
+#         stokes_wav = fixed_wav
+#         pump_wav = wavelength_meas
+#
+#     # Calculate raman shift
+#     raman_shift = (1 / pump_wav - 1 / stokes_wav).to(1 / u.cm)
+#
+#     # Save sweep data to hdf5
+#     sweep_data = {
+#         'spec': spec * u.volt,
+#         'wavelength_meas': wavelength_meas,
+#         'raman_shift': raman_shift,
+#         'tap_power': tap_power * u.W
+#     }
+#     dump_hdf5(sweep_data, spath)
+#
+#     ds_spec = load_hdf5(fpath=spath)
+#     return ds_spec
+
+def acquire_spectrum(wavvolt_file, num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
     """
     Acquire spectrum by setting laser wavelength to new wavelength in sweep range (at a fixed spatial point)
-    Slower acquisition (i.e. for Solstis) - sets wavelength, waits for wavelength to settle before acquiring data
+    Slower acquisition (for VCSEL with sourcemeter)- sets wavelength, waits for wavelength to settle before acquiring data
+    param: wavvolt_file - .mat file with voltage to wavelength calibration
     """
     # Specify location of data save
     sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
@@ -1005,7 +1100,18 @@ def acquire_spectrum(num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_
     # Create 1d array of wavelengths
     wavelength_set = np.arange(wav_start.m, wav_stop.m + Δwav.m, Δwav.m) * u.nm
     wavelength_meas = []
+    volt_set = []
+    volt_meas = []
 
+    # Load wavvolt_file
+    a = io.loadmat(wavvolt_file)
+    wav_calib = a['peak_interp'][0]
+    volt_calib = a['volt_interp'][0]
+
+    # Find voltages corresponding to wavelength_set
+    for wav in wavelength_set.m:
+        ind = np.argmin(np.abs(wav - wav_calib))
+        volt_set.append(volt_calib[ind])
 
     # save sweep parameters to hdf5
     dump_hdf5(
@@ -1022,8 +1128,8 @@ def acquire_spectrum(num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_
         open_mode='x',
     )
 
-    spec, tap_power = [], []
-    tuning_time = 15*u.s #estimated wavelength tuning time
+    spec= []
+    tuning_time = 1*u.s #estimated wavelength tuning time
 
     # Create DAQ task
     sweep_task = Task(
@@ -1045,27 +1151,24 @@ def acquire_spectrum(num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_
 
     # Iterate over wavelengths
     for wav in wavelength_set.m:
-        set_wavelength(wav*u.nm) #Set powermeter wavelength
-        laser.set_wavelength_instrumental(float(wav)) #Set laser wavelength
+        sm.set_voltage(volt_set[wav])
         time.sleep(wav_settle_time.m)  # Wait for wavelength to settle
-        wavelength_meas.append(laser.get_wavelength()) #read actual wavelength
+        volt_meas.append(sm.measure_voltage()) #read actual wavelength
         read_spec = sweep_task.run() #take num_avg daq readings, append average
         time.sleep((1/fsamp).m*num_avg)  #Wait for daq to acquire readings
         spec.append(np.mean(read_spec[ch_Vsrs_str].m))
-        power = get_power()
-        tap_power.append(power.m)
 
     # Unreserve daq
     sweep_task.unreserve()
-    wavelength_meas = wavelength_meas*u.nm
+    # wavelength_meas = wavelength_meas*u.nm
 
     # Identify pump and stokes wavelengths
     if np.max(wavelength_set.m) > fixed_wav.m:
-        stokes_wav = wavelength_meas
+        stokes_wav = wavelength_set
         pump_wav = fixed_wav
     elif np.max(wavelength_set.m) < fixed_wav.m:
         stokes_wav = fixed_wav
-        pump_wav = wavelength_meas
+        pump_wav = wavelength_set
 
     # Calculate raman shift
     raman_shift = (1 / pump_wav - 1 / stokes_wav).to(1 / u.cm)
@@ -1073,9 +1176,9 @@ def acquire_spectrum(num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_
     # Save sweep data to hdf5
     sweep_data = {
         'spec': spec * u.volt,
-        'wavelength_meas': wavelength_meas,
+        # 'wavelength_meas': wavelength_meas,
+        'volt_meas': volt_meas * u.volt,
         'raman_shift': raman_shift,
-        'tap_power': tap_power * u.W
     }
     dump_hdf5(sweep_data, spath)
 
@@ -1158,86 +1261,86 @@ def continuous_spectrum(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sa
     io.savemat(file_dir, data)
     return ds_spec
 
-def continuous_spectrum_tap(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sample_dir=None, name=None):
-    """
-    Acquire spectrum by continuously sweeping wavelength for a specified time interval
-    Faster acquisition (i.e. for O-E land) - requires short integration times
-    Added pump and stokes tap acquisition
-    """
-    fsamp = (1 / (4 * t_lia)).to(u.Hz)
-    num_samp = int(t_sweep.m / (1 / fsamp).m)
-
-    # Specify location of data save
-    sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
-    spath = new_path(name=name, data_dir=sample_dir, ds_type='SpectraSweep', extension='h5', timestamp=True)
-    print("saving data to: ")
-    print(spath)
-
-    # save sweep parameters to hdf5
-    dump_hdf5(
-        {'t_lia': t_lia,
-         'fsamp': fsamp,
-         'wav_start': wav_start,
-         'wav_stop': wav_stop,
-         't_sweep': t_sweep,
-         'fixed_wav': fixed_wav,
-         },
-        spath,
-        open_mode='x',
-    )
-
-    # Create DAQ task
-    sweep_task = Task(
-        ch_Vsrs,
-        ch_Vmon,
-        ch_pump_tap,
-        ch_stokes_tap
-    )
-
-    # Set DAQ sampling rate and number of samples to acquire
-    sweep_task.set_timing(fsamp=fsamp, n_samples=num_samp)
-
-    # Print calculated sweep time
-    sweep_time = ((1 / fsamp).to(u.second) * num_samp)
-    print(f"sweep time: {sweep_time:3.2f}")
-    start_time = time.time()
-    end_time = start_time + sweep_time.m
-    print(f"start time: {time.ctime(start_time):s}")
-    print(f"stop time: {time.ctime(end_time):s}")
-
-    remove_bs()
-
-    read_data = sweep_task.run()  # take num_avg daq readings, append average
-
-    # Unreserve daq
-    sweep_task.unreserve()
-
-    # Save sweep data to hdf5
-    sweep_data = {
-        'spec': read_data[ch_Vsrs_str],
-        'wav_mon': read_data[ch_Vmon_str],
-        'pump_tap': read_data[ch_pump_tap],
-        'stokes_tap': read_data[ch_stokes_tap]
-    }
-
-    dump_hdf5(sweep_data, spath)
-    ds_spec = load_hdf5(fpath=spath)
-
-    # Save data to .mat file
-    mat_fname = spath[:-2] + 'mat'
-    file_dir = os.path.join(data_dir, sample_dir, mat_fname)
-
-    data = {'t_lia': ds_spec['t_lia'].to(u.s).m,
-            'fsamp': ds_spec['fsamp'].m,
-            'wav_start': ds_spec['wav_start'].to(u.m).m,
-            'wav_stop': ds_spec['wav_stop'].to(u.m).m,
-            't_sweep': ds_spec['t_sweep'].to(u.s).m,
-            'fixed_wav': ds_spec['fixed_wav'].to(u.m).m,
-            'spec': ds_spec['spec'].m,
-            'wav_mon': ds_spec['wav_mon'].m
-            }
-    io.savemat(file_dir, data)
-    return ds_spec
+# def continuous_spectrum_tap(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sample_dir=None, name=None):
+#     """
+#     Acquire spectrum by continuously sweeping wavelength for a specified time interval
+#     Faster acquisition (i.e. for O-E land) - requires short integration times
+#     Added pump and stokes tap acquisition
+#     """
+#     fsamp = (1 / (4 * t_lia)).to(u.Hz)
+#     num_samp = int(t_sweep.m / (1 / fsamp).m)
+#
+#     # Specify location of data save
+#     sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
+#     spath = new_path(name=name, data_dir=sample_dir, ds_type='SpectraSweep', extension='h5', timestamp=True)
+#     print("saving data to: ")
+#     print(spath)
+#
+#     # save sweep parameters to hdf5
+#     dump_hdf5(
+#         {'t_lia': t_lia,
+#          'fsamp': fsamp,
+#          'wav_start': wav_start,
+#          'wav_stop': wav_stop,
+#          't_sweep': t_sweep,
+#          'fixed_wav': fixed_wav,
+#          },
+#         spath,
+#         open_mode='x',
+#     )
+#
+#     # Create DAQ task
+#     sweep_task = Task(
+#         ch_Vsrs,
+#         ch_Vmon,
+#         ch_pump_tap,
+#         ch_stokes_tap
+#     )
+#
+#     # Set DAQ sampling rate and number of samples to acquire
+#     sweep_task.set_timing(fsamp=fsamp, n_samples=num_samp)
+#
+#     # Print calculated sweep time
+#     sweep_time = ((1 / fsamp).to(u.second) * num_samp)
+#     print(f"sweep time: {sweep_time:3.2f}")
+#     start_time = time.time()
+#     end_time = start_time + sweep_time.m
+#     print(f"start time: {time.ctime(start_time):s}")
+#     print(f"stop time: {time.ctime(end_time):s}")
+#
+#     remove_bs()
+#
+#     read_data = sweep_task.run()  # take num_avg daq readings, append average
+#
+#     # Unreserve daq
+#     sweep_task.unreserve()
+#
+#     # Save sweep data to hdf5
+#     sweep_data = {
+#         'spec': read_data[ch_Vsrs_str],
+#         'wav_mon': read_data[ch_Vmon_str],
+#         'pump_tap': read_data[ch_pump_tap],
+#         'stokes_tap': read_data[ch_stokes_tap]
+#     }
+#
+#     dump_hdf5(sweep_data, spath)
+#     ds_spec = load_hdf5(fpath=spath)
+#
+#     # Save data to .mat file
+#     mat_fname = spath[:-2] + 'mat'
+#     file_dir = os.path.join(data_dir, sample_dir, mat_fname)
+#
+#     data = {'t_lia': ds_spec['t_lia'].to(u.s).m,
+#             'fsamp': ds_spec['fsamp'].m,
+#             'wav_start': ds_spec['wav_start'].to(u.m).m,
+#             'wav_stop': ds_spec['wav_stop'].to(u.m).m,
+#             't_sweep': ds_spec['t_sweep'].to(u.s).m,
+#             'fixed_wav': ds_spec['fixed_wav'].to(u.m).m,
+#             'spec': ds_spec['spec'].m,
+#             'wav_mon': ds_spec['wav_mon'].m
+#             }
+#     io.savemat(file_dir, data)
+#     return ds_spec
 
 def acquire_point(t_lia, n_rep, pump_wav, stokes_wav, sample_dir=None, name=None):
     """
@@ -1268,8 +1371,8 @@ def acquire_point(t_lia, n_rep, pump_wav, stokes_wav, sample_dir=None, name=None
     # Create DAQ task
     point_task = Task(
         ch_Vsrs,
-        ch_stokes_tap,
-        ch_pump_tap
+        # ch_stokes_tap,
+        # ch_pump_tap
     )
 
     # Set DAQ sampling rate and number of samples to acquire
@@ -1293,8 +1396,8 @@ def acquire_point(t_lia, n_rep, pump_wav, stokes_wav, sample_dir=None, name=None
     # Save point data to hdf5
     point_data = {
         'srs': read_data[ch_Vsrs_str],
-        'pump_tap': read_data[ch_pump_tap_str],
-        'stokes_tap': read_data[ch_stokes_tap_str],
+        # 'pump_tap': read_data[ch_pump_tap_str],
+        # 'stokes_tap': read_data[ch_stokes_tap_str],
     }
 
     dump_hdf5(point_data, spath)
@@ -1309,8 +1412,8 @@ def acquire_point(t_lia, n_rep, pump_wav, stokes_wav, sample_dir=None, name=None
             'pump_wav': ds_point['pump_wav'].to(u.m).m,
             'stokes_wav': ds_point['stokes_wav'].to(u.m).m,
             'srs': ds_point['srs'].m,
-            'pump_tap': ds_point['pump_tap'].m,
-            'stokes_tap': ds_point['stokes_tap'].m
+            # 'pump_tap': ds_point['pump_tap'].m,
+            # 'stokes_tap': ds_point['stokes_tap'].m
             }
     io.savemat(file_dir, data)
     return ds_point
@@ -1318,27 +1421,27 @@ def acquire_point(t_lia, n_rep, pump_wav, stokes_wav, sample_dir=None, name=None
 def plot_spectra(ds_spec, figsize=(10,4.5)):
     raman_shift = ds_spec["raman_shift"]
     spec = ds_spec["spec"]
-    tap_power = ds_spec["tap_power"]
+    # tap_power = ds_spec["tap_power"]
     wavelength_set = ds_spec["wavelength_set"]
-    wavelength_meas = ds_spec["wavelength_meas"]
+    # wavelength_meas = ds_spec["wavelength_meas"]
 
     # Correct for wavelength-dependent power
-    power_corr = tap_power.m / tap_power[0].m
-    spec_corr = spec * power_corr
+    # power_corr = tap_power.m / tap_power[0].m
+    # spec_corr = spec * power_corr
 
-    fig, ax = plt.subplots(3, 1, figsize=figsize)
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
     ax[0].plot(raman_shift.m, spec.m)
     ax[0].set_xlabel("Raman Shift [1/cm]")
     ax[0].set_ylabel("Voltage [V]")
     ax[0].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
 
-    ax[1].plot(wavelength_meas.m, spec.m)
-    ax[1].set_xlabel("Wavelength [nm]")
-    ax[1].set_ylabel("Voltage [V]")
-    ax[1].set_xlim((np.min(wavelength_meas.m), np.max(wavelength_meas.m)))
-
-    ax[2].plot(wavelength_set.m, wavelength_meas.m)
-    ax[2].set_xlabel("Set Wavelength [nm]")
-    ax[2].set_ylabel("Measured Wavelength [nm]")
-    ax[2].set_xlim((np.min(wavelength_set.m), np.max(wavelength_set.m)))
+    # ax[1].plot(wavelength_meas.m, spec.m)
+    # ax[1].set_xlabel("Wavelength [nm]")
+    # ax[1].set_ylabel("Voltage [V]")
+    # ax[1].set_xlim((np.min(wavelength_meas.m), np.max(wavelength_meas.m)))
+    #
+    # ax[2].plot(wavelength_set.m, wavelength_meas.m)
+    # ax[2].set_xlabel("Set Wavelength [nm]")
+    # ax[2].set_ylabel("Measured Wavelength [nm]")
+    # ax[2].set_xlim((np.min(wavelength_set.m), np.max(wavelength_set.m)))
     return fig
