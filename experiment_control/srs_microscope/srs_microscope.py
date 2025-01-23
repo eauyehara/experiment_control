@@ -3,6 +3,7 @@ import time
 import numpy as np
 import sys
 import clr
+# from fontTools.ttLib.tables.otConverters import DeltaValue
 
 sys.path.append(r"C:\Program Files\Thorlabs\Kinesis")
 os.getcwd()
@@ -23,7 +24,6 @@ from instrumental import instrument
 from instrumental.drivers.daq.ni import Task # NIDAQ,
 from instrumental.drivers.motion.filter_flipper import Position
 from instrumental.drivers.motion.BPC203 import BPC203
-# from photonmover.instruments.Source_meters.Keithley2635A import Keithley2635A
 # from photonmover.instruments.Lasers.M2_solstis import M2_Solstis
 # from instrumental.drivers.lockins import sr844
 
@@ -60,8 +60,7 @@ srs_rc_params = {
 daq = instrument("NIDAQ_USB-6259", reopen_policy='reuse')
 ff = instrument("Thorlabs_FilterFlipper", reopen_policy='reuse')
 cam = instrument('Thorlabs_camera', reopen_policy='reuse')
-# sm = Keithley2635A(current_compliance=100e-9, voltage_compliance=81)
-# sm.initialize()
+sm = instrument('Keithley_sm', reopen_policy='reuse',current_compliance=100e-9, voltage_compliance=81)
 stage = instrument("NanoMax_stage", reopen_policy='reuse')
 # laser = M2_Solstis()
 # laser.initialize()
@@ -1092,7 +1091,36 @@ def load_data_from_file(sample_dir, filename):
 #     ds_spec = load_hdf5(fpath=spath)
 #     return ds_spec
 
-def acquire_spectrum(wavvolt_file, num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
+def generate_valid_sweep(wavvolt_file, wav_start, wav_stop, Δwav):
+    """
+    For Praevium VCSEL
+    Checks start and stop wavelengths and generates array of valid wavelengths (omits middle gap)
+    """
+
+    # Load wavvolt_file
+    a = io.loadmat(wavvolt_file)
+    wav_calib = (a['peak_interp'][0] * u.m).to(u.nm)
+    wav_res = wav_calib[1] - wav_calib[0]
+
+    # Generate linear array of nominal wavelengths
+    wl_arr = np.arange(wav_start.to(u.nm).m, wav_stop.to(u.nm).m + 1, Δwav.to(u.nm).m)
+    valid_wl_arr = []
+
+    if Δwav < wav_res:
+        print("Wavelength step below wavelength resolution")
+    else:
+        for wl in wl_arr:
+            # Wavelength out of range
+            if (wl < np.min(wav_calib.m) or (wl > np.max(wav_calib.m)) or (
+                    wl > wav_calib[0].m and wl < wav_calib[-1].m)):
+                pass
+            # Wavelength in range
+            else:
+                valid_wl_arr.append(wl)
+    return valid_wl_arr * u.nm
+
+
+def acquire_spectrum(wavvolt_file, num_avg, t_lia, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
     """
     Acquire spectrum by setting laser wavelength to new wavelength in sweep range (at a fixed spatial point)
     Slower acquisition (for VCSEL with sourcemeter)- sets wavelength, waits for wavelength to settle before acquiring data
@@ -1104,26 +1132,29 @@ def acquire_spectrum(wavvolt_file, num_avg, fsamp, wav_start, wav_stop, Δwav, f
     print("saving data to: ")
     print(spath)
 
-    # Create 1d array of wavelengths
-    wavelength_set = np.arange(wav_start.m, wav_stop.m + Δwav.m, Δwav.m) * u.nm
+    fsamp = (1 / (4 * t_lia)).to(u.Hz)
+
+    # Create array of valid wavelengths
+    wavelength_set = generate_valid_sweep(wavvolt_file, wav_start, wav_stop, Δwav)
     wavelength_meas = []
     volt_set = []
     volt_meas = []
 
     # Load wavvolt_file
     a = io.loadmat(wavvolt_file)
-    wav_calib = a['peak_interp'][0]
-    volt_calib = a['volt_interp'][0]
+    wav_calib =  (a['peak_interp'][0] * u.m).to(u.nm)
+    volt_calib = a['volt_interp'][0]*u.V
 
     # Find voltages corresponding to wavelength_set
     for wav in wavelength_set.m:
-        ind = np.argmin(np.abs(wav - wav_calib))
-        volt_set.append(volt_calib[ind])
+        ind = np.argmin(np.abs(wav - wav_calib.m))
+        volt_set.append(volt_calib[ind].m)
+    volt_set = volt_set * u.V
 
     # save sweep parameters to hdf5
     dump_hdf5(
         {'num_avg': num_avg,
-         'fsamp': fsamp,
+         't_lia': t_lia,
          'wav_start': wav_start,
          'wav_stop': wav_stop,
          'Δwav': Δwav,
@@ -1157,10 +1188,10 @@ def acquire_spectrum(wavvolt_file, num_avg, fsamp, wav_start, wav_stop, Δwav, f
     remove_bs()
 
     # Iterate over wavelengths
-    for wav in wavelength_set.m:
-        sm.set_voltage(volt_set[wav])
+    for (ind,wav) in enumerate(wavelength_set.m):
+        sm.set_voltage(volt_set[ind])
         time.sleep(wav_settle_time.m)  # Wait for wavelength to settle
-        volt_meas.append(sm.measure_voltage()) #read actual wavelength
+        volt_meas.append(sm.measure_voltage().m) #read actual wavelength
         read_spec = sweep_task.run() #take num_avg daq readings, append average
         time.sleep((1/fsamp).m*num_avg)  #Wait for daq to acquire readings
         spec.append(np.mean(read_spec[ch_Vsrs_str].m))
@@ -1179,17 +1210,35 @@ def acquire_spectrum(wavvolt_file, num_avg, fsamp, wav_start, wav_stop, Δwav, f
 
     # Calculate raman shift
     raman_shift = (1 / pump_wav - 1 / stokes_wav).to(1 / u.cm)
-
+    print(volt_meas*u.V)
     # Save sweep data to hdf5
     sweep_data = {
         'spec': spec * u.volt,
         # 'wavelength_meas': wavelength_meas,
-        'volt_meas': volt_meas * u.volt,
-        'raman_shift': raman_shift,
+        'volt_meas': volt_meas * u.V,
+        'volt_set': volt_set * u.V,
+        'raman_shift': raman_shift
     }
     dump_hdf5(sweep_data, spath)
-
     ds_spec = load_hdf5(fpath=spath)
+
+    # Save data to .mat file
+    mat_fname = spath[:-2] + 'mat'
+    file_dir = os.path.join(data_dir, sample_dir, mat_fname)
+    data = {
+            't_lia': ds_spec['t_lia'].m,
+            'num_avg': ds_spec['num_avg'],
+            'wav_start': ds_spec['wav_start'].to(u.m).m,
+            'wav_stop': ds_spec['wav_stop'].to(u.m).m,
+            'dwav': ds_spec['Δwav'].to(u.m).m,
+            'fixed_wav': ds_spec['fixed_wav'].to(u.m).m,
+            'wav_settle_time': ds_spec['wav_settle_time'].to(u.s),
+            'wavelength_set': ds_spec['wavelength_set'].to(u.m).m,
+            'spec': ds_spec['spec'].m,
+            'volt_meas': ds_spec['volt_meas'].m,
+            'raman_shift': ds_spec['raman_shift'].m
+            }
+    io.savemat(file_dir, data)
     return ds_spec
 
 def continuous_spectrum(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sample_dir=None, name=None):
@@ -1438,10 +1487,10 @@ def plot_spectra(ds_spec, figsize=(10,4.5)):
     # spec_corr = spec * power_corr
 
     fig, ax = plt.subplots(1, 1, figsize=figsize)
-    ax[0].plot(raman_shift.m, spec.m)
-    ax[0].set_xlabel("Raman Shift [1/cm]")
-    ax[0].set_ylabel("Voltage [V]")
-    ax[0].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
+    ax.plot(raman_shift.m, spec.m)
+    ax.set_xlabel("Raman Shift [1/cm]")
+    ax.set_ylabel("Voltage [V]")
+    ax.set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
 
     # ax[1].plot(wavelength_meas.m, spec.m)
     # ax[1].set_xlabel("Wavelength [nm]")
