@@ -1091,7 +1091,18 @@ def load_data_from_file(sample_dir, filename):
 #     ds_spec = load_hdf5(fpath=spath)
 #     return ds_spec
 
-def generate_valid_sweep(wavvolt_file, wav_start, wav_stop, Δwav):
+def initialize_osa(wav_start=1030*u.nm, wav_stop=1280*u.nm, rbw=0.1*u.nm, ref_level=-30*u.dimensionless):
+    osa = instrument("hp_osa", reopen_policy='reuse')
+    osa.set_resolution_bandwidth(rbw)
+    osa.set_reference_level(ref_level)
+    span = wav_stop - wav_start
+    center_wl = np.round(span/2) + wav_start
+    osa.set_wavelength_span(span)
+    osa.set_center_wavelength(center_wl)
+    return osa
+
+def generate_valid_sweep(wavvolt_file,
+                         wav_start, wav_stop, Δwav):
     """
     For Praevium VCSEL
     Checks start and stop wavelengths and generates array of valid wavelengths (omits middle gap)
@@ -1120,7 +1131,7 @@ def generate_valid_sweep(wavvolt_file, wav_start, wav_stop, Δwav):
     return valid_wl_arr * u.nm
 
 
-def acquire_spectrum(wavvolt_file, num_avg, t_lia, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
+def acquire_spectrum(osa, wavvolt_file, num_avg, t_lia, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
     """
     Acquire spectrum by setting laser wavelength to new wavelength in sweep range (at a fixed spatial point)
     Slower acquisition (for VCSEL with sourcemeter)- sets wavelength, waits for wavelength to settle before acquiring data
@@ -1136,10 +1147,10 @@ def acquire_spectrum(wavvolt_file, num_avg, t_lia, wav_start, wav_stop, Δwav, f
 
     # Create array of valid wavelengths
     wavelength_set = generate_valid_sweep(wavvolt_file, wav_start, wav_stop, Δwav)
-    wavelength_meas = []
+    pump_wl_meas = []
+    stokes_wl_meas = []
     volt_set = []
     volt_meas = []
-
     # Load wavvolt_file
     a = io.loadmat(wavvolt_file)
     wav_calib =  (a['peak_interp'][0] * u.m).to(u.nm)
@@ -1193,8 +1204,17 @@ def acquire_spectrum(wavvolt_file, num_avg, t_lia, wav_start, wav_stop, Δwav, f
         time.sleep(wav_settle_time.m)  # Wait for wavelength to settle
         volt_meas.append(sm.measure_voltage().m) #read actual wavelength
         read_spec = sweep_task.run() #take num_avg daq readings, append average
+        [pk_wls, _] = osa.get_peak_info()
         time.sleep((1/fsamp).m*num_avg)  #Wait for daq to acquire readings
         spec.append(np.mean(read_spec[ch_Vsrs_str].m))
+        if pk_wls[0].m < pk_wls[1].m:
+            pump_wl_meas.append(pk_wls[0].m)
+            stokes_wl_meas.append(pk_wls[1].m)
+        else:
+            pump_wl_meas.append(pk_wls[1].m)
+            stokes_wl_meas.append(pk_wls[0].m)
+    pump_wl_meas = pump_wl_meas * u.m
+    stokes_wl_meas = stokes_wl_meas * u.m
 
     # Unreserve daq
     sweep_task.unreserve()
@@ -1209,15 +1229,17 @@ def acquire_spectrum(wavvolt_file, num_avg, t_lia, wav_start, wav_stop, Δwav, f
         pump_wav = wavelength_set
 
     # Calculate raman shift
-    raman_shift = (1 / pump_wav - 1 / stokes_wav).to(1 / u.cm)
+    raman_shift = (1 / pump_wl_meas  - 1 / stokes_wl_meas).to(1 / u.cm)
     print(volt_meas*u.V)
+
     # Save sweep data to hdf5
     sweep_data = {
         'spec': spec * u.volt,
-        # 'wavelength_meas': wavelength_meas,
         'volt_meas': volt_meas * u.V,
         'volt_set': volt_set * u.V,
-        'raman_shift': raman_shift
+        'raman_shift': raman_shift,
+        'pump_wl_meas': pump_wl_meas,
+        'stokes_wl_meas': stokes_wl_meas
     }
     dump_hdf5(sweep_data, spath)
     ds_spec = load_hdf5(fpath=spath)
@@ -1232,6 +1254,8 @@ def acquire_spectrum(wavvolt_file, num_avg, t_lia, wav_start, wav_stop, Δwav, f
             'wav_stop': ds_spec['wav_stop'].to(u.m).m,
             'dwav': ds_spec['Δwav'].to(u.m).m,
             'fixed_wav': ds_spec['fixed_wav'].to(u.m).m,
+            'pump_wl_meas': ds_spec['pump_wl_meas'].to(u.m).m,
+            'stokes_wl_meas': ds_spec['stokes_wl_meas'].to(u.m).m,
             'wav_settle_time': ds_spec['wav_settle_time'].to(u.s),
             'wavelength_set': ds_spec['wavelength_set'].to(u.m).m,
             'spec': ds_spec['spec'].m,
