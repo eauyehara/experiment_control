@@ -59,6 +59,7 @@ srs_rc_params = {
 
 """ Initialize instruments """
 daq = instrument("NIDAQ_USB-6259", reopen_policy='reuse')
+daq2 = instrument("NIDAQ_USB-6259_2", reopen_policy='reuse')
 ff = instrument("Thorlabs_FilterFlipper", reopen_policy='reuse')
 cam = instrument('Thorlabs_camera', reopen_policy='reuse')
 sm = instrument('Keithley_sm', reopen_policy='reuse',current_compliance=100e-9, voltage_compliance=81)
@@ -76,14 +77,19 @@ ch_Vx_p, ch_Vx_p_str = daq.ao0, 'Dev1/ao0'
 ch_Vx_n, ch_Vx_n_str = daq.ao1, 'Dev1/ao1'
 ch_Vy_p, ch_Vy_p_str = daq.ao2, 'Dev1/ao2'
 ch_Vy_n, ch_Vy_n_str = daq.ao3, 'Dev1/ao3'
+# Configure DAQ 2 outputs (for sweeping VCSEL)
+ch_VCSEL_MEMS, ch_VCSEL_MEMS_str = daq2.ao1, 'Dev2/ao1'  
+ch_VOA, ch_VOA_str = daq2.ao0, 'Dev2/ao0' #Controls pump power to VCSEL
 
 # Configure DAQ input channels
 ch_Vsrs, ch_Vsrs_str = daq.ai0, 'Dev1/ai0'
 ch_Vx_meas, ch_Vx_meas_str = daq.ai2, 'Dev1/ai2'
 ch_Vy_meas, ch_Vy_meas_str = daq.ai3, 'Dev1/ai3'
 ch_Vmon, ch_Vmon_str = daq.ai20, 'Dev1/ai20'  #O-ELand wavelength monitor in continuous sweep
-# ch_stokes_tap, ch_stokes_tap_str = daq.ai21, 'Dev1/ai21'  #Stokes laser power tap
-ch_pump_tap, ch_pump_tap_str = daq.ai22, 'Dev1/ai22'  #Pump laser power tap
+# Configure DAQ 2 input channels
+ch_Vsrs_2, ch_Vsrs_2_str = daq2.ai0, 'Dev2/ai0' #For spectrum sweeps
+ch_HVA_Vmon, ch_HVA_Vmon_str = daq2.ai1, 'Dev2/ai1' #HVA voltage monitor
+
 
 # Configure filter flipper positions
 ff_pos_in = Position.one
@@ -1126,6 +1132,7 @@ def generate_valid_sweep(wavvolt_file,
             # Wavelength out of range
             if (wl < np.min(wav_calib.m) or (wl > np.max(wav_calib.m)) or (
                     wl > wav_calib[0].m and wl < wav_calib[-1].m)):
+                print(f"Wavelength out of range: {wl:3.2f}")
                 pass
             # Wavelength in range
             else:
@@ -1136,9 +1143,15 @@ def generate_valid_sweep(wavvolt_file,
 def acquire_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_lia, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
     """
     Acquire spectrum by setting laser wavelength to new wavelength in sweep range (at a fixed spatial point)
+        -Source meter for VCSEL wavelength tuning
+        -Power supply for VOA delay compensation
+        -osa read at each step
     Slower acquisition (for VCSEL with sourcemeter)- sets wavelength, waits for wavelength to settle before acquiring data
     param: wavvolt_file - .mat file with voltage to wavelength calibration
+         delayvolt_file - .mat file with VOA voltage per VCSEL MEMS voltage set
     """
+    remove_bs()
+
     # Specify location of data save
     sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
     spath = new_path(name=name, data_dir=sample_dir, ds_type='Spectra', extension='h5', timestamp=True)
@@ -1161,7 +1174,6 @@ def acquire_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_lia
     volt_set = [] # MEMS Voltage
     volt_meas = [] # Measured MEMS Voltage
     VOA_set = [] # VOA Voltage
-    
     
     # Load wavvolt_file
     a = io.loadmat(wavvolt_file)
@@ -1220,8 +1232,6 @@ def acquire_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_lia
     print(f"start time: {time.ctime(start_time):s}")
     print(f"stop time: {time.ctime(end_time):s}")
 
-    remove_bs()
-
     #Shift OSA window around Stokes tuning range
     span = (1330*u.nm) - (1230*u.nm)
     center_wl = np.round(span/2) + 1230*u.nm
@@ -1238,20 +1248,12 @@ def acquire_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_lia
         [pk_wls, _] = osa.get_peak_info()
         time.sleep((1/fsamp).m*num_avg)  #Wait for daq to acquire readings
         spec.append(np.mean(read_spec[ch_Vsrs_str].m))
-        # if pk_wls[0].m < pk_wls[1].m:
-        #     pump_wl_meas.append(pk_wls[0].m)
-        #     stokes_wl_meas.append(pk_wls[1].m)
-        # else:
-        #     pump_wl_meas.append(pk_wls[1].m)
-            # stokes_wl_meas.append(pk_wls[0].m)
     
         stokes_wl_meas.append(pk_wls[0].m)  # Crop window around Stokes tuning, measure maximum peak
- # pump_wl_meas = pump_wl_meas * u.m
     stokes_wl_meas = stokes_wl_meas*u.m
     
     # Unreserve daq
     sweep_task.unreserve()
-    # wavelength_meas = wavelength_meas*u.nm
 
     # Identify pump and stokes wavelengths
     if np.max(wavelength_set.m) > fixed_wav.m:
@@ -1262,14 +1264,14 @@ def acquire_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_lia
         pump_wav = wavelength_set
 
     # Calculate raman shift
-    raman_shift = (1 / pump_wl_meas  - 1 / stokes_wl_meas).to(1 / u.cm)
+    raman_shift = (1 / pump_wav  - 1 / stokes_wav).to(1 / u.cm)
     print(volt_meas*u.V)
 
     # Save sweep data to hdf5
     sweep_data = {
         'spec': spec * u.volt,
         'volt_meas': volt_meas * u.V,
-        'volt_set': volt_set * u.V,
+        'volt_set': volt_set,
         'raman_shift': raman_shift,
         'pump_wl_meas': pump_wl_meas,
         'stokes_wl_meas': stokes_wl_meas
@@ -1299,10 +1301,390 @@ def acquire_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_lia
     io.savemat(file_dir, data)
     return ds_spec
 
-def continuous_spectrum(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sample_dir=None, name=None):
+def HVA_to_daq(HVA_volt, atten=0.09128, volt_limit=70*u.V):
+    # Convert the output HVA voltage (to VCSEL MEMS) to the daq input to the HVA
+    # atten - from voltage divider between daq and HVA
+    V_gain = 100 # For Trek 2210
+    if HVA_volt > volt_limit:
+        print(f"Vset= {HVA_volt:3.2f} exceeds Vlim= {volt_limit:3.2f}. Setting to 0 V.")
+        HVA_volt = 0*u.V
+    daq_volt = HVA_volt / V_gain / atten
+    return daq_volt
+
+def daq_to_HVA(daq_volt, atten=0.09128):
+    # Convert the daq output after the voltage divider to the HVA set for the VCSEL MEMS
+    # atten - from voltage divider between daq and HVA
+    V_gain = 100 # For Trek 2210
+    HVA_volt = daq_volt * V_gain * atten
+    return HVA_volt
+    
+def configure_VCSEL_sweep(daq_Varr, num_sweep):
+    # Given the daq voltages for a single wavelength (forward) sweep, concatenate an array for num_sweep sweeps (forward + back)
+    # Concatenate 2 columns (forward and return scan: length 2*nx) and repeat ny/2 times
+    V_sweep = np.tile(np.concatenate((daq_Varr.m,daq_Varr.m[::-1])),num_sweep)*u.volt
+
+    # Repeat final value in sweep (since analog input read lags analog output write)
+    V_sweep = np.concatenate((V_sweep, [V_sweep[-1]]))
+    return V_sweep
+    
+def VCSEL_step_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_lia, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
+    """
+    Acquire spectrum by stepping laser wavelength to new wavelength in sweep range (at a fixed spatial point)
+        -VCSEL wavlength tuning with DAQ + HVA
+        -VOA delay compenstion with DAQ
+        -osa read at each step
+    Slower acquisition (for VCSEL with sourcemeter)- sets wavelength, waits for wavelength to settle before acquiring data
+    param: 
+        -wavvolt_file - .mat file with voltage to wavelength calibration
+        -delayvolt_file - .mat file with VOA voltage per VCSEL MEMS voltage set
+    """
+    remove_bs()
+    HVA_gain = 100
+
+    # Specify location of data save
+    sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
+    spath = new_path(name=name, data_dir=sample_dir, ds_type='Spectra', extension='h5', timestamp=True)
+    print("saving data to: ")
+    print(spath)
+
+    fsamp = (1 / (4 * t_lia)).to(u.Hz)
+
+    # Read fixed pump wavelength
+    span = 1090*u.nm - 1030*u.nm
+    center_wl = np.round(span/2) + 1030*u.nm
+    osa.set_wavelength_span(span)
+    osa.set_center_wavelength(center_wl)
+    [pk_wls, _] = osa.get_peak_info()
+    
+    # Create array of valid wavelengths
+    wavelength_set = generate_valid_sweep(wavvolt_file, wav_start, wav_stop, Δwav)
+    pump_wl_meas = pk_wls[0] #fixed
+    stokes_wl_meas = []
+    daq_Vset = [] # MEMS Voltage
+    V_mon = [] #HVA scaled Vmon
+    VOA_Vset = [] # VOA Voltage
+    
+    # Load wavvolt_file
+    a = io.loadmat(wavvolt_file)
+    wav_calib =  (a['peak_interp'][0] * u.m).to(u.nm)
+    volt_calib = a['volt_interp'][0]*u.V
+
+    # Load delayvolt_file
+    b = io.loadmat(delayvolt_file)
+    VOA_volt = b['VOA_est_interp'][0]*u.V
+    VCSEL_volt = b['V_MEMSinterp'][0]*u.V 
+
+    # Find voltages corresponding to wavelength_set
+    for wav in wavelength_set.to(u.nm).m:
+        ind = np.argmin(np.abs(wav - wav_calib.to(u.nm).m))
+        daq_Vset.append(HVA_to_daq(volt_calib[ind]).to(u.V).m)
+    daq_Vset = daq_Vset * u.V
+
+    # Find VOA voltage corresponding to VCSEL MEMS voltage set
+    for volt in daq_Vset.to(u.V):
+        ind1 = np.argmin(np.abs(daq_to_HVA(volt).m - VCSEL_volt.m))
+        VOA_Vset.append(VOA_volt[ind1].m)
+    VOA_Vset = VOA_Vset * u.V
+
+    # save sweep parameters to hdf5
+    dump_hdf5(
+        {'num_avg': num_avg,
+         't_lia': t_lia,
+         'sens_lia': sens_lia,
+         'wav_start': wav_start,
+         'wav_stop': wav_stop,
+         'Δwav': Δwav,
+         'wav_settle_time': wav_settle_time,
+         'wavelength_set': wavelength_set,
+         'fixed_wav': fixed_wav
+         },
+        spath,
+        open_mode='x',
+    )
+
+    spec= []
+    tuning_time = 1*u.s #estimated wavelength tuning time
+
+    # Create DAQ task
+    sweep_task = Task(
+        ch_Vsrs_2,
+        ch_HVA_Vmon,
+    )
+
+    # Set DAQ sampling rate and number of samples to write/read (for averaging)
+    sweep_task.set_timing(fsamp=fsamp, n_samples=num_avg)
+
+    # Print calculated sweep time
+    sweep_time = ((1 / fsamp).to(u.second) * num_avg + tuning_time) * wavelength_set.shape[0]
+    start_time = time.time()
+    end_time = start_time + sweep_time.m
+    print(f"sweep time: {sweep_time:3.2f}")
+    print(f"start time: {time.ctime(start_time):s}")
+    print(f"stop time: {time.ctime(end_time):s}")
+
+    #Shift OSA window around Stokes tuning range
+    span = (1330*u.nm) - (1230*u.nm)
+    center_wl = np.round(span/2) + 1230*u.nm
+    osa.set_wavelength_span(span)
+    osa.set_center_wavelength(center_wl)
+
+    # Iterate over wavelengths
+    for (ind,wav) in enumerate(wavelength_set.m):
+        ch_VCSEL_MEMS.write(daq_Vset[ind])
+        ch_VOA.write(VOA_Vset[ind])
+        time.sleep(wav_settle_time.m)  # Wait for wavelength to settle
+        read_spec = sweep_task.run() #take num_avg daq readings, append average
+        [pk_wls, _] = osa.get_peak_info()
+        time.sleep((1/fsamp).m*num_avg)  #Wait for daq to acquire readings
+        spec.append(np.mean(read_spec[ch_Vsrs_2_str].to(u.V).m))
+        V_mon.append(np.mean(read_spec[ch_HVA_Vmon_str].to(u.V).m) * HVA_gain)
+        stokes_wl_meas.append(pk_wls[0].m)  # Crop window around Stokes tuning, measure maximum peak
+    stokes_wl_meas = stokes_wl_meas*u.m
+    V_mon = V_mon*u.V
+    
+    # Unreserve daq
+    sweep_task.unreserve()
+
+    # Identify pump and stokes wavelengths
+    if np.max(wavelength_set.m) > fixed_wav.m:
+        stokes_wav = wavelength_set
+        pump_wav = fixed_wav
+    elif np.max(wavelength_set.m) < fixed_wav.m:
+        stokes_wav = fixed_wav
+        pump_wav = wavelength_set
+
+    # Calculate raman shift
+    raman_shift = (1 / pump_wav  - 1 / stokes_wav).to(1 / u.cm)
+
+    # Save sweep data to hdf5
+    sweep_data = {
+        'spec': spec * u.volt,
+        'daq_Vset': daq_Vset, #daq output
+        'HVA_Vset': daq_to_HVA(daq_Vset), #Set HVA output
+        'VOA_Vset': VOA_Vset,
+        'V_mon': V_mon, #voltage mon
+        'raman_shift': raman_shift,
+        'pump_wl_meas': pump_wl_meas,
+        'stokes_wl_meas': stokes_wl_meas
+    }
+    dump_hdf5(sweep_data, spath)
+    ds_spec = load_hdf5(fpath=spath)
+
+    # Save data to .mat file
+    mat_fname = spath[:-2] + 'mat'
+    file_dir = os.path.join(data_dir, sample_dir, mat_fname)
+    data = {
+            't_lia': ds_spec['t_lia'].to(u.s).m,
+            'sens_lia': ds_spec['sens_lia'].to(u.V).m,
+            'num_avg': ds_spec['num_avg'],
+            'wav_start': ds_spec['wav_start'].to(u.m).m,
+            'wav_stop': ds_spec['wav_stop'].to(u.m).m,
+            'dwav': ds_spec['Δwav'].to(u.m).m,
+            'fixed_wav': ds_spec['fixed_wav'].to(u.m).m,
+            'pump_wl_meas': ds_spec['pump_wl_meas'].to(u.m).m,
+            'stokes_wl_meas': ds_spec['stokes_wl_meas'].to(u.m).m,
+            'wav_settle_time': ds_spec['wav_settle_time'].to(u.s).m,
+            'wavelength_set': ds_spec['wavelength_set'].to(u.m).m,
+            'daq_Vset': ds_spec['daq_Vset'].to(u.V).m,
+            'HVA_Vset': ds_spec['HVA_Vset'].to(u.V).m,
+            'V_mon': ds_spec['V_mon'].to(u.V).m,
+            'VOA_Vset': ds_spec['VOA_Vset'].to(u.V).m,
+            'spec': ds_spec['spec'].to(u.V).m,
+            'raman_shift': ds_spec['raman_shift'].to(1/u.cm).m
+            }
+    io.savemat(file_dir, data)
+    return ds_spec
+
+def VCSEL_sweep_spectrum(wavvolt_file, delayvolt_file, num_sweep, t_lia, sens_lia, wav_start, wav_stop, Δwav, fixed_wav,sample_dir=None, name=None):
+    """
+    Acquire spectrum by continuously sweeping VCSEL wavelength and VOA voltage over specified range (faster acquisition)
+        -VCSEL wavlength tuning with DAQ + HVA
+        -VOA delay compenstion with DAQ
+    No active wavelength monitoring
+    param: 
+        -wavvolt_file - .mat file with voltage to wavelength calibration
+        -delayvolt_file - .mat file with VOA voltage per VCSEL MEMS voltage set
+        -num_sweep - number of full period sweeps (forward + backward sweep)
+    """
+    remove_bs()
+    
+    # Specify location of data save
+    sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
+    spath = new_path(name=name, data_dir=sample_dir, ds_type='Spectra', extension='h5', timestamp=True)
+    print("saving data to: ")
+    print(spath)
+    
+    # Create array of valid wavelengths
+    wavelength_set = generate_valid_sweep(wavvolt_file, wav_start, wav_stop, Δwav)
+
+    daq_Vset = [] # MEMS Voltage
+    VOA_Vset = [] # VOA Voltage
+
+    # Assign pump and Stokes wavelengths
+    stokes_wav = wavelength_set
+    pump_wav = fixed_wav
+
+    fsamp = (1 / (4 * t_lia)).to(u.Hz)
+
+    # Load wavvolt_file
+    a = io.loadmat(wavvolt_file)
+    wav_calib =  (a['peak_interp'][0] * u.m).to(u.nm)
+    volt_calib = a['volt_interp'][0]*u.V
+
+    # Load delayvolt_file
+    b = io.loadmat(delayvolt_file)
+    VOA_volt = b['VOA_est_interp'][0]*u.V
+    VCSEL_volt = b['V_MEMSinterp'][0]*u.V 
+
+    # Find voltages corresponding to wavelength_set
+    for wav in wavelength_set.to(u.nm).m:
+        ind = np.argmin(np.abs(wav - wav_calib.m))
+        daq_Vset.append(HVA_to_daq(volt_calib[ind]).to(u.V).m)
+    daq_Vset = daq_Vset * u.V
+    V_MEMS_sweep = configure_VCSEL_sweep(daq_Vset, num_sweep)
+
+    # Find VOA voltage corresponding to VCSEL MEMS voltage set
+    for volt in daq_Vset.to(u.V):
+        ind1 = np.argmin(np.abs(daq_to_HVA(volt).m - VCSEL_volt.m))
+        VOA_Vset.append(VOA_volt[ind1].m)
+    VOA_Vset = VOA_Vset * u.V
+    V_VOA_sweep = configure_VCSEL_sweep(VOA_Vset, num_sweep)
+
+    num_samp = V_VOA_sweep.shape[0]
+
+    # save sweep parameters to hdf5
+    dump_hdf5(
+        {'num_sweep': num_sweep,
+         't_lia': t_lia,
+         'sens_lia': sens_lia,
+         'wav_start': wav_start,
+         'wav_stop': wav_stop,
+         'Δwav': Δwav,
+         'wavelength_set': wavelength_set,
+         'pump_wav': pump_wav
+         },
+        spath,
+        open_mode='x',
+    )
+
+    write_data = {
+        ch_VCSEL_MEMS_str: V_MEMS_sweep,
+        ch_VOA_str: V_VOA_sweep
+    }
+
+    # Create DAQ task
+    sweep_task = Task(
+        ch_Vsrs_2,
+        ch_HVA_Vmon,
+        ch_VCSEL_MEMS,
+        ch_VOA
+    )
+
+    # Set DAQ sampling rate and number of samples to write/read (for averaging)
+    sweep_task.set_timing(fsamp=fsamp, n_samples=num_samp)
+
+    # Print calculated sweep time
+    sweep_time = (1 / fsamp).to(u.second) * num_samp
+    start_time = time.time()
+    end_time = start_time + sweep_time.m
+    print(f"sweep time: {sweep_time:3.2f}")
+    print(f"start time: {time.ctime(start_time):s}")
+    print(f"stop time: {time.ctime(end_time):s}")
+
+    dump_hdf5(write_data, spath)
+    read_data = sweep_task.run(write_data)
+    dump_hdf5(read_data, spath)
+    proc_data = unwrap_sweep(read_data, num_sweep, wavelength_set, wavvolt_file)
+    dump_hdf5(proc_data, spath)
+    
+    # Unreserve daq
+    sweep_task.unreserve()
+
+    # Calculate raman shift
+    raman_shift = (1 / pump_wav  - 1 / stokes_wav).to(1 / u.cm)
+
+    # Save sweep data to hdf5
+    sweep_data = {
+        'HVA_Vraw': read_data[ch_HVA_Vmon_str],
+        'Vsrs_Vraw': read_data[ch_Vsrs_2_str],
+        'HVA_Vset': daq_to_HVA(daq_Vset),
+        'VOA_Vset': VOA_Vset,
+        'raman_shift': raman_shift,
+    }
+    dump_hdf5(sweep_data, spath)
+    ds_spec = load_hdf5(fpath=spath)
+
+    # Save data to .mat file
+    mat_fname = spath[:-2] + 'mat'
+    file_dir = os.path.join(data_dir, sample_dir, mat_fname)
+    data = {
+            't_lia': ds_spec['t_lia'].to(u.s).m,
+            'sens_lia': ds_spec['sens_lia'].to(u.V).m,
+            'num_sweep': ds_spec['num_sweep'],
+            'wav_start': ds_spec['wav_start'].to(u.m).m,
+            'wav_stop': ds_spec['wav_stop'].to(u.m).m,
+            'dwav': ds_spec['Δwav'].to(u.m).m,
+            'pump_wav': ds_spec['pump_wav'].to(u.m).m,
+            'wavelength_set': ds_spec['wavelength_set'].to(u.m).m,
+            'Vsrs_arr': ds_spec['Vsrs_arr'].to(u.V).m,
+            'HV_arr': ds_spec['HV_arr'].to(u.V).m,
+            'Vsrs_interp_arr': ds_spec['Vsrs_interp_arr'].to(u.V).m,
+            'raman_shift': ds_spec['raman_shift'].to(1/u.cm).m,
+            'VOA_Vset': ds_spec['VOA_Vset'].to(u.V).m,
+            'HVA_Vset': ds_spec['HVA_Vset'].to(u.V).m,
+            'HVA_Vraw': ds_spec['HVA_Vraw'].to(u.V).m,
+            'Vsrs_Vraw': ds_spec['Vsrs_Vraw'].to(u.V).m
+            }
+    io.savemat(file_dir, data)
+    return ds_spec
+    
+def unwrap_sweep(read_data, num_sweep, wavelength_set, wavvolt_file, HVA_gain=100):
+    # Input: 1d wrapped spectra from daq
+    # Return: proc_data struct with 2d arrays (num_sweep*2 rows by spectra length columns)
+
+   
+    Vsrs = read_data[ch_Vsrs_2_str][1:]  # Discard 1st analog input read (taken before analog output settles)
+    HV = read_data[ch_HVA_Vmon_str][:-1]*HVA_gain # Discard last analog input read (reversed from ai0)
+
+    # Unwrap sweeps to 2d array
+    Vsrs_arr = np.reshape(np.array(Vsrs.to(u.V).m), (num_sweep*2, len(wavelength_set)))
+    HV_arr = np.reshape(np.array(HV.to(u.V).m), (num_sweep*2, len(wavelength_set)))
+    wav_est_arr = np.zeros(HV_arr.shape)
+    Vsrs_interp_arr = np.zeros(HV_arr.shape)
+    
+    # Odd rows are backward sweeps - flip
+    for row in range(Vsrs_arr.shape[0]):
+        if row % 2 != 0:
+            Vsrs_arr[row,:] = Vsrs_arr[row,::-1]
+            HV_arr[row,:] = HV_arr[row,::-1]
+    
+    # Calibrate voltage to wavelength
+    a = io.loadmat(wavvolt_file)
+    wav_calib =  (a['peak_interp'][0] * u.m).to(u.nm)
+    volt_calib = a['volt_interp'][0]*u.V
+
+
+    # Find wavelengths corresponding to measured voltage 
+    for sweep_iter in range(HV_arr.shape[0]):
+        for wl in range(HV_arr.shape[1]):
+            ind = np.argmin(np.abs(HV_arr[sweep_iter, wl] - volt_calib.m))
+            wav_est_arr[sweep_iter, wl] = wav_calib[ind].m
+        # Interpolate wavelength vs spectra to uniformly sample in wavelength
+        Vsrs_interp_arr[sweep_iter] = np.interp(wavelength_set.to(u.nm).m, wav_est_arr[sweep_iter], Vsrs_arr[sweep_iter])
+    
+    proc_data = {
+        "Vsrs_arr": Vsrs_arr * u.V,
+        "HV_arr": HV_arr * u.V,
+        "wav_est_arr": wav_est_arr * u.nm,
+        "Vsrs_interp_arr": Vsrs_interp_arr * u.V
+    }
+    return proc_data
+
+
+def continuous_spectrum(t_lia, sens_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sample_dir=None, name=None):
     """
     Acquire spectrum by continuously sweeping wavelength for a specified time interval
-    Faster acquisition (i.e. for O-E land) - requires short integration times
+    Faster acquisition (i.e. for O-E land) - requires short LIA time constants
     """
     fsamp = (1 / (4 * t_lia)).to(u.Hz)
     num_samp = int(t_sweep.m / (1 / fsamp).m)
@@ -1316,6 +1698,7 @@ def continuous_spectrum(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sa
     # save sweep parameters to hdf5
     dump_hdf5(
         {'t_lia': t_lia,
+         'sens_lia': sens_lia,
          'fsamp': fsamp,
          'wav_start': wav_start,
          'wav_stop': wav_stop,
@@ -1364,6 +1747,7 @@ def continuous_spectrum(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sa
     file_dir = os.path.join(data_dir, sample_dir, mat_fname)
 
     data = {'t_lia': ds_spec['t_lia'].to(u.s).m,
+            'sens_lia': ds_spec['sens_lia'].to(u.V).m,
             'fsamp': ds_spec['fsamp'].m,
             'wav_start': ds_spec['wav_start'].to(u.m).m,
             'wav_stop': ds_spec['wav_stop'].to(u.m).m,
@@ -1375,87 +1759,6 @@ def continuous_spectrum(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sa
     io.savemat(file_dir, data)
     return ds_spec
 
-def continuous_spectrum_tap(t_lia, wav_start, wav_stop, fixed_wav, t_sweep=60*u.s,sample_dir=None, name=None):
-    """
-    Acquire spectrum by continuously sweeping wavelength for a specified time interval
-    Faster acquisition (i.e. for O-E land) - requires short integration times
-    Added pump and stokes tap acquisition
-    """
-    fsamp = (1 / (4 * t_lia)).to(u.Hz)
-    num_samp = int(t_sweep.m / (1 / fsamp).m)
-
-    # Specify location of data save
-    sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
-    spath = new_path(name=name, data_dir=sample_dir, ds_type='SpectraSweep', extension='h5', timestamp=True)
-    print("saving data to: ")
-    print(spath)
-
-    # save sweep parameters to hdf5
-    dump_hdf5(
-        {'t_lia': t_lia,
-         'fsamp': fsamp,
-         'wav_start': wav_start,
-         'wav_stop': wav_stop,
-         't_sweep': t_sweep,
-         'fixed_wav': fixed_wav,
-         },
-        spath,
-        open_mode='x',
-    )
-
-    # Create DAQ task
-    sweep_task = Task(
-        ch_Vsrs,
-        ch_Vmon,
-        ch_pump_tap,
-        # ch_stokes_tap
-    )
-
-    # Set DAQ sampling rate and number of samples to acquire
-    sweep_task.set_timing(fsamp=fsamp, n_samples=num_samp)
-
-    # Print calculated sweep time
-    sweep_time = ((1 / fsamp).to(u.second) * num_samp)
-    print(f"sweep time: {sweep_time:3.2f}")
-    start_time = time.time()
-    end_time = start_time + sweep_time.m
-    print(f"start time: {time.ctime(start_time):s}")
-    print(f"stop time: {time.ctime(end_time):s}")
-
-    remove_bs()
-
-    read_data = sweep_task.run()  # take num_avg daq readings, append average
-
-    # Unreserve daq
-    sweep_task.unreserve()
-
-    # Save sweep data to hdf5
-    sweep_data = {
-        'spec': read_data[ch_Vsrs_str],
-        'wav_mon': read_data[ch_Vmon_str],
-        'pump_tap': read_data[ch_pump_tap],
-        # 'stokes_tap': read_data[ch_stokes_tap]
-    }
-
-    dump_hdf5(sweep_data, spath)
-    ds_spec = load_hdf5(fpath=spath)
-
-    # Save data to .mat file
-    mat_fname = spath[:-2] + 'mat'
-    file_dir = os.path.join(data_dir, sample_dir, mat_fname)
-
-    data = {'t_lia': ds_spec['t_lia'].to(u.s).m,
-            'fsamp': ds_spec['fsamp'].m,
-            'wav_start': ds_spec['wav_start'].to(u.m).m,
-            'wav_stop': ds_spec['wav_stop'].to(u.m).m,
-            't_sweep': ds_spec['t_sweep'].to(u.s).m,
-            'fixed_wav': ds_spec['fixed_wav'].to(u.m).m,
-            'spec': ds_spec['spec'].m,
-            'wav_mon': ds_spec['wav_mon'].m,
-            'pump_tap': ds_spec['pump_tap'].m
-            }
-    io.savemat(file_dir, data)
-    return ds_spec
 
 def acquire_point(t_lia, n_rep, pump_wav, stokes_wav, sample_dir=None, name=None):
     """
