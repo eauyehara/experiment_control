@@ -68,6 +68,13 @@ stage = instrument("NanoMax_stage", reopen_policy='reuse')
 # laser = M2_Solstis()
 # laser.initialize()
 
+# Directory for calibration data
+calib_dir = os.path.join(home_dir, "experiment_control","calibration_data","VCSEL_calibration")
+# Calibration files
+wavvolt_file = os.path.join(calib_dir, "wavvolt-trunc_Dev1a_25C_OEland1076_5.72mW_2025-3-17.mat")
+delayvolt_file =os.path.join(calib_dir, "delayvolt3.mat")
+HV_calib_file = os.path.join(calib_dir, "HV_calib.mat")
+
 # Directory for data save
 data_dir = os.path.join(home_dir,"Documents","data","srs_microscope")
 # data_dir = os.path.join(home_dir,"Dropbox (MIT)","POE","srs_microscope_data","srs_microscope_scans")
@@ -1140,7 +1147,7 @@ def generate_valid_sweep(wavvolt_file,
     return valid_wl_arr * u.nm
 
 
-def acquire_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_lia, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
+def acquire_spectrum(osa, num_avg, t_lia, sens_lia, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None,  wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file):
     """
     Acquire spectrum by setting laser wavelength to new wavelength in sweep range (at a fixed spatial point)
         -Source meter for VCSEL wavelength tuning
@@ -1301,22 +1308,32 @@ def acquire_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_lia
     io.savemat(file_dir, data)
     return ds_spec
 
-def HVA_to_daq(HVA_volt, atten=0.09128, volt_limit=70*u.V):
+def HVA_to_daq(HVA_volt, HV_calib_file=HV_calib_file, atten=0.09128, volt_limit=70*u.V):
     # Convert the output HVA voltage (to VCSEL MEMS) to the daq input to the HVA
     # atten - from voltage divider between daq and HVA
-    V_gain = 100 # For Trek 2210
+    V_gain = 100 # For Trek 2210 
+    a = io.loadmat(HV_calib_file)  # Load HV_calib_file
+    HV_set_interp =  (a['HV_set_interp'][0] * u.V)
+    HV_calib = a['HV_calib_interp'][0]*u.dimensionless
+    ind = np.argmin(np.abs(HV_set_interp.to(u.V).m - HVA_volt.to(u.V).m))
+    HV_calib_factor = HV_calib[ind]
     if HVA_volt > volt_limit:
         print(f"Vset= {HVA_volt:3.2f} exceeds Vlim= {volt_limit:3.2f}. Setting to 0 V.")
         HVA_volt = 0*u.V
-    daq_volt = HVA_volt / V_gain / atten
+    daq_volt = HVA_volt / V_gain / atten * HV_calib_factor
     return daq_volt
 
-def daq_to_HVA(daq_volt, atten=0.09128):
-    # Convert the daq output after the voltage divider to the HVA set for the VCSEL MEMS
-    # atten - from voltage divider between daq and HVA
-    V_gain = 100 # For Trek 2210
-    HVA_volt = daq_volt * V_gain * atten
-    return HVA_volt
+# def daq_to_HVA(daq_volt, HV_calib_file=HV_calib_file, atten=0.09128):
+#     # Convert the daq output after the voltage divider to the HVA set for the VCSEL MEMS
+#     # atten - from voltage divider between daq and HVA
+#     V_gain = 100 # For Trek 2210
+#     a = io.loadmat(HV_calib_file)  # Load HV_calib_file
+#     HV_set_interp =  (a['HV_set_interp'][0] * u.V)
+#     HV_calib = a['HV_calib_interp'][0]*u.dimensionless
+#     ind = np.argmin(np.abs(HV_set_interp.to(u.V).m - HVA_volt.to(u.V).m))
+#     HV_calib_factor = HV_calib[ind]
+#     HVA_volt = daq_volt * V_gain * atten / HV_calib_factor
+#     return HVA_volt
     
 def configure_VCSEL_sweep(daq_Varr, num_sweep):
     # Given the daq voltages for a single wavelength (forward) sweep, concatenate an array for num_sweep sweeps (forward + back)
@@ -1327,7 +1344,7 @@ def configure_VCSEL_sweep(daq_Varr, num_sweep):
     V_sweep = np.concatenate((V_sweep, [V_sweep[-1]]))
     return V_sweep
     
-def VCSEL_step_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_lia, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
+def VCSEL_step_spectrum(osa, num_avg, t_lia, sens_lia, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None,  wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file):
     """
     Acquire spectrum by stepping laser wavelength to new wavelength in sweep range (at a fixed spatial point)
         -VCSEL wavlength tuning with DAQ + HVA
@@ -1360,7 +1377,8 @@ def VCSEL_step_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_
     wavelength_set = generate_valid_sweep(wavvolt_file, wav_start, wav_stop, Δwav)
     pump_wl_meas = pk_wls[0] #fixed
     stokes_wl_meas = []
-    daq_Vset = [] # MEMS Voltage
+    daq_Vset = [] # MEMS Voltage (input to HVA)
+    HVA_Vset = [] # MEMS Voltage
     V_mon = [] #HVA scaled Vmon
     VOA_Vset = [] # VOA Voltage
     
@@ -1377,12 +1395,14 @@ def VCSEL_step_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_
     # Find voltages corresponding to wavelength_set
     for wav in wavelength_set.to(u.nm).m:
         ind = np.argmin(np.abs(wav - wav_calib.to(u.nm).m))
+        HVA_Vset.append(volt_calib[ind].to(u.V).m)
         daq_Vset.append(HVA_to_daq(volt_calib[ind]).to(u.V).m)
     daq_Vset = daq_Vset * u.V
+    HVA_Vset = HVA_Vset * u.V
 
     # Find VOA voltage corresponding to VCSEL MEMS voltage set
-    for volt in daq_Vset.to(u.V):
-        ind1 = np.argmin(np.abs(daq_to_HVA(volt).m - VCSEL_volt.m))
+    for volt in HVA_Vset.to(u.V):
+        ind1 = np.argmin(np.abs(volt.m - VCSEL_volt.m))
         VOA_Vset.append(VOA_volt[ind1].m)
     VOA_Vset = VOA_Vset * u.V
 
@@ -1460,7 +1480,7 @@ def VCSEL_step_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_
     sweep_data = {
         'spec': spec * u.volt,
         'daq_Vset': daq_Vset, #daq output
-        'HVA_Vset': daq_to_HVA(daq_Vset), #Set HVA output
+        'HVA_Vset': HVA_Vset, #Set HVA output
         'VOA_Vset': VOA_Vset,
         'V_mon': V_mon, #voltage mon
         'raman_shift': raman_shift,
@@ -1495,7 +1515,7 @@ def VCSEL_step_spectrum(osa, wavvolt_file, delayvolt_file, num_avg, t_lia, sens_
     io.savemat(file_dir, data)
     return ds_spec
 
-def VCSEL_sweep_spectrum(wavvolt_file, delayvolt_file, num_sweep, t_lia, sens_lia, wav_start, wav_stop, Δwav, fixed_wav,sample_dir=None, name=None):
+def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia, fixed_wav,sample_dir=None, name=None, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, HV_calib_file=HV_calib_file):
     """
     Acquire spectrum by continuously sweeping VCSEL wavelength and VOA voltage over specified range (faster acquisition)
         -VCSEL wavlength tuning with DAQ + HVA
@@ -1517,7 +1537,8 @@ def VCSEL_sweep_spectrum(wavvolt_file, delayvolt_file, num_sweep, t_lia, sens_li
     # Create array of valid wavelengths
     wavelength_set = generate_valid_sweep(wavvolt_file, wav_start, wav_stop, Δwav)
 
-    daq_Vset = [] # MEMS Voltage
+    daq_Vset = [] # MEMS Voltage (input to HVA)
+    HVA_Vset = [] # MEMS Voltage
     VOA_Vset = [] # VOA Voltage
 
     # Assign pump and Stokes wavelengths
@@ -1539,18 +1560,24 @@ def VCSEL_sweep_spectrum(wavvolt_file, delayvolt_file, num_sweep, t_lia, sens_li
     # Find voltages corresponding to wavelength_set
     for wav in wavelength_set.to(u.nm).m:
         ind = np.argmin(np.abs(wav - wav_calib.m))
+        HVA_Vset.append(volt_calib[ind].to(u.V).m)
         daq_Vset.append(HVA_to_daq(volt_calib[ind]).to(u.V).m)
     daq_Vset = daq_Vset * u.V
+    HVA_Vset = HVA_Vset * u.V
     V_MEMS_sweep = configure_VCSEL_sweep(daq_Vset, num_sweep)
 
     # Find VOA voltage corresponding to VCSEL MEMS voltage set
-    for volt in daq_Vset.to(u.V):
-        ind1 = np.argmin(np.abs(daq_to_HVA(volt).m - VCSEL_volt.m))
-        VOA_Vset.append(VOA_volt[ind1].m)
+    for volt in HVA_Vset.to(u.V):
+        ind1 = np.argmin(np.abs(volt.m - VCSEL_volt.to(u.V).m))
+        VOA_Vset.append(VOA_volt[ind1].to(u.V).m)
     VOA_Vset = VOA_Vset * u.V
     V_VOA_sweep = configure_VCSEL_sweep(VOA_Vset, num_sweep)
 
     num_samp = V_VOA_sweep.shape[0]
+
+    #Initialize to first voltages in sweep
+    ch_VCSEL_MEMS.write(V_MEMS_sweep[0])
+    ch_VOA.write(V_VOA_sweep[0])
 
     # save sweep parameters to hdf5
     dump_hdf5(
@@ -1607,7 +1634,7 @@ def VCSEL_sweep_spectrum(wavvolt_file, delayvolt_file, num_sweep, t_lia, sens_li
     sweep_data = {
         'HVA_Vraw': read_data[ch_HVA_Vmon_str],
         'Vsrs_Vraw': read_data[ch_Vsrs_2_str],
-        'HVA_Vset': daq_to_HVA(daq_Vset),
+        'HVA_Vset': HVA_Vset,
         'VOA_Vset': VOA_Vset,
         'raman_shift': raman_shift,
     }
