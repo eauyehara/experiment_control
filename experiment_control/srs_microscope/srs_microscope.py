@@ -1014,6 +1014,155 @@ def load_data_from_file(sample_dir, filename):
     ds = load_hdf5(fpath=file_dir)
     return ds
 
+"""Calibration Curves"""
+def generate_wavvolt(voltage_list, osa_settings, num_avg, sample_dir=None, name=None):
+    """
+    Sweeps daq2 + HVA voltages to generate VCSEL tunings curve, reads OSA spectrum
+    :param: 
+        - voltage_list - list of VCSEL voltages
+        - osa_settings - dict of RBW, wav_start, wav_stop, ref_level
+        - num_avg - # of voltage reads to average
+    :return: ds
+    """
+    #Specify location of data save
+    sample_dir = resolve_sample_dir(sample_dir, data_dir=calib_dir)
+    fpath = new_path(name=name,data_dir=sample_dir,ds_type='wavvoltdata',extension='h5',timestamp=True)
+    print("saving data to: ")
+    print(fpath)
+
+    # Configure OSA
+    osa = instrument("hp_osa", reopen_policy='reuse')
+    osa.set_resolution_bandwidth(osa_settings["rbw"])
+    osa.set_reference_level(osa_settings["ref_level"])
+    span = osa_settings["wav_stop"] - osa_settings["wav_start"]
+    center_wl = np.round(span/2) + osa_settings["wav_start"]
+    osa.set_wavelength_span(span)
+    osa.set_center_wavelength(center_wl)
+    
+    # sweep_time = osa.get_sweep_time()
+    wavelength, _ = osa.get_spectrum()
+    trace_len = wavelength.shape[0]
+    
+    # Initialize lists for data save
+    meas_volt_list = []
+    pk_wl_list = []
+    spectrum_array = np.array(np.zeros((len(voltage_list), int(trace_len))))
+
+    # Sweep power supply voltage and get osa trace
+    for ind, volt in enumerate(voltage_list):
+        print('Voltage set: %.4f V...' % volt.to(u.V).m)
+        # Set the voltage
+        ch_VCSEL_MEMS.write(HVA_to_daq(volt))
+
+        # Wait [s]
+        time.sleep(0.5)
+        meas_volt_rep = []
+        for iter in range(num_avg):
+            meas_volt = daq_to_HVA(ch_HVA_Vmon.read())
+            # time.sleep(0.3)
+            meas_volt_rep.append(meas_volt.to(u.V).m) #[V]
+        # print(meas_volt_rep)
+        meas_volt_list.append(np.mean(meas_volt_rep)) #[V]
+        print('Voltage measured: %0.4f V' % meas_volt_list[ind])
+        
+        # Wait [s]
+        # time.sleep(0.5)
+        # time.sleep(sweep_time.m)
+
+        #Read osa spectrum and store in wavelength_array
+        _, spectra = osa.get_spectrum()
+        # time.sleep(sweep_time.m)
+        spectrum_array[ind, :] = np.reshape(spectra, (1, int(trace_len)))
+        pk_ind = np.argmax(spectrum_array[ind,:])
+        pk_wl_list.append(wavelength[pk_ind].to(u.m).m)
+    spectrum_array = spectrum_array * u.dimensionless
+    meas_volt_list = meas_volt_list * u.V
+    pk_wl_list = pk_wl_list * u.m
+    
+    print(np.shape(spectrum_array))
+    print('Finished voltage sweep')
+    print('-----------------------------')
+    dump_hdf5(osa_settings, fpath, open_mode='x')
+    wavvolt_data = {
+         'num_avg': num_avg,
+         'voltage_list': voltage_list,
+         'meas_volt_list': meas_volt_list,
+         'pk_wl_list': pk_wl_list,
+         'spectrum_array': spectrum_array,
+         'wavelength': wavelength
+         }
+    dump_hdf5(wavvolt_data, fpath)
+
+    ds = load_hdf5(fpath=fpath)
+
+    # Save spectrum data to .mat file
+    mat_fname = fpath[:-2] + 'mat'
+    file_dir = os.path.join(sample_dir, mat_fname)
+    data = {
+            'rbw': osa_settings['rbw'].to(u.m).m,
+            'ref_level': osa_settings['ref_level'].m,
+            'num_avg': num_avg,
+            'voltage_list': voltage_list.to(u.V).m,
+            'spectrum_array': spectrum_array.m,
+            'wavelength': wavelength.to(u.m).m,
+            'meas_volt_list': meas_volt_list.to(u.V).m,
+            'pk_wl_list': pk_wl_list.to(u.m).m
+            }
+    io.savemat(file_dir, data)
+
+    # Save wavvolt file
+    # wavvolt_filename = os.path.join(sample_dir, "wavvolt_" + name)
+    # save_wavvolt(name, np.array(meas_volt_list), np.array(pk_wl_list))
+    return ds
+
+def save_wavvolt(ds, volt_stop=None, f_interp=5000, name=None,sample_dir=None, cmap=cm.magma, smooth_param=None):
+    """
+    Interpolates voltage vs peak wavelength curve, saves wavvolt file with variables:
+    -ds: dataset from generate_wavvolt()
+    -volt_interp: interpolated (measured) voltage
+    -wav_interp: interpolated wavelength
+    """
+    volt = ds["voltage_list"].to(u.V).m
+    peak_wl = ds["pk_wl_list"].to(u.m).m
+    spectrum_array = ds["spectrum_array"].m
+    wavelength = ds["wavelength"].m
+
+    volt_interp = np.linspace(volt[0], volt[-1], f_interp) * u.V
+    peak_interp = np.interp(volt_interp.m, volt, peak_wl) * u.m
+
+    if volt_stop is not None:
+        peak_interp = peak_interp[volt_interp < volt_stop]
+        volt_interp = volt_interp[volt_interp < volt_stop]
+      
+    colors = cmap(np.linspace(0, 0.95, spectrum_array.shape[0]))
+
+    fig,ax = plt.subplots(1,2,figsize=(10,3.5), gridspec_kw={"wspace":0.5,"hspace":0}) #,figsize=figsize) #**kwargs)
+    for ind in range(spectrum_array.shape[0]):
+        ax[0].plot(wavelength, spectrum_array[ind,:], color=colors[ind])
+    ax[0].set_xlabel("Wavelength (nm)")
+    ax[0].set_ylabel("Power (dBm)")
+    ax[1].plot(volt_interp, peak_interp.to(u.nm))
+    if smooth_param is not None:
+        peak_interp=savgol_filter(peak_interp.m, window_length=smooth_param, polyorder=3, mode='interp')*u.m
+    ax[1].plot(volt_interp, peak_interp.to(u.nm))
+    ax[1].set_xlabel("Voltage (V)")
+    ax[1].set_ylabel("Wavelength (nm)")
+    
+    if name is not None:
+        time_tuple = time.localtime()
+        wavvolt_filename = "wavvolt_HVA_%s_%d-%d-%d.mat" % (
+            name,
+            time_tuple[0],
+            time_tuple[1],
+            time_tuple[2])
+        wavvolt_filename = os.path.join(sample_dir, wavvolt_filename)
+        io.savemat(wavvolt_filename, {'volt_select': volt,
+                                     'wav_select': peak_wl,
+                                      'volt_interp': volt_interp.to(u.V).m,
+                                      'peak_interp': peak_interp.to(u.m).m
+                                     })
+
+
 """ Spectral Acquisition """
 # def acquire_spectrum(num_avg, fsamp, wav_start, wav_stop, Δwav, fixed_wav, wav_settle_time=1*u.s,sample_dir=None, name=None):
 #     """
@@ -1307,21 +1456,37 @@ def acquire_spectrum(osa, num_avg, t_lia, sens_lia, wav_start, wav_stop, Δwav, 
             }
     io.savemat(file_dir, data)
     return ds_spec
-
-def HVA_to_daq(HVA_volt, HV_calib_file=HV_calib_file, atten=0.09128, volt_limit=70*u.V):
+    
+def HVA_to_daq(HVA_volt, atten=0.09125, volt_limit=70*u.V):
     # Convert the output HVA voltage (to VCSEL MEMS) to the daq input to the HVA
     # atten - from voltage divider between daq and HVA
-    V_gain = 100 # For Trek 2210 
-    a = io.loadmat(HV_calib_file)  # Load HV_calib_file
-    HV_set_interp =  (a['HV_set_interp'][0] * u.V)
-    HV_calib = a['HV_calib_interp'][0]*u.dimensionless
-    ind = np.argmin(np.abs(HV_set_interp.to(u.V).m - HVA_volt.to(u.V).m))
-    HV_calib_factor = HV_calib[ind]
+    V_gain = 98.3 # For Trek 2210 (measured)
     if HVA_volt > volt_limit:
         print(f"Vset= {HVA_volt:3.2f} exceeds Vlim= {volt_limit:3.2f}. Setting to 0 V.")
         HVA_volt = 0*u.V
-    daq_volt = HVA_volt / V_gain / atten * HV_calib_factor
+    daq_volt = HVA_volt / V_gain / atten
     return daq_volt
+    
+# def HVA_to_daq(HVA_volt, HV_calib_file=HV_calib_file, atten=0.09125, volt_limit=70*u.V):
+#     # Convert the output HVA voltage (to VCSEL MEMS) to the daq input to the HVA (for voltage sweeps)
+#     # atten - from voltage divider between daq and HVA
+#     V_gain = 98.3 # For Trek 2210 (measured)
+#     a = io.loadmat(HV_calib_file)  # Load HV_calib_file
+#     HV_set_interp =  (a['HV_set_interp'][0] * u.V)
+#     HV_calib = a['HV_calib_interp'][0]*u.dimensionless
+#     ind = np.argmin(np.abs(HV_set_interp.to(u.V).m - HVA_volt.to(u.V).m))
+#     HV_calib_factor = HV_calib[ind]
+#     if HVA_volt > volt_limit:
+#         print(f"Vset= {HVA_volt:3.2f} exceeds Vlim= {volt_limit:3.2f}. Setting to 0 V.")
+#         HVA_volt = 0*u.V
+#     daq_volt = HVA_volt / V_gain / atten * HV_calib_factor
+#     return daq_volt
+
+def daq_to_HVA(daq_volt, calib_offset=0, scale=100):
+    #Convert daq read of Vmon to HVA output (calib_factor corrects for daq analog input negative offset (not constant, but set to 0V offset))
+    V_HV = (daq_volt+calib_offset)*scale
+    # V_HV = daq_volt*scale*calib_factor
+    return V_HV
 
 # def daq_to_HVA(daq_volt, HV_calib_file=HV_calib_file, atten=0.09128):
 #     # Convert the daq output after the voltage divider to the HVA set for the VCSEL MEMS
@@ -1457,7 +1622,7 @@ def VCSEL_step_spectrum(osa, num_avg, t_lia, sens_lia, wav_start, wav_stop, Δwa
         [pk_wls, _] = osa.get_peak_info()
         time.sleep((1/fsamp).m*num_avg)  #Wait for daq to acquire readings
         spec.append(np.mean(read_spec[ch_Vsrs_2_str].to(u.V).m))
-        V_mon.append(np.mean(read_spec[ch_HVA_Vmon_str].to(u.V).m) * HVA_gain)
+        V_mon.append(np.mean(daq_to_HVA(read_spec[ch_HVA_Vmon_str]).to(u.V).m))
         stokes_wl_meas.append(pk_wls[0].m)  # Crop window around Stokes tuning, measure maximum peak
     stokes_wl_meas = stokes_wl_meas*u.m
     V_mon = V_mon*u.V
@@ -1671,7 +1836,7 @@ def unwrap_sweep(read_data, num_sweep, wavelength_set, wavvolt_file, HVA_gain=10
 
    
     Vsrs = read_data[ch_Vsrs_2_str][1:]  # Discard 1st analog input read (taken before analog output settles)
-    HV = read_data[ch_HVA_Vmon_str][:-1]*HVA_gain # Discard last analog input read (reversed from ai0)
+    HV = daq_to_HVA(read_data[ch_HVA_Vmon_str][:-1]) # Discard last analog input read (reversed from ai0)
 
     # Unwrap sweeps to 2d array
     Vsrs_arr = np.reshape(np.array(Vsrs.to(u.V).m), (num_sweep*2, len(wavelength_set)))
