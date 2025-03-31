@@ -1122,7 +1122,7 @@ def save_wavvolt(ds, volt_stop=None, f_interp=5000, name=None,sample_dir=None, c
     -volt_interp: interpolated (measured) voltage
     -wav_interp: interpolated wavelength
     """
-    volt = ds["voltage_list"].to(u.V).m
+    volt = ds["meas_volt_list"].to(u.V).m
     peak_wl = ds["pk_wl_list"].to(u.m).m
     spectrum_array = ds["spectrum_array"].m
     wavelength = ds["wavelength"].m
