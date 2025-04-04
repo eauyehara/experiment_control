@@ -71,9 +71,10 @@ stage = instrument("NanoMax_stage", reopen_policy='reuse')
 # Directory for calibration data
 calib_dir = os.path.join(home_dir, "experiment_control","calibration_data","VCSEL_calibration")
 # Calibration files
-wavvolt_file = os.path.join(calib_dir, "wavvolt-trunc_Dev1a_25C_OEland1076_5.72mW_2025-3-17.mat")
-delayvolt_file =os.path.join(calib_dir, "delayvolt3.mat")
-HV_calib_file = os.path.join(calib_dir, "HV_calib.mat")
+wavvolt_file = os.path.join(calib_dir, "wavvolt-trunc_Dev1a_25C_OEland1076_5.72mW_2025-3-17.mat") #For wavelength set
+wavvolt_HVCALIB = os.path.join(calib_dir, "wavvolt_HVCALIB_GSDev1a_9.2mW_2025-3-31.mat") #For post-acquisition wavelength calibration
+delayvolt_file =os.path.join(calib_dir, "delayvolt4.mat")
+# HV_calib_file = os.path.join(calib_dir, "HV_calib.mat")
 
 # Directory for data save
 data_dir = os.path.join(home_dir,"Documents","data","srs_microscope")
@@ -1150,7 +1151,7 @@ def save_wavvolt(ds, volt_stop=None, f_interp=5000, name=None,sample_dir=None, c
     
     if name is not None:
         time_tuple = time.localtime()
-        wavvolt_filename = "wavvolt_HVA_%s_%d-%d-%d.mat" % (
+        wavvolt_filename = "wavvolt_HVCALIB_%s_%d-%d-%d.mat" % (
             name,
             time_tuple[0],
             time_tuple[1],
@@ -1680,7 +1681,7 @@ def VCSEL_step_spectrum(osa, num_avg, t_lia, sens_lia, wav_start, wav_stop, Δwa
     io.savemat(file_dir, data)
     return ds_spec
 
-def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia, fixed_wav,sample_dir=None, name=None, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, HV_calib_file=HV_calib_file):
+def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia, fixed_wav,sample_dir=None, name=None, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file):
     """
     Acquire spectrum by continuously sweeping VCSEL wavelength and VOA voltage over specified range (faster acquisition)
         -VCSEL wavlength tuning with DAQ + HVA
@@ -1786,7 +1787,7 @@ def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia,
     dump_hdf5(write_data, spath)
     read_data = sweep_task.run(write_data)
     dump_hdf5(read_data, spath)
-    proc_data = unwrap_sweep(read_data, num_sweep, wavelength_set, wavvolt_file)
+    proc_data = unwrap_sweep(read_data, num_sweep, wavelength_set, wavvolt_HVCALIB)
     dump_hdf5(proc_data, spath)
     
     # Unreserve daq
@@ -1854,7 +1855,6 @@ def unwrap_sweep(read_data, num_sweep, wavelength_set, wavvolt_file, HVA_gain=10
     a = io.loadmat(wavvolt_file)
     wav_calib =  (a['peak_interp'][0] * u.m).to(u.nm)
     volt_calib = a['volt_interp'][0]*u.V
-
 
     # Find wavelengths corresponding to measured voltage 
     for sweep_iter in range(HV_arr.shape[0]):
@@ -2028,7 +2028,72 @@ def acquire_point(t_lia, n_rep, pump_wav, stokes_wav, sample_dir=None, name=None
     io.savemat(file_dir, data)
     return ds_point
 
+def plot_daq_sweepSpectra(ds, fname, fpath=False, figsize=(5,6), wavvolt_HVCALIB=wavvolt_HVCALIB):
+    """
+    Plot daq continuous sweep spectra. 3 Subplots: (1) Raw spectra, (2) Wavelength corrected from measured voltages, (3) Averaged corrected
+    """
+    def line(x,a,b):
+        return a*x + b
+
+    #Remove first point in sweep
+    HVA_Vset = ds["HVA_Vset"][:-1]
+    wavelength_set = ds["wavelength_set"][:-1]
+    HV_arr = ds["HV_arr"][:,:-1]
+    raman_shift = ds["raman_shift"][:-1]
+    offset = 0*u.V
+    Vsrs_arr = (ds["Vsrs_arr"][:,:-1] / 10 + offset).to(u.V).m * ds["sens_lia"].to(u.V)
+    HV_filt = np.array(np.zeros(HV_arr.shape))
+    wav_calib_arr = np.array(np.zeros(HV_arr.shape))
+    Vsrs_interp_arr = np.array(np.zeros(HV_arr.shape))
+    
+    for spec in range(HV_arr.shape[0]):
+        popt,_ = curve_fit(line,HVA_Vset.to(u.V).m,HV_arr[spec].to(u.V).m)
+        HV_filt[spec] = line(HVA_Vset.m, popt[0], popt[1])
+    HV_filt = HV_filt*u.V 
+    
+    # Calibrate voltage to wavelength
+    a = io.loadmat(wavvolt_HVCALIB)
+    wav_calib =  (a['peak_interp'][0] * u.m).to(u.nm)
+    volt_calib = a['volt_interp'][0]*u.V
+    
+    # Find wavelengths corresponding to measured voltage 
+    for sweep_iter in range(HV_filt.shape[0]):
+        for wl in range(HV_filt.shape[1]):
+            ind = np.argmin(np.abs(HV_filt[sweep_iter, wl].m - volt_calib.m))
+            wav_calib_arr[sweep_iter, wl] = wav_calib[ind].m
+            
+        # Interpolate wavelength vs spectra to uniformly sample in wavelength
+        Vsrs_interp_arr[sweep_iter,:] = np.interp(wavelength_set.to(u.nm).m, wav_calib_arr[sweep_iter,:], Vsrs_arr[sweep_iter,:].m)
+    Vsrs_interp_arr = Vsrs_interp_arr*u.V
+    Vsrs_av = np.mean(Vsrs_interp_arr, axis=0)
+    mind = np.argmax(Vsrs_av)
+    print("Peak at {:2.3f}".format(raman_shift[mind]))
+    
+    fig, ax = plt.subplots(3, 1, figsize=figsize, gridspec_kw={"wspace":0,"hspace":0.3})
+    for spec in range(Vsrs_arr.shape[0]):
+        ax[0].plot(raman_shift, Vsrs_arr[spec].to(u.uV))
+        ax[1].plot(raman_shift, Vsrs_interp_arr[spec].to(u.uV))
+        # ax[3].plot(HVA_Vset, HV_arr[spec].to(u.V))
+        # ax[3].plot(HVA_Vset, HV_filt[spec].to(u.V))
+    ax[2].plot(raman_shift, Vsrs_av.to(u.uV))
+    ax[0].set_ylabel("Voltage $(\mu V)$")
+    ax[0].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
+    ax[1].set_ylabel("Voltage $(\mu V)$")
+    ax[1].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
+    ax[2].set_xlabel("Raman Shift (1/cm)")
+    ax[2].set_ylabel("Voltage $(\mu V)$")
+    ax[2].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
+
+    if fpath:
+        fname=os.path.normpath(os.path.join(fpath,fname))
+        plt.savefig(fname, dpi=None, facecolor=None, edgecolor=None,
+            orientation='portrait', transparent=True, bbox_inches=None, pad_inches=0.5)
+    return fig
+    
 def plot_spectra(ds_spec, figsize=(10,4.5), sg_win_len=50, sg_p_order=2):
+    """
+    Plot step spectra with OSA pump and stokes wavelength measurements
+    """
     # raman_shift = ds_spec["raman_shift"]
     pump_wl = np.mean(ds_spec["pump_wl_meas"].to(u.m).m)*u.m
     stokes_wl = savgol_filter(ds_spec["stokes_wl_meas"].to(u.m).m, sg_win_len, sg_p_order)*u.m
