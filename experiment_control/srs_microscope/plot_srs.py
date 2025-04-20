@@ -42,6 +42,7 @@ srs_rc_params = {
 
 # Directory for data save
 data_dir = os.path.join(home_dir,"Dropbox (MIT)","POE","srs_microscope_data","srs_microscope_scans")
+calib_dir = os.path.join(home_dir, "experiment_control","calibration_data","VCSEL_calibration")
 
 """ Calibration data """
 
