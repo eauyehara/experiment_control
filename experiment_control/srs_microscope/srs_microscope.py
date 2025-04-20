@@ -71,9 +71,9 @@ stage = instrument("NanoMax_stage", reopen_policy='reuse')
 # Directory for calibration data
 calib_dir = os.path.join(home_dir, "experiment_control","calibration_data","VCSEL_calibration")
 # Calibration files
-wavvolt_file = os.path.join(calib_dir, "wavvolt-trunc_Dev1a_25C_OEland1076_5.72mW_2025-3-17.mat") #For wavelength set
-wavvolt_HVCALIB = os.path.join(calib_dir, "wavvolt_HVCALIB_GSDev1a_9.2mW_2025-3-31.mat") #For post-acquisition wavelength calibration
-delayvolt_file =os.path.join(calib_dir, "delayvolt4.mat")
+wavvolt_file = os.path.join(calib_dir, "wavvolt_0-60V_Dev1a_25C_OEland1076_9.36mW_2025-4-12.mat") #For wavelength set
+wavvolt_HVCALIB = os.path.join(calib_dir, "wavvolt_HVCALIB_GSDev1a_9.2mW_2025-4-18.mat") #For post-acquisition wavelength calibration
+delayvolt_file =os.path.join(calib_dir, "delayvolt5.mat")
 # HV_calib_file = os.path.join(calib_dir, "HV_calib.mat")
 
 # Directory for data save
@@ -783,7 +783,7 @@ def transparent_cmap(cmap):
     return cmap_tr
 
 
-def plot_scan_data(ds,wf_cmap=cm.gray,laser_cmap=cm.Reds, srs_cmap=cm.inferno):
+def plot_scan_data(ds,wf_cmap=cm.gray,laser_cmap=cm.Reds, srs_cmap=cm.inferno, vmin=None, vmax=None):
     """
     Plot 2x1 subplots with [0] laser spot superimposed on cropped widefield image, and [1] SRS image
     :param ds: from collect_scan()
@@ -810,7 +810,7 @@ def plot_scan_data(ds,wf_cmap=cm.gray,laser_cmap=cm.Reds, srs_cmap=cm.inferno):
     ax[0].set_aspect("equal")
 
     # [1] SRS (galvo) image
-    p0 = ax[1].pcolormesh(ds["y"].m, ds["x"].m, np.flipud(np.transpose(ds["Vsrs_g"].m)), cmap=srs_cmap)
+    p0 = ax[1].pcolormesh(ds["y"].m, ds["x"].m, np.flipud(np.transpose(ds["Vsrs_g"].m)), cmap=srs_cmap, vmin=vmin, vmax=vmax)
     cb1 = plt.colorbar(p0, ax=ax[1])
     ax[1].set_aspect("equal")
 
