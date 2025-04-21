@@ -72,7 +72,7 @@ stage = instrument("NanoMax_stage", reopen_policy='reuse')
 calib_dir = os.path.join(home_dir, "experiment_control","calibration_data","VCSEL_calibration")
 # Calibration files
 wavvolt_file = os.path.join(calib_dir, "wavvolt_0-60V_Dev1a_25C_OEland1076_9.36mW_2025-4-12.mat") #For wavelength set
-wavvolt_HVCALIB = os.path.join(calib_dir, "wavvolt_HVCALIB_GSDev1a_9.2mW_2025-4-18.mat") #For post-acquisition wavelength calibration
+wavvolt_HVCALIB = os.path.join(calib_dir, "wavvolt_HVCALIB_GSDev1a_9.0mW_2025-4-18.mat") #For post-acquisition wavelength calibration
 delayvolt_file =os.path.join(calib_dir, "delayvolt5.mat")
 # HV_calib_file = os.path.join(calib_dir, "HV_calib.mat")
 
