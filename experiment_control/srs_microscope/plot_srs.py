@@ -15,6 +15,10 @@ from scipy import io
 from ..util.units import Q_, u
 from ..util.io import *         # hdf5 utilites
 
+mpl.rcParams.update({'axes.labelsize': 20,'font.size': 16 , 'font.family': "arial", "font.style": "normal", "font.weight": "bold", "axes.labelweight": "bold", "lines.linewidth": 2})#, 'font.serif': "cm"})
+mpl.rc('xtick', labelsize=16) 
+mpl.rc('ytick', labelsize=16)
+
 ## This code is derived from Dodd's shg_microscope.py
 srs_rc_params = {
     'lines.linewidth': 1.5,
@@ -42,7 +46,7 @@ srs_rc_params = {
 
 # Directory for data save
 data_dir = os.path.join(home_dir,"Dropbox (MIT)","POE","srs_microscope_data","srs_microscope_scans")
-calib_dir = os.path.join(home_dir, "experiment_control","calibration_data","VCSEL_calibration")
+calib_dir = os.path.join(home_dir, "Documents", "Github","experiment_control","calibration_data","VCSEL_calibration")
 
 """ Calibration data """
 
@@ -115,7 +119,7 @@ def plot_spotzoom(ds, Dxy=10 * u.um, figsize=(4.5, 4.5), laser_cmap=cm.winter,
         ly_fit = ax[1, 1].plot(Z_ycut_fit, y_fit, 'k--')
         lx_fit = ax[0, 0].plot(x_fit, Z_xcut_fit, 'k--')
         sy = ax[1, 1].scatter(Z_ycut, Y)
-        sx = ax[0, 0].scatter(X, Z_xcut, )
+        sx = ax[0, 0].scatter(X, Z_xcut)
         ax[1, 0].set_xlabel("x (μm)")
         ax[1, 0].set_ylabel("y (μm)")
         ax[1, 0].text(x_wtext, y_wtext, f"x waist: {wx:2.2f} μm" + "\n" + f"y waist: {wy:2.2f} μm")
@@ -373,6 +377,56 @@ def plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.bin
     ax.set_aspect("equal")
     plt.show()
     return fig
+
+
+"""Calibration Curves"""
+def save_wavvolt(ds, volt_stop=None, f_interp=5000, name=None,sample_dir=None, cmap=cm.magma, smooth_param=None):
+    """
+    Interpolates voltage vs peak wavelength curve, saves wavvolt file with variables:
+    -ds: dataset from generate_wavvolt()
+    -volt_interp: interpolated (measured) voltage
+    -wav_interp: interpolated wavelength
+    """
+    volt = ds["meas_volt_list"].to(u.V).m
+    peak_wl = ds["pk_wl_list"].to(u.m).m
+    spectrum_array = ds["spectrum_array"].m
+    wavelength = ds["wavelength"].m
+
+    volt_interp = np.linspace(volt[0], volt[-1], f_interp) * u.V
+    peak_interp = np.interp(volt_interp.m, volt, peak_wl) * u.m
+
+    if volt_stop is not None:
+        peak_interp = peak_interp[volt_interp < volt_stop]
+        volt_interp = volt_interp[volt_interp < volt_stop]
+      
+    colors = cmap(np.linspace(0, 0.95, spectrum_array.shape[0]))
+
+    fig,ax = plt.subplots(1,2,figsize=(10,3.5), gridspec_kw={"wspace":0.5,"hspace":0}) #,figsize=figsize) #**kwargs)
+    for ind in range(spectrum_array.shape[0]):
+        ax[0].plot(wavelength, spectrum_array[ind,:], color=colors[ind])
+    ax[0].set_xlabel("Wavelength (nm)")
+    ax[0].set_ylabel("Power (dBm)")
+    ax[1].plot(volt_interp, peak_interp.to(u.nm))
+    if smooth_param is not None:
+        peak_interp=savgol_filter(peak_interp.m, window_length=smooth_param, polyorder=3, mode='interp')*u.m
+    ax[1].plot(volt_interp, peak_interp.to(u.nm))
+    ax[1].set_xlabel("Voltage (V)")
+    ax[1].set_ylabel("Wavelength (nm)")
+    
+    if name is not None:
+        time_tuple = time.localtime()
+        wavvolt_filename = "wavvolt_HVCALIB_%s_%d-%d-%d.mat" % (
+            name,
+            time_tuple[0],
+            time_tuple[1],
+            time_tuple[2])
+        wavvolt_filename = os.path.join(sample_dir, wavvolt_filename)
+        io.savemat(wavvolt_filename, {'volt_select': volt,
+                                     'wav_select': peak_wl,
+                                      'volt_interp': volt_interp.to(u.V).m,
+                                      'peak_interp': peak_interp.to(u.m).m
+                                     })
+
 
 """ Spectral Acquisition """
 
