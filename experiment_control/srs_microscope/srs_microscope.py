@@ -71,9 +71,9 @@ stage = instrument("NanoMax_stage", reopen_policy='reuse')
 # Directory for calibration data
 calib_dir = os.path.join(home_dir, "experiment_control","calibration_data","VCSEL_calibration")
 # Calibration files
-wavvolt_file = os.path.join(calib_dir, "wavvolt_dev1b_OE1076CW142mA_2025-5-27.mat") #For wavelength set
-wavvolt_HVCALIB = os.path.join(calib_dir, "wavvolt_HVCALIB_GSDev1a_9.0mW_2025-4-18.mat") #For post-acquisition wavelength calibration
-delayvolt_file =os.path.join(calib_dir, "delayvolt10.mat")
+wavvolt_file = os.path.join(calib_dir, "wavvolt13_0-72.2V_dev1b_OE1076CW115.7mA_2025-6-2.mat") #For wavelength set
+wavvolt_HVCALIB = os.path.join(calib_dir, "wavvolt_HVCALIB_GSdev1b_delayvolt13_BOA700mA_2025-6-2.mat") #For post-acquisition wavelength calibration
+delayvolt_file =os.path.join(calib_dir, "delayvolt13.mat")
 # HV_calib_file = os.path.join(calib_dir, "HV_calib.mat")
 
 # Directory for data save
@@ -1060,22 +1060,8 @@ def generate_wavvolt(voltage_list, osa_settings, num_avg, sample_dir=None, name=
         - num_avg - # of voltage reads to average
     :return: ds
     """
-     # Load delayvolt_file
-    b = io.loadmat(delayvolt_file)
-    VOA_volt = b['VOA_est_interp'][0]*u.V
-    VCSEL_volt = b['V_MEMSinterp'][0]*u.V 
-
-    # Find VOA voltage corresponding to VCSEL MEMS voltage set
-    for volt in voltage_list.to(u.V):
-        ind1 = np.argmin(np.abs(volt.m - VCSEL_volt.to(u.V).m))
-        VOA_Vset.append(VOA_volt[ind1].to(u.V).m)
-    VOA_Vset = VOA_Vset * u.V
-
-    num_samp = V_VOA_sweep.shape[0]
-
     #Initialize to first voltages in sweep
-    ch_VCSEL_MEMS.write(V_MEMS_sweep[0])
-    ch_VOA.write(V_VOA_sweep[0])
+    ramp_VCSEL(voltage_list[0])
 
     #Specify location of data save
     sample_dir = resolve_sample_dir(sample_dir, data_dir=calib_dir)
@@ -1105,11 +1091,12 @@ def generate_wavvolt(voltage_list, osa_settings, num_avg, sample_dir=None, name=
     for ind, volt in enumerate(voltage_list):
         print('Voltage set: %.4f V...' % volt.to(u.V).m)
         # Set the voltage
-        ch_VCSEL_MEMS.write(HVA_to_daq(volt))
-        ch_VOA.write(V_VOA_sweep[0])
+        ramp_VCSEL(volt)
+        # ch_VCSEL_MEMS.write(HVA_to_daq(volt))
+        # ch_VOA.write(V_VOA_sweep[0])
 
         # Wait [s]
-        time.sleep(0.5)
+        time.sleep(1.5)
         meas_volt_rep = []
         for iter in range(num_avg):
             meas_volt = Vmon_to_HVA(ch_HVA_Vmon.read())
@@ -1168,6 +1155,7 @@ def generate_wavvolt(voltage_list, osa_settings, num_avg, sample_dir=None, name=
     # wavvolt_filename = os.path.join(sample_dir, "wavvolt_" + name)
     # save_wavvolt(name, np.array(meas_volt_list), np.array(pk_wl_list))
     return ds
+    
 
 def save_wavvolt(ds, volt_stop=None, f_interp=5000, name=None,sample_dir=None, cmap=cm.magma, smooth_param=None):
     """
@@ -1274,7 +1262,7 @@ def HVA_to_daq(HVA_volt, atten=0.09125, volt_limit=88.6*u.V):
     daq_volt = HVA_volt / V_gain / atten
     return daq_volt
 
-def Vmon_to_HVA(daq_volt, calib_offset=0, scale=100):
+def Vmon_to_HVA(daq_volt, calib_offset=0.0023*u.V, scale=100): 
     #Convert daq read of Vmon to HVA output (calib_factor corrects for daq analog input negative offset (not constant, but set to 0V offset))
     V_HV = (daq_volt+calib_offset)*scale
     # V_HV = daq_volt*scale*calib_factor
@@ -1285,7 +1273,7 @@ def HVA_to_wavelength(HVA_set, wavvolt_file=wavvolt_file):
     a = io.loadmat(wavvolt_file) # Load wavvolt_file
     wav_calib =  (a['peak_interp'][0] * u.m).to(u.nm)
     volt_calib = a['volt_interp'][0]*u.V
-    tol = 0.1*u.V
+    tol = 0.5*u.V
 
     if np.isscalar(HVA_set.m):
         HVA_set = np.array([HVA_set.m])*u.V
@@ -1301,7 +1289,7 @@ def HVA_to_wavelength(HVA_set, wavvolt_file=wavvolt_file):
     return VCSEL_wav * u.nm
 
 
-def parse_wav_delay(wavelength_set, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file):
+def parse_wav_delay(wavelength_set, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, max_Vstep=2*u.V):
     # Given input wavelength(s), return corresponding MEMS and VOA voltages, daq set to HVA for MEMS voltage
     # Input: array or scalar (with units), sort array by increasing MEMS voltage
     a = io.loadmat(wavvolt_file) # Load wavvolt_file
@@ -1318,8 +1306,10 @@ def parse_wav_delay(wavelength_set, wavvolt_file=wavvolt_file, delayvolt_file=de
 
     # Initialize arrays
     VOA_Vset = [] # VOA Voltage
+    HVA_Vset = [] # VMEMS Voltage
     HVA_Vunsort = np.zeros(wavelength_set.shape) # Discontinuous MEMS voltage from linear wavelength sweep
-    daq_HVset = np.zeros(wavelength_set.shape) # MEMS Voltage (input to HVA)
+    daq_HVset = [] # MEMS Voltage (input to HVA)
+    wav_full = [] # Wavelength set after filling in voltage gaps
 
     # Map wavelength to HVA voltage (VCSEL MEMS)
     for i, wav in enumerate(wavelength_set):
@@ -1328,35 +1318,55 @@ def parse_wav_delay(wavelength_set, wavvolt_file=wavvolt_file, delayvolt_file=de
             HVA_Vunsort[i] = volt_calib[ind].to(u.V).m
         else:
             raise ValueError("Set value outside range")
+    # Sort wavelengths by increasing voltage
     Vsort_ind = np.argsort(HVA_Vunsort)
-    HVA_Vset = HVA_Vunsort[Vsort_ind] * u.V
+    HVA_Vsort = HVA_Vunsort[Vsort_ind] * u.V
     wav_sort = wavelength_set[Vsort_ind]
+    
+    #If step between voltages exceeds max_Vstep, fill increments with max Vstep
+    if HVA_Vsort.shape[0] > 1:
+        for i in range(HVA_Vsort.shape[0] - 1):
+            if np.abs(HVA_Vsort[i+1] - HVA_Vsort[i]) > max_Vstep:
+                if HVA_Vsort[i+1] > HVA_Vsort[i]:
+                    Vfill = np.arange(HVA_Vsort[i].to(u.V).m, HVA_Vsort[i+1].to(u.V).m, max_Vstep.to(u.V).m)
+                elif HVA_Vsort[i+1] < HVA_Vsort[i]:
+                    Vfill = np.arange(HVA_Vsort[i].to(u.V).m, HVA_Vsort[i+1].to(u.V).m, -max_Vstep.to(u.V).m)
+                HVA_Vset.extend(Vfill)
+            else:
+                HVA_Vset.append(HVA_Vsort[i].to(u.V).m)
+    else:
+        HVA_Vset.append(HVA_Vsort.m)
+    HVA_Vset = HVA_Vset*u.V
 
-    # Scale HVA voltage to daq output voltage
+    # Scale HVA voltage to daq output voltage and Remap new HVA_Vset to wavelength, Find VOA voltage corresponding to VCSEL MEMS voltage set
     for i, HVA_volt in enumerate(HVA_Vset):
-        daq_HVset[i] = HVA_to_daq(HVA_volt).to(u.V).m
-    daq_HVset = daq_HVset * u.V
-
-    # Find VOA voltage corresponding to VCSEL MEMS voltage set
-    for volt in HVA_Vset.to(u.V):
-        ind1 = np.argmin(np.abs(volt.m - VCSEL_volt.to(u.V).m))
+        daq_HVset.append(HVA_to_daq(HVA_volt).to(u.V).m)
+        ind = np.argmin(np.abs(HVA_volt - volt_calib)) #for wavvolt
+        wav_full.append(wav_calib[ind].to(u.nm).m)
+        ind1 = np.argmin(np.abs(HVA_volt.m - VCSEL_volt.to(u.V).m)) #for delayvolt
         VOA_Vset.append(VOA_volt[ind1].to(u.V).m)
+    daq_HVset = daq_HVset * u.V
+    wavelength_set = np.sort(wav_full)*u.nm
     VOA_Vset = VOA_Vset * u.V
+    # # Find VOA voltage corresponding to VCSEL MEMS voltage set
+    # for volt in HVA_Vset.to(u.V):
+    #     ind1 = np.argmin(np.abs(volt.m - VCSEL_volt.to(u.V).m))
+    #     VOA_Vset.append(VOA_volt[ind1].to(u.V).m)
+    # VOA_Vset = VOA_Vset * u.V
         
-    return daq_HVset, VOA_Vset, HVA_Vset
+    return daq_HVset, VOA_Vset, HVA_Vset, wavelength_set
     
 
 def set_VCSEL_wavelength(wavelength_set, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file):
     # Set VCSEL wavelength with VOA delay compensation - Use ramp_VCSEL instead (safer)
     # Input - number with units
-    daq_HVset, VOA_Vset, HVA_Vset = parse_wav_delay(wavelength_set, wavvolt_file, delayvolt_file)
-    
+    daq_HVset, VOA_Vset, HVA_Vset, wavelength_set = parse_wav_delay(wavelength_set, wavvolt_file, delayvolt_file)
     # Write daq voltages 
-    ch_VCSEL_MEMS.write(daq_HVset[0])
+    ch_VCSEL_MEMS.write(daq_HVset[0][0])
     ch_VOA.write(VOA_Vset[0])
 
 
-def ramp_VCSEL(wav_or_V_set, ΔV=0.2*u.V):
+def ramp_VCSEL(wav_or_V_set, ΔV=0.1*u.V):
     # Gentler wavelength set - Reads current MEMS voltage, ramps VCSEL wavelength with delay compensation
     # Input - wavelength or HVA voltage scalar with units
     current_daqV = ch_VCSEL_MEMS.read()
@@ -1365,7 +1375,7 @@ def ramp_VCSEL(wav_or_V_set, ΔV=0.2*u.V):
     if wav_or_V_set.u == u.V:  # Set value given in volts
         wav_or_V_set = HVA_to_wavelength(wav_or_V_set)[0]
 
-    daq_HVset, VOA_Vset, HVA_Vset = parse_wav_delay(wav_or_V_set, wavvolt_file, delayvolt_file)
+    daq_HVset, VOA_Vset, HVA_Vset, wavelength_set = parse_wav_delay(wav_or_V_set, wavvolt_file, delayvolt_file)
     daq_HVset = daq_HVset[0] # take out of array
     VOA_Vset = VOA_Vset[0] # take out of array
 
@@ -1385,6 +1395,32 @@ def ramp_VCSEL(wav_or_V_set, ΔV=0.2*u.V):
             ch_VOA.write(daq_VOAarr[ind])
         #Final wavelength set (should be close, if not already there)
         set_VCSEL_wavelength(wav_or_V_set)
+
+
+def turn_VCSEL_off(ΔV=0.1*u.V):
+    # Ramps MEMS voltage to 0 and VOA voltage to 5V
+    current_daqV = ch_VCSEL_MEMS.read()
+    current_VOAV = ch_VOA.read()
+
+    VOA_off = 5*u.V
+    daq_HVoff = 0*u.V
+
+    if current_daqV == daq_HVoff:
+        pass
+    else:
+        if current_daqV > daq_HVoff: #ramp down
+            daq_HVarr = np.arange(current_daqV.to(u.V).m, daq_HVoff.to(u.V).m, -ΔV.to(u.V).m)
+        elif current_daqV < daq_HVoff:  #ramp up
+            daq_HVarr = np.arange(current_daqV.to(u.V).m, daq_HVoff.to(u.V).m, ΔV.to(u.V).m)
+        daq_HVarr = daq_HVarr * u.V
+        daq_VOAarr = np.linspace(current_VOAV, VOA_off, daq_HVarr.shape[0])
+        # Ramp voltage 
+        for ind, volt in enumerate(daq_HVarr):
+            ch_VCSEL_MEMS.write(volt) 
+            ch_VOA.write(daq_VOAarr[ind])
+        #Final wavelength set (should be close, if not already there)
+        ch_VCSEL_MEMS.write(daq_HVoff) 
+        ch_VOA.write(VOA_off)
     
     
 def configure_VCSEL_sweep(daq_Varr, num_sweep):
@@ -1418,7 +1454,7 @@ def find_raman(raman_pk, sweep_bw, t_lia, sens_lia, fixed_wav, Δwav=0.1*u.nm, n
     raman_shift = (1 / pump_wav  - 1 / stokes_wav).to(1 / u.cm)
 
     # Configure HVA and VOA for sweep
-    daq_HVset, VOA_Vset, HVA_Vset = parse_wav_delay(wavelength_set, wavvolt_file, delayvolt_file)
+    daq_HVset, VOA_Vset, HVA_Vset, wavelength_set = parse_wav_delay(wavelength_set, wavvolt_file, delayvolt_file)
     V_MEMS_sweep = configure_VCSEL_sweep(daq_HVset, num_sweep)
     V_VOA_sweep = configure_VCSEL_sweep(VOA_Vset, num_sweep)
     
@@ -1504,7 +1540,7 @@ def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia,
     print(spath)
     
     # Create array of valid wavelengths
-    wavelength_set = generate_valid_sweep(wavvolt_file, wav_start, wav_stop, Δwav)
+    wavelength_set = generate_valid_sweep(wav_start, wav_stop, Δwav, wavvolt_file=wavvolt_file)
 
     # Assign pump and Stokes wavelengths
     stokes_wav = wavelength_set
@@ -1512,7 +1548,7 @@ def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia,
 
     fsamp = (1 / (4 * t_lia)).to(u.Hz)
 
-    daq_HVset, VOA_Vset, HVA_Vset = parse_wav_delay(wavelength_set, wavvolt_file, delayvolt_file)
+    daq_HVset, VOA_Vset, HVA_Vset, wavelength_set = parse_wav_delay(wavelength_set, wavvolt_file, delayvolt_file)
     
     V_MEMS_sweep = configure_VCSEL_sweep(daq_HVset, num_sweep)
     V_VOA_sweep = configure_VCSEL_sweep(VOA_Vset, num_sweep)
@@ -1522,7 +1558,7 @@ def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia,
     #Initialize to first voltages in sweep
     # ch_VCSEL_MEMS.write(V_MEMS_sweep[0])
     # ch_VOA.write(V_VOA_sweep[0])
-    ramp_VCSEL(V_MEMS_sweep[0])
+    ramp_VCSEL(HVA_Vset[0])
 
     # save sweep parameters to hdf5
     dump_hdf5(
@@ -1597,7 +1633,7 @@ def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia,
             'wavelength_set': ds_spec['wavelength_set'].to(u.m).m,
             'Vsrs_arr': ds_spec['Vsrs_arr'].to(u.V).m,
             'HV_arr': ds_spec['HV_arr'].to(u.V).m,
-            'Vsrs_interp_arr': ds_spec['Vsrs_interp_arr'].to(u.V).m,
+            # 'Vsrs_interp_arr': ds_spec['Vsrs_interp_arr'].to(u.V).m,
             'raman_shift': ds_spec['raman_shift'].to(1/u.cm).m,
             'VOA_Vset': ds_spec['VOA_Vset'].to(u.V).m,
             'HVA_Vset': ds_spec['HVA_Vset'].to(u.V).m,
@@ -1819,7 +1855,10 @@ def calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_H
     # Initialize arrays
     HV_filt = np.array(np.zeros(HV_arr.shape))
     wav_calib_arr = np.array(np.zeros(HV_arr.shape))
+    wav_calib_sort = np.array(np.zeros(HV_arr.shape))
     Vsrs_interp_arr = np.array(np.zeros(HV_arr.shape))
+    Vsrs_arr_sort = np.array(np.zeros(HV_arr.shape))
+    dwav = np.mean(np.diff(wavelength_set))
         
     for spec in range(HV_arr.shape[0]):
         popt,_ = curve_fit(line,HVA_Vset.to(u.V).m,HV_arr[spec].to(u.V).m)
@@ -1827,14 +1866,33 @@ def calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_H
     HV_filt = HV_filt*u.V 
     
     # Find wavelengths corresponding to measured voltage 
+    # fig, ax = plt.subplots(2,1)
     for sweep_iter in range(HV_filt.shape[0]):
         for wl in range(HV_filt.shape[1]):
             ind = np.argmin(np.abs(HV_filt[sweep_iter, wl].m - volt_calib.m))
             wav_calib_arr[sweep_iter, wl] = wav_calib[ind].m
             
+        #sort by increasing wavelength
+        wlsort_ind = np.argsort(wav_calib_arr[sweep_iter])
+        wav_calib_sort[sweep_iter] = wav_calib_arr[sweep_iter, wlsort_ind]
+        Vsrs_arr_sort[sweep_iter] = Vsrs_arr[sweep_iter, wlsort_ind]
+        
         # Interpolate wavelength vs spectra to uniformly sample in wavelength
-        Vsrs_interp_arr[sweep_iter,:] = np.interp(wavelength_set.to(u.nm).m, wav_calib_arr[sweep_iter,:], Vsrs_arr[sweep_iter,:].m)
-    
+        Vsrs_interp_arr[sweep_iter,:] = np.interp(wavelength_set.to(u.nm).m, wav_calib_sort[sweep_iter,:], Vsrs_arr_sort[sweep_iter,:])
+
+        # Remove discontinuity
+        if np.max(np.diff(wav_calib_sort[sweep_iter,:])) > dwav.to(u.nm).m*2:
+            bad_ind = np.where(np.diff(wav_calib_sort[sweep_iter,:]) > dwav.to(u.nm).m*2)# | np.diff(wav_calib_sort[sweep_iter,:]) == 0)
+            bad_ind2 = np.where(np.diff(wav_calib_sort[sweep_iter,:]) == 0)
+            Vsrs_interp_arr[sweep_iter, bad_ind] = np.nan
+            Vsrs_interp_arr[sweep_iter, bad_ind2] = np.nan
+        # ax[0].plot(range(wavelength_set.shape[0]), wav_calib_arr[sweep_iter], color='blue')
+        # ax[0].plot(range(wavelength_set.shape[0]), wav_calib_sort[sweep_iter], color='red')
+        # ax[0].set_xlabel("Index")
+        # ax[0].set_ylabel("Wav calib")
+        # ax[1].plot(rs_set,  Vsrs_interp_arr[sweep_iter,:])
+        # ax[1].set_xlabel("Raman Shift")
+        # ax[1].set_ylabel("Vsrs interp")
     return Vsrs_interp_arr*u.V
     
 
@@ -1850,7 +1908,7 @@ def plot_daq_sweepSpectra(ds, fname, fpath=False, figsize=(5,6), wavvolt_HVCALIB
     offset = 0*u.V
     Vsrs_arr = (ds["Vsrs_arr"][:,:-1] / 10 + offset).to(u.V).m * ds["sens_lia"].to(u.V)
 
-    Vsrs_interp_arr = calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HVA_arr, HVA_Vset, wavvolt_HVCALIB=wavvolt_HVCALIB)
+    Vsrs_interp_arr = calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_HVCALIB=wavvolt_HVCALIB)
 
     Vsrs_av = np.mean(Vsrs_interp_arr, axis=0)
     mind = np.argmax(Vsrs_av)
