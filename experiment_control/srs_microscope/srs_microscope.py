@@ -80,21 +80,27 @@ delayvolt_file =os.path.join(calib_dir, "delayvolt13.mat")
 data_dir = os.path.join(home_dir,"Documents","data","srs_microscope")
 # data_dir = os.path.join(home_dir,"Dropbox (MIT)","POE","srs_microscope_data","srs_microscope_scans")
 
-# Configure DAQ output channels for differential (0V-centered) control of x and y galvo mirrors
+# Configure DAQ analog output channels for differential (0V-centered) control of x and y galvo mirrors
 ch_Vx_p, ch_Vx_p_str = daq.ao0, 'Dev1/ao0'
 ch_Vx_n, ch_Vx_n_str = daq.ao1, 'Dev1/ao1'
 ch_Vy_p, ch_Vy_p_str = daq.ao2, 'Dev1/ao2'
 ch_Vy_n, ch_Vy_n_str = daq.ao3, 'Dev1/ao3'
-# Configure DAQ 2 outputs (for sweeping VCSEL)
+# Configure DAQ ctr1 channel
+ch_clock, ch_clock_str = daq.ctr1, '/Dev1/PFI13'
+# Configure DAQ 2 analog outputs (for sweeping VCSEL)
 ch_VCSEL_MEMS, ch_VCSEL_MEMS_str = daq2.ao1, 'Dev2/ao1'  
 ch_VOA, ch_VOA_str = daq2.ao0, 'Dev2/ao0' #Controls pump power to VCSEL
+# Configure DAQ 2 ctr0 channel
+ch_sync, ch_sync_str = daq2.ctr0, 'Dev2/ctr0'
 
-# Configure DAQ input channels
+# Configure DAQ analog input channels
 ch_Vsrs, ch_Vsrs_str = daq.ai0, 'Dev1/ai0'
 ch_Vx_meas, ch_Vx_meas_str = daq.ai2, 'Dev1/ai2'
 ch_Vy_meas, ch_Vy_meas_str = daq.ai3, 'Dev1/ai3'
 ch_Vmon, ch_Vmon_str = daq.ai20, 'Dev1/ai20'  #O-ELand wavelength monitor in continuous sweep
-# Configure DAQ 2 input channels
+# Configure DAQ PFI input channel
+ch_trig_str = '/Dev1/PFI12'
+# Configure DAQ 2 analog input channels
 ch_Vsrs_2, ch_Vsrs_2_str = daq2.ai0, 'Dev2/ai0' #For spectrum sweeps
 ch_HVA_Vmon, ch_HVA_Vmon_str = daq2.ai1, 'Dev2/ai1' #HVA voltage monitor
 
@@ -387,8 +393,31 @@ def raster_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0):
 
     return Vx_scan, Vy_scan
 
+def configure_clock_signal(ch_trig_str, ch_clock, nsamples, freq_div):
+    """
+    Configure DAQ minitask to receive a trigger input signal and generate a clock signal output using a counter output
+    ch_trig_str: channel name of terminal receiving trigger input signal
+    ch_clock: channel object (counter output) of terminal outputting clock signal
+    nsamples: number of samples to write to ch_clock
+    freq_div: scales down trigger signal 
+    """
+    low_ticks = freq_div // 2
+    
+    if freq_div % 2 != 0: # even 
+        high_ticks = low_ticks + 1
+    else: # odd
+        high_ticks = low_ticks 
+        
+    if freq_div <= 2:
+        raise ValueError(f"freq_div must be greater than 2")
+    # high_ticks = low_ticks + 1 # 50% duty cycle square wave
+    clock_task = daq2._create_mini_task('CO') 
+    clock_task.add_CO_channel(ch_clock, low_ticks=low_ticks, high_ticks=high_ticks, source_terminal=ch_trig_str)
+    clock_task.config_implicit_timing(nsamples=nsamples)
+    
+    return clock_task
 
-def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp):
+def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,ch_clock_str=None):
     """
     Configure DAQ task with input/output channels specified above, set timing, and specify data to write to outputs (doesn't run task)
     :param nx, ny: number of points to scan in x and y
@@ -401,18 +430,29 @@ def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp):
     Vx_scan, Vy_scan = raster_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0)
 
     # Create DAQ task
+    if ch_clock_str is not None:
+        clock_str = ch_clock_str
+    else:
+        clock_str = None
+        
     scan_task = Task(
         ch_Vx_p,
-        ch_Vx_n,
-        ch_Vy_p,
-        ch_Vy_n,
-        ch_Vsrs,
-        ch_Vx_meas,
-        ch_Vy_meas
+        # ch_Vx_n,
+        # ch_Vy_p,
+        # ch_Vy_n,
+        # ch_Vsrs,
+        # ch_Vx_meas,
+        # ch_Vy_meas
     )
-
+    
+    # TEST!---------------
+    nsamp = nx*ny
+    waveform_base = np.array((1,0))
+    waveform = np.tile(waveform_base, int(nsamp//2))*u.V
+    # TEST!---------------
+   
     # Set DAQ sampling rate and number of samples to write/read
-    scan_task.set_timing(fsamp=fsamp,n_samples=nx*ny)
+    scan_task.set_timing(fsamp=fsamp,n_samples=nx*ny, clock=clock_str)
 
     # Print calculated scan time
     scan_time = (1/fsamp).to(u.second)*nx*ny
@@ -424,16 +464,17 @@ def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp):
 
     # Create dictionary of data to write to each DAQ output channel
     write_data = {
-        ch_Vx_p_str :   Vx_scan / Vmeas_Vwrite,
-        ch_Vx_n_str :   -Vx_scan / Vmeas_Vwrite,
-        ch_Vy_p_str :   Vy_scan / Vmeas_Vwrite,
-        ch_Vy_n_str :   -Vy_scan / Vmeas_Vwrite,
+        ch_Vx_p_str :   waveform
+        # ch_Vx_p_str :   Vx_scan / Vmeas_Vwrite,
+        # ch_Vx_n_str :   -Vx_scan / Vmeas_Vwrite,
+        # ch_Vy_p_str :   Vy_scan / Vmeas_Vwrite,
+        # ch_Vy_n_str :   -Vy_scan / Vmeas_Vwrite,
     }
 
     return scan_task, write_data
 
 
-def collect_wfscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exposure_time=10*u.ms):
+def collect_wfscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_exposure_time=10*u.ms, ch_clock=None):
     """
     Collects widefield image and scan.
     Runs DAQ task - writes voltage arrays to galvos and reads srs signal / galvo scanner position. Processes data and dumps write_data, read_data, and proc_data to hdf5 file.
@@ -465,7 +506,7 @@ def collect_wfscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_ex
         fpath,
         open_mode='x',
     )
-    scan_task, write_data = configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp)
+    scan_task, write_data = configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,ch_clock_str=ch_clock_str)
     dump_hdf5(write_data,fpath)
     read_data = scan_task.run(write_data)
     dump_hdf5(read_data,fpath)
@@ -479,7 +520,7 @@ def collect_wfscan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,name=None,sample_dir=None,wf_ex
     return ds
 
 
-def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,wf_img,laser_spot_img,name=None,sample_dir=None):
+def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,wf_img,laser_spot_img,name=None,sample_dir=None, ch_clock=None):
     """
     Collects scan only. (manually acquire widefield/laser spot image beforehand.
     Runs DAQ task - writes voltage arrays to galvos and reads srs signal / galvo scanner position. Processes data and dumps write_data, read_data, and proc_data to hdf5 file.
@@ -510,7 +551,7 @@ def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,wf_img,laser_spot_img,name=None,s
         fpath,
         open_mode='x',
     )
-    scan_task, write_data = configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp)
+    scan_task, write_data = configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp, ch_clock_str=ch_clock_str)
     dump_hdf5(write_data,fpath)
     read_data = scan_task.run(write_data)
     dump_hdf5(read_data,fpath)
@@ -522,6 +563,150 @@ def collect_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,wf_img,laser_spot_img,name=None,s
     save_scan_images(ds,name,fpath=sample_dir,wf_cmap=cm.binary_r,laser_cmap=cm.winter,srs_cmap=cm.inferno,rc_params=srs_rc_params,format='png')
     # save_spotzoom(ds,name,fpath=sample_dir,Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,x_wtext=-3,y_wtext=-3,rc_params=srs_rc_params,format="png",dpi=400,pad_inches=0.5)
     return ds
+
+
+def collect_hyperspectral_img(
+    nx, ny, ΔVx, ΔVy, Vx0, Vy0, fsamp, 
+    t_lia, sens_lia, trig_params,
+    wav_start, wav_stop, Δwav, fixed_wav, num_sweep=1, 
+    pad_galvo_endpts=0,
+    sample_dir=None, name=None,
+    ch_clock=ch_clock, 
+    ch_clock_str=ch_clock_str,
+    ch_sync=ch_sync, 
+    wf_exposure_time=10*u.ms,
+    wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file
+):
+    """
+    Collects widefield image and hyperspectral image.
+    Runs 2 DAQ tasks - one to galvo DAQ, one to VCSEL DAQ - to synchronize wavelength sweep with image collection
+        - Galvo DAQ: writes voltage arrays to galvos and reads srs signal / galvo scanner position.
+        - VCSEL DAQ: writes voltage arrays to VCSEL and VOA for wavelength tuning and delay compensation
+    Params:
+        -wavvolt_file - .mat file with voltage to wavelength calibration
+        -delayvolt_file - .mat file with VOA voltage per VCSEL MEMS voltage set
+        -ch_sync - channel object (counter output) of sync output (VCSEL DAQ2)
+        -trig_params - needs to be provided if ch_sync is not None (VCSEL DAQ2)
+        -num_sweep - number of full period sweeps (forward + backward sweep)
+        -ch_clock - channel object (counter output) of terminal outputting clock signal (Galvo DAQ)
+
+    Processes data and dumps write_data, read_data, and proc_data to hdf5 file.
+    Saves png image of scan. Loads hdf5 file and returns dataset ds. Recenters spot after scan
+    :return: ds
+    """
+    
+    #Specify location of data save
+    sample_dir = resolve_sample_dir(sample_dir, data_dir=data_dir)
+    fpath = new_path(name=name,data_dir=sample_dir,ds_type='HyperspecImg',extension='h5',timestamp=True)
+    print("saving data to: ")
+    print(fpath)
+
+    wf_img, laser_spot_img = wf_and_laser_spot_images(exposure_time=wf_exposure_time)
+    x_img, y_img = img_spatial_axes(laser_spot_img)
+
+    #------------------------------------------------------------------
+    # Configure VCSEL wavelength sweep
+    # Create array of valid wavelengths
+    npix = nx*ny
+    sweep_task, sweep_write_data, record_data = configure_VCSEL_sweep(wav_start, wav_stop, Δwav, fixed_wav, num_sweep, t_lia, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, ch_sync=ch_sync, trig_params=trig_params, num_pix=npix, pad_galvo_endpts=pad_galvo_endpts)
+    
+    # Initialize to first voltages in sweep
+    ramp_VCSEL(record_data["HVA_Vset"][0])
+    
+    # Number of wavelength samples
+    pad = 5 #see configure_VCSEL_sweep()
+    nwavs = (sweep_write_data[ch_VOA_str].shape[0] - pad) / npix
+    
+    #------------------------------------------------------------------
+    # Configure galvo scan
+    freq_div = nwavs
+    ntotal = nwavs*npix + 5
+    fsamp_galvo = fsamp / freq_div
+    scan_task, galvo_write_data = configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp_galvo, ch_clock_str=ch_clock_str)
+    print(f'ntotal: {sweep_write_data[ch_VOA_str].shape[0]}')
+    print(f'nwavs: {nwavs}')
+    print(f'npix: {npix}')
+    
+    # Estimate run time -------------------------------------
+    # Print calculated scan time
+    scan_time = (1/fsamp).to(u.second)*ntotal
+    start_time = time.time()
+    end_time = start_time + scan_time.m
+    print(f"scan time: {scan_time:3.2f}")
+    print(f"start time: {time.ctime(start_time):s}")
+    print(f"stop time: {time.ctime(end_time):s}")
+    
+    # -------------------------------------------------------------
+    # Configure timing for galvo scan
+    clock_task = configure_clock_signal(ch_trig_str, ch_clock, npix, freq_div=freq_div)
+    
+    # Initialize galvo position to first position in scan
+    # move_spot(galvo_write_data["ch_Vx_p_str"][0], ["ch_Vx_n_str"][0])
+    
+    sweep_task.write(sweep_write_data, autostart=False)
+    scan_task.write(galvo_write_data, autostart=False)
+    
+    # Sweep task starts clock_task which starts scan_task - start sweep_task last
+    scan_task.start()
+    clock_task.start()
+    sweep_task.start()
+    print(1)
+    try:
+        sweep_read_data = sweep_task.read()
+        print(3)
+        scan_read_data = scan_task.read()
+        print(4)
+    finally:
+        sweep_task.wait_until_done()
+        print(5)
+        scan_task.wait_until_done()
+        print(6)
+        sweep_task.stop()
+        scan_task.stop()
+  
+    sweep_task.unreserve()
+    scan_task.unreserve()
+    clock_task.clear() # unreserve() and stop() give errors for CO task
+    
+    #------------------------------------------------------------------
+     #Data here is saved as hdf5 attributes since not arrays
+    # dump_hdf5(
+    #     {   'wf_img': wf_img.astype("int"),
+    #         'laser_spot_img': laser_spot_img.astype("int"),
+    #         'dx_dpix': dx_dpix,
+    #         'x_img': x_img,
+    #         'y_img': y_img,
+    #         "dx_dVx" : dx_dVx,
+    #         "dy_dVy" : dy_dVy,
+    #         "Vx0" : Vx0,
+    #         "Vy0" : Vy0,
+    #         'num_sweep': num_sweep,
+    #         't_lia': t_lia,
+    #         'sens_lia': sens_lia,
+    #         'wav_start': wav_start,
+    #         'wav_stop': wav_stop,
+    #         'Δwav': Δwav,
+    #         'wavelength_set': record_data["wavelength_set"],
+    #         'pump_wav': record_data["pump_wav"]
+    #     },
+    #     fpath,
+    #     open_mode='x',
+    # )
+
+
+    # dump_hdf5(galvo_write_data,fpath)
+    # # read_data = scan_task.run(write_data)
+    # dump_hdf5(scan_read_data,fpath)
+    # dump_hdf5(sweep_read_data, fpath)
+    # scan_task.unreserve()
+    # center_spot(Vx0,Vy0)
+    # proc_data = process_scan(scan_read_data,nx,ny,ΔVx,ΔVy)
+    # dump_hdf5(proc_data,fpath)
+    # ds = load_hdf5(fpath=fpath)
+    # save_scan_images(ds,name,fpath=sample_dir,wf_cmap=cm.binary_r,laser_cmap=cm.winter,srs_cmap=cm.inferno,rc_params=srs_rc_params,format='png')
+    # save_spotzoom(ds,name,fpath=sample_dir,Dxy=10*u.um,figsize=(4.5,4.5),laser_cmap=cm.winter,x_wtext=-3,y_wtext=-3,rc_params=srs_rc_params,format="png",dpi=400,pad_inches=0.5)
+    # return ds
+    return
 
 
 def process_scan(read_data,nx,ny,ΔVx,ΔVy,Vx0=Vx0,Vy0=Vy0):
@@ -538,7 +723,7 @@ def process_scan(read_data,nx,ny,ΔVx,ΔVy,Vx0=Vx0,Vy0=Vy0):
     Vy_meas = read_data[ch_Vy_meas_str]  #J6P1 (scanner position) on y galvo board
     # Vx_scan = write_data[ch_Vx_p_str] - write_data[ch_Vx_n_str]
     # Vy_scan = write_data[ch_Vy_p_str] - write_data[ch_Vy_n_str]
-    Vx,Vy = scan_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0)
+    Vx,Vy = scan_vals(nx,ny,ΔVx,ΔVy,Vx0,-Vy0)
     Vx_g, Vy_g = np.meshgrid(Vx.m,Vy.m)
     Vsrs_g = griddata((Vx_meas.m, Vy_meas.m), Vsrs.m, (Vx_g, Vy_g)) * u.volt
     # Vshg_y_g = griddata((Vx_meas.m,Vy_meas.m),Vshg_y.m,(Vx_g,Vy_g))*u.volt  #quadrature output of lock-in
@@ -970,11 +1155,11 @@ def save_scan_images(ds,fname,fpath=False,wf_cmap=cm.binary_r,laser_cmap=cm.wint
 
 def save_wf_img(wf_img, fname, cmap = cm.gray, fpath=False):
     """ Plot and save single widefield image"""
-    plot_widefield_img(img)
-    x_img,y_img = img_spatial_axes(img)
+    plot_widefield_img(wf_img)
+    x_img,y_img = img_spatial_axes(wf_img)
     X = x_img
     Y = y_img
-    Z = (img,)
+    Z = (wf_img,)
     save_single_img(Y, X, Z, cmap=(cmap,), fname=fname, fpath=fpath, xlabel="x (μm)", ylabel="y (μm)", cbar=False, cbar_label=None)
     return
 
@@ -1423,11 +1608,17 @@ def turn_VCSEL_off(ΔV=0.1*u.V):
         ch_VOA.write(VOA_off)
     
     
-def configure_VCSEL_sweep(daq_Varr, num_sweep):
+def VCSEL_sweep_volts(daq_Varr, num_sweep):
     # Given the daq voltages for a single wavelength (forward) sweep, concatenate an array for num_sweep sweeps (forward + back)
-    # Concatenate 2 columns (forward and return scan: length 2*nx) and repeat ny/2 times
-    V_sweep = np.tile(np.concatenate((daq_Varr.m,daq_Varr.m[::-1])),num_sweep)*u.volt
-
+    # 1 sweep is either forward or backward sweep (not full period)
+    if num_sweep == 1:
+        V_sweep = daq_Varr
+    elif num_sweep %2 == 0: # num_sweep even 
+        V_sweep = np.tile(np.concatenate((daq_Varr.m,daq_Varr.m[::-1])), num_sweep / 2)*u.volt
+    else: # num_sweep odd, > 1
+        V_sweep = np.tile(np.concatenate((daq_Varr.m,daq_Varr.m[::-1])), num_sweep // 2)*u.volt
+        V_sweep = np.concatenate((V_sweep.m, daq_Varr.m))*u.V #append one more forward sweep
+                                 
     # Repeat final value in sweep (since analog input read lags analog output write)
     V_sweep = np.concatenate((V_sweep, [V_sweep[-1]]))
     return V_sweep
@@ -1455,8 +1646,8 @@ def find_raman(raman_pk, sweep_bw, t_lia, sens_lia, fixed_wav, Δwav=0.1*u.nm, n
 
     # Configure HVA and VOA for sweep
     daq_HVset, VOA_Vset, HVA_Vset, wavelength_set = parse_wav_delay(wavelength_set, wavvolt_file, delayvolt_file)
-    V_MEMS_sweep = configure_VCSEL_sweep(daq_HVset, num_sweep)
-    V_VOA_sweep = configure_VCSEL_sweep(VOA_Vset, num_sweep)
+    V_MEMS_sweep = VCSEL_sweep_volts(daq_HVset, num_sweep)
+    V_VOA_sweep = VCSEL_sweep_volts(VOA_Vset, num_sweep)
     
     num_samp = V_VOA_sweep.shape[0]
     fsamp = (1 / (4 * t_lia)).to(u.Hz)
@@ -1520,7 +1711,113 @@ def find_raman(raman_pk, sweep_bw, t_lia, sens_lia, fixed_wav, Δwav=0.1*u.nm, n
     ax.set_ylabel("V_{srs} $(\mu V)$")
 
 
-def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia, fixed_wav,sample_dir=None, name=None, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file):
+def configure_VCSEL_sweep(wav_start, wav_stop, Δwav, fixed_wav, num_sweep, t_lia, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, ch_sync=None, trig_params=None, num_pix=1, pad_galvo_endpts=0):
+    #Create and return a task for VCSEL wavelength sweep (with VOA delay compensation)
+    # - num_pix - if taking a hyperspectral image, tile each waveform sweep for num_pix pixels
+    # - pad_galvo_endpts = None - pads sweep endpoints where galvos move with specified # of samples
+    # Create array of valid wavelengths
+    wavelength_set = generate_valid_sweep(wav_start, wav_stop, Δwav, wavvolt_file=wavvolt_file)
+
+    # Assign pump and Stokes wavelengths
+    stokes_wav = wavelength_set
+    pump_wav = fixed_wav
+
+    fsamp = (1 / (6 * t_lia)).to(u.Hz)
+    trig_params['freq'] = fsamp
+
+    daq_HVset, VOA_Vset, HVA_Vset, wavelength_set = parse_wav_delay(wavelength_set, wavvolt_file, delayvolt_file)
+    
+    V_MEMS_sweep = VCSEL_sweep_volts(daq_HVset, num_sweep)
+    V_VOA_sweep = VCSEL_sweep_volts(VOA_Vset, num_sweep)
+    print(f'V_MEMS_sweep 1: {V_MEMS_sweep.shape[0]}')
+    print(f'V_VOA_sweep 1: {V_VOA_sweep.shape[0]}')
+
+    # test-------------
+    # waveform_base = np.array((1,0))
+    # waveform = np.tile(waveform_base, int(V_VOA_sweep.shape[0]//2))*u.V
+    # if V_VOA_sweep.shape[0] %2 != 0: #if odd
+    #     waveform = np.append(waveform.m,[1]) * u.V
+    # print(f'waveform: {waveform.shape[0]}')
+
+    #test ----------------
+    
+    # Pad beginning of array to allow mirrors to settle before aquiring wavelength sweep
+    V_MEMS_sweep = np.append(V_MEMS_sweep[0]*np.ones(pad_galvo_endpts), V_MEMS_sweep)
+    V_VOA_sweep = np.append(V_VOA_sweep[0]*np.ones(pad_galvo_endpts), V_VOA_sweep)
+    
+    if num_pix > 1:
+        # waveform = np.append(V_MEMS_sweep[0]*np.ones(pad_galvo_endpts), waveform)
+        V_MEMS_tmp = np.tile(np.concatenate((V_MEMS_sweep.m, V_MEMS_sweep.m[::-1])), num_pix // 2) * u.V
+        V_VOA_tmp = np.tile(np.concatenate((V_VOA_sweep.m, V_VOA_sweep.m[::-1])), num_pix // 2) * u.V
+
+        if num_pix %2 != 0: # odd num_pix
+            V_MEMS_sweep = np.concatenate((V_MEMS_tmp.m, V_MEMS_sweep.m)) * u.V #append one more forward sweep
+            V_VOA_sweep = np.concatenate((V_VOA_tmp.m, V_VOA_sweep.m)) * u.V
+        else: # even
+            V_MEMS_sweep = V_MEMS_tmp
+            V_VOA_sweep = V_VOA_tmp
+            # V_MEMS_sweep = np.tile(V_MEMS_sweep, num_pix )
+            # V_VOA_sweep = np.tile(V_VOA_sweep, num_pix)
+            # waveform = np.tile(waveform, num_pix)
+    print(f'V_MEMS_sweep 2: {V_MEMS_sweep.shape[0]}')
+    print(f'V_VOA_sweep 2: {V_VOA_sweep.shape[0]}')
+
+    # 5 sample delay between DAQ2 and DAQ1 start - add 5 sample buffer at start of DAQ2
+    pad = 5
+    num_samp = V_VOA_sweep.shape[0] + pad
+    V_VOA_sweep = np.append(V_VOA_sweep[0]*np.ones(pad), V_VOA_sweep)
+    V_MEMS_sweep = np.append(V_MEMS_sweep[0]*np.ones(pad), V_MEMS_sweep)
+    # waveform = np.append(waveform[0]*np.ones(pad), waveform)
+    
+    print(f'V_MEMS_sweep 3: {V_MEMS_sweep.shape[0]}')
+    print(f'V_VOA_sweep 3: {V_VOA_sweep.shape[0]}')
+    # print(f'waveform: {waveform.shape[0]}')
+    
+    write_data = {
+        ch_VCSEL_MEMS_str: V_MEMS_sweep,
+        ch_VOA_str: V_VOA_sweep
+        # ch_VOA_str: waveform  #test
+    }
+    # Create DAQ task
+    if ch_sync is not None:
+        sweep_task = Task( 
+            ch_VCSEL_MEMS,
+            ch_VOA,
+            ch_Vsrs_2,
+            ch_HVA_Vmon,
+            ch_sync,
+            trig_params = trig_params
+        )
+    else:
+        sweep_task = Task(
+            ch_Vsrs_2,
+            ch_HVA_Vmon,
+            ch_VCSEL_MEMS,
+            ch_VOA
+        )
+        
+    # Set DAQ sampling rate and number of samples to write/read (for averaging)
+    sweep_task.set_timing(fsamp=fsamp, n_samples=num_samp)
+    
+    # Print calculated sweep time
+    sweep_time = (1 / fsamp).to(u.second) * num_samp
+    start_time = time.time()
+    end_time = start_time + sweep_time.m
+    print(f"sweep time: {sweep_time:3.2f}")
+    print(f"start time: {time.ctime(start_time):s}")
+    print(f"stop time: {time.ctime(end_time):s}")
+    
+    record_data = {
+        "wavelength_set": wavelength_set,
+        "pump_wav": fixed_wav,
+        "HVA_Vset": HVA_Vset,
+        "VOA_Vset": VOA_Vset
+    }
+    
+    return sweep_task, write_data, record_data
+    
+    
+def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia, fixed_wav,sample_dir=None, name=None, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, ch_sync=None, trig_params=None):
     """
     Acquire spectrum by continuously sweeping VCSEL wavelength and VOA voltage over specified range (faster acquisition)
         -VCSEL wavlength tuning with DAQ + HVA
@@ -1530,6 +1827,8 @@ def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia,
         -wavvolt_file - .mat file with voltage to wavelength calibration
         -delayvolt_file - .mat file with VOA voltage per VCSEL MEMS voltage set
         -num_sweep - number of full period sweeps (forward + backward sweep)
+        -ch_sync - channel object (counter output) of sync output
+        -trig_params - needs to be provided if ch_sync is not None
     """
     remove_bs()
     
@@ -1539,26 +1838,25 @@ def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia,
     print("saving data to: ")
     print(spath)
     
-    # Create array of valid wavelengths
-    wavelength_set = generate_valid_sweep(wav_start, wav_stop, Δwav, wavvolt_file=wavvolt_file)
+    sweep_task, write_data, record_data = configure_VCSEL_sweep(wav_start, wav_stop, Δwav, num_sweep, t_lia, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, ch_sync=ch_sync, trig_params=trig_params)
+    # # Create array of valid wavelengths
+    # wavelength_set = generate_valid_sweep(wav_start, wav_stop, Δwav, wavvolt_file=wavvolt_file)
 
     # Assign pump and Stokes wavelengths
-    stokes_wav = wavelength_set
+    stokes_wav = record_data["wavelength_set"]
     pump_wav = fixed_wav
 
-    fsamp = (1 / (4 * t_lia)).to(u.Hz)
+    # fsamp = (1 / (4 * t_lia)).to(u.Hz)
 
-    daq_HVset, VOA_Vset, HVA_Vset, wavelength_set = parse_wav_delay(wavelength_set, wavvolt_file, delayvolt_file)
+    # daq_HVset, VOA_Vset, HVA_Vset, wavelength_set = parse_wav_delay(wavelength_set, wavvolt_file, delayvolt_file)
     
-    V_MEMS_sweep = configure_VCSEL_sweep(daq_HVset, num_sweep)
-    V_VOA_sweep = configure_VCSEL_sweep(VOA_Vset, num_sweep)
+    # V_MEMS_sweep = VCSEL_sweep_volts(daq_HVset, num_sweep)
+    # V_VOA_sweep = VCSEL_sweep_volts(VOA_Vset, num_sweep)
 
-    num_samp = V_VOA_sweep.shape[0]
+    # num_samp = V_VOA_sweep.shape[0]
 
     #Initialize to first voltages in sweep
-    # ch_VCSEL_MEMS.write(V_MEMS_sweep[0])
-    # ch_VOA.write(V_VOA_sweep[0])
-    ramp_VCSEL(HVA_Vset[0])
+    ramp_VCSEL(record_data["HVA_Vset"][0])
 
     # save sweep parameters to hdf5
     dump_hdf5(
@@ -1568,38 +1866,48 @@ def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia,
          'wav_start': wav_start,
          'wav_stop': wav_stop,
          'Δwav': Δwav,
-         'wavelength_set': wavelength_set,
+         'wavelength_set': record_data["wavelength_set"],
          'pump_wav': pump_wav
          },
         spath,
         open_mode='x',
     )
-    write_data = {
-        ch_VCSEL_MEMS_str: V_MEMS_sweep,
-        ch_VOA_str: V_VOA_sweep
-    }
-    # Create DAQ task
-    sweep_task = Task(
-        ch_Vsrs_2,
-        ch_HVA_Vmon,
-        ch_VCSEL_MEMS,
-        ch_VOA
-    )
-    # Set DAQ sampling rate and number of samples to write/read (for averaging)
-    sweep_task.set_timing(fsamp=fsamp, n_samples=num_samp)
+    # write_data = {
+    #     ch_VCSEL_MEMS_str: V_MEMS_sweep,
+    #     ch_VOA_str: V_VOA_sweep
+    # }
+    # # Create DAQ task
+    # if ch_sync is not None:
+    #     sweep_task = Task(
+    #         ch_Vsrs_2,
+    #         ch_HVA_Vmon,
+    #         ch_VCSEL_MEMS,
+    #         ch_VOA
+    #     )
+    # else:
+    #     sweep_task = Task(
+    #         ch_Vsrs_2,
+    #         ch_HVA_Vmon,
+    #         ch_VCSEL_MEMS,
+    #         ch_VOA,
+    #         ch_sync,
+    #         trig_params = trig_params
+    #     )
+    # # Set DAQ sampling rate and number of samples to write/read (for averaging)
+    # sweep_task.set_timing(fsamp=fsamp, n_samples=num_samp)
 
-    # Print calculated sweep time
-    sweep_time = (1 / fsamp).to(u.second) * num_samp
-    start_time = time.time()
-    end_time = start_time + sweep_time.m
-    print(f"sweep time: {sweep_time:3.2f}")
-    print(f"start time: {time.ctime(start_time):s}")
-    print(f"stop time: {time.ctime(end_time):s}")
+    # # Print calculated sweep time
+    # sweep_time = (1 / fsamp).to(u.second) * num_samp
+    # start_time = time.time()
+    # end_time = start_time + sweep_time.m
+    # print(f"sweep time: {sweep_time:3.2f}")
+    # print(f"start time: {time.ctime(start_time):s}")
+    # print(f"stop time: {time.ctime(end_time):s}")
 
     dump_hdf5(write_data, spath)
     read_data = sweep_task.run(write_data)
     dump_hdf5(read_data, spath)
-    proc_data = unwrap_sweep(read_data, num_sweep, wavelength_set, wavvolt_HVCALIB)
+    proc_data = unwrap_sweep(read_data, num_sweep, record_data["wavelength_set"], wavvolt_HVCALIB)
     dump_hdf5(proc_data, spath)
     
     # Unreserve daq
@@ -1612,8 +1920,8 @@ def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia,
     sweep_data = {
         'HVA_Vraw': read_data[ch_HVA_Vmon_str],
         'Vsrs_Vraw': read_data[ch_Vsrs_2_str],
-        'HVA_Vset': HVA_Vset,
-        'VOA_Vset': VOA_Vset,
+        'HVA_Vset': record_data["HVA_Vset"],
+        'VOA_Vset': record_data["VOA_Vset"],
         'raman_shift': raman_shift,
     }
     dump_hdf5(sweep_data, spath)
