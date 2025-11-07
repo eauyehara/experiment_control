@@ -4,6 +4,7 @@ import numpy as np
 import xarray as xr
 import sys
 import clr
+from copy import deepcopy
 # from fontTools.ttLib.tables.otConverters import DeltaValue
 
 sys.path.append(r"C:\Program Files\Thorlabs\Kinesis")
@@ -96,7 +97,7 @@ ch_sync, ch_sync_str = daq2.ctr0, 'Dev2/ctr0'
 # Configure DAQ analog input channels
 ch_Vsrs, ch_Vsrs_str = daq.ai0, 'Dev1/ai0'
 ch_Vx_meas, ch_Vx_meas_str = daq.ai2, 'Dev1/ai2'
-ch_Vy_meas, ch_Vy_meas_str = daq.ai3, 'Dev1/ai3'
+ch_Vy_meas, ch_Vy_meas_str = daq.ai3, 'Dev1/ai3'#daq.ai3, 'Dev1/ai3'
 ch_Vmon, ch_Vmon_str = daq.ai20, 'Dev1/ai20'  #O-ELand wavelength monitor in continuous sweep
 # Configure DAQ PFI input channel
 ch_trig_str = '/Dev1/PFI12'
@@ -367,16 +368,17 @@ def preview_hyperspectral_scan(nx,ny,ΔVx,ΔVy,fsamp,wav_start,wav_stop,Δwav,nu
     return fig
     
     
-def get_Nyquist_vals(N, d_spot):
+def get_Nyquist_vals(N, d_spot, scale=2):
     """
     Calculate Nyquist-limite galvo scan length and corresponding galvo voltages given the number of sampling points and laser spot diamter
     """
-    Nyq_samp = d_spot/2
+    Nyq_samp = d_spot/scale
     dV = (Nyq_samp / max(dx_dVx, dy_dVy)).to(u.V)
     V_scan = (dV*N).to(u.V)
     L_scan = Nyq_samp*N
     print(f"scan volt: {V_scan}")
     print(f"scan length: {L_scan}")
+    print(f"step size: {Nyq_samp}")
     return V_scan, L_scan
     
 """ Scanning Galvo image acquisition """
@@ -467,7 +469,7 @@ def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,ch_clock_str=None):
         clock_str = ch_clock_str
     else:
         clock_str = None
-        
+    
     scan_task = Task(
         ch_Vx_p,
         ch_Vx_n,
@@ -475,7 +477,15 @@ def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,ch_clock_str=None):
         ch_Vy_n,
         ch_Vsrs,
         ch_Vx_meas,
-        ch_Vy_meas
+        ch_Vy_meas, 
+        ch_range={
+            ch_Vx_p_str :   (0*u.V, np.max(Vx_scan / Vmeas_Vwrite)),
+            ch_Vx_n_str :   (np.min(-Vx_scan / Vmeas_Vwrite), 0*u.V),
+            ch_Vy_p_str :   (0*u.V, np.max(Vy_scan / Vmeas_Vwrite)),
+            ch_Vy_n_str :   (np.min(-Vy_scan / Vmeas_Vwrite), 0*u.V),
+            ch_Vx_meas  :   (0*u.V, np.max(Vx_scan)*1.5),
+            ch_Vy_meas  :   (0*u.V, np.max(Vy_scan)*1.5)
+        }
     )
    
     # Set DAQ sampling rate and number of samples to write/read
@@ -491,13 +501,12 @@ def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,ch_clock_str=None):
 
     # Create dictionary of data to write to each DAQ output channel
     write_data = {
-        # ch_Vx_p_str :   waveform
         ch_Vx_p_str :   Vx_scan / Vmeas_Vwrite,
         ch_Vx_n_str :   -Vx_scan / Vmeas_Vwrite,
         ch_Vy_p_str :   Vy_scan / Vmeas_Vwrite,
         ch_Vy_n_str :   -Vy_scan / Vmeas_Vwrite,
     }
-
+    
     return scan_task, write_data
 
 
@@ -596,7 +605,7 @@ def collect_hyperspectral_img(
     nx, ny, ΔVx, ΔVy, Vx0, Vy0, fsamp, 
     t_lia, sens_lia, trig_params,
     wav_start, wav_stop, Δwav, fixed_wav, num_sweep=1, 
-    pad_galvo_endpts=0,
+    pad_galvo_endpts=1,
     sample_dir=None, name=None,
     ch_clock=ch_clock, 
     ch_clock_str=ch_clock_str,
@@ -794,11 +803,11 @@ def process_hyperspectral_scan(scan_read_data,nx,ny,ΔVx,ΔVy,
     HV_pix = np.reshape(np.array(HV_raw.to(u.V).m), (npix, N_wav))
     VCSEL_wavmon_pix = np.reshape(np.array(VCSEL_wavmon_raw.to(u.V).m), (npix, N_wav))
     
-    #Discard 1st pixel sweep (first row) - galvo ai reads garbage here
+    #If discard 1st pixel, rows out of sync - images appear striated
     #Discard pad_galvo_endpts points from the start of each row - vcsel ai lags ao
-    Vsrs_pix = Vsrs_pix[1:,pad_galvo_endpts:]
-    HV_pix = HV_pix[1:,pad_galvo_endpts:] 
-    VCSEL_wavmon_pix = VCSEL_wavmon_pix[1:,pad_galvo_endpts:]
+    Vsrs_pix = Vsrs_pix[:-1,pad_galvo_endpts:]
+    HV_pix = HV_pix[:-1,pad_galvo_endpts:] 
+    VCSEL_wavmon_pix = VCSEL_wavmon_pix[:-1,pad_galvo_endpts:]
     
     # Initialize arrays for pixel x spectra with sorted, unique spectral points
     Vsrs_unqpix = np.zeros((num_pix, N_unqwav))
@@ -807,7 +816,7 @@ def process_hyperspectral_scan(scan_read_data,nx,ny,ΔVx,ΔVy,
     
     #Odd pixels are backward sweeps - flip (Assumes only 1 num_sweeps per pix is 1)
     for row in range(Vsrs_pix.shape[0]):
-        if row % 2 == 0:
+        if row % 2 != 0:
             Vsrs_pix[row,:] = Vsrs_pix[row,::-1]
             HV_pix[row,:] = HV_pix[row,::-1]
             VCSEL_wavmon_pix[row,:] = VCSEL_wavmon_pix[row,::-1]
@@ -931,7 +940,7 @@ def unwrap_scan(Vsrs_1d, nx, ny):
     """
     Unwrap 1d array of raster values into (2d (nx,ny) array) without interpolation
     """
-    Vsrs_2d = np.reshape(Vsrs_1d, (nx, ny))
+    Vsrs_2d = np.reshape(deepcopy(Vsrs_1d), (nx, ny))
     for row in range(Vsrs_2d.shape[0]):
         if row %2 != 0: #odd
             Vsrs_2d[row,:] = Vsrs_2d[row,::-1]
@@ -1288,6 +1297,17 @@ def plot_hyperspectral_scan(ds, Vsrs_hs: xr.DataArray, wavnum, wf_cmap=cm.gray, 
         ax.set_aspect("equal")
     
     plt.show()
+    return fig
+
+def plot_pixel_spec(Vsrs_hs, x, y):
+    """
+    Plot the spectra at the specified x,y cooridnate
+    """
+    spec = Vsrs_hs.sel(x=x, y=-y, method="nearest")
+    fig, ax = plt.subplots(1,1, figsize=(6,4), tight_layout=True)
+    ax.plot(Vsrs_hs["raman_shift"], spec)
+    ax.set_xlabel("Raman Shift ($cm^{-1}$)")
+    ax.set_ylabel("Voltage (V)")
     return fig
 
 
@@ -2326,11 +2346,11 @@ def calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_H
     wav_calib_sort = np.array(np.zeros(HV_arr.shape))
     Vsrs_interp_arr = np.array(np.zeros(HV_arr.shape))
     Vsrs_arr_sort = np.array(np.zeros(HV_arr.shape))
-    dwav = np.mean(np.diff(wavelength_set))
-    
+
     
     #sort set wavelength by increasing wavelength ------------------
     wavset_sort = np.sort(wavelength_set)
+    dwav = np.mean(np.diff(wavset_sort))
     #-----------------
         
     for spec in range(HV_arr.shape[0]):
@@ -2342,7 +2362,7 @@ def calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_H
     # fig, ax = plt.subplots(2,1)
     for sweep_iter in range(HV_filt.shape[0]):
         for wl in range(HV_filt.shape[1]):
-            ind = np.argmin(np.abs(HV_filt[sweep_iter, wl].m - volt_calib.m))
+            ind = np.nanargmin(np.abs(HV_filt[sweep_iter, wl].m - volt_calib.m))
             wav_calib_arr[sweep_iter, wl] = wav_calib[ind].m
             
         #sort extracted wavelength from HV mon by increasing wavelength
@@ -2369,31 +2389,38 @@ def calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_H
     return Vsrs_interp_arr*u.V
     
 
-def plot_daq_sweepSpectra(ds, fname, fpath=False, figsize=(5,6), wavvolt_HVCALIB=wavvolt_HVCALIB):
-    """
-    Plot daq continuous sweep spectra. 3 Subplots: (1) Raw spectra, (2) Wavelength corrected from measured voltages, (3) Averaged corrected
-    """
+def plot_daq_sweepSpectra(ds0, savefig=False, fname=None, fpath=None, figsize=(5,6), wavvolt_HVCALIB=wavvolt_HVCALIB):
     #First point in sweep already removed in unwrap_sweep()
-    HVA_Vset = ds["HVA_Vset"]
-    wavelength_set = ds["wavelength_set"]
-    HV_arr = ds["HV_arr"]
-    raman_shift = ds["raman_shift"] #sorted in order of increasing voltage
-    rs_sort = np.sort(raman_shift) #sorted by ascending wavevelength (ascending raman_shift for tuning Stokes wavelength)
-    
+    HVA_Vset = ds0["HVA_Vset"]
+    wavelength_set = ds0["wavelength_set"]
+    HV_arr = ds0["HV_arr"]
+    raman_shift = ds0["raman_shift"] #sorted in order of increasing voltage
+
+    rs_sort = np.sort(raman_shift) #sorted by ascending wavelength (ascending raman_shift for tuning Stokes wavelength)
+
     offset = 0*u.V
-    Vsrs_arr = (ds["Vsrs_arr"] / 10 + offset).to(u.V).m * ds["sens_lia"].to(u.V)
+    Vsrs_arr = (ds0["Vsrs_arr"] / 10 + offset).to(u.V).m * ds0["sens_lia"].to(u.V)
 
     Vsrs_interp_arr = calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_HVCALIB=wavvolt_HVCALIB)
+    VCSEL_wavmon_arr = ds0["VCSEL_wavmon_arr"]
 
     Vsrs_av = np.mean(Vsrs_interp_arr, axis=0)
-    mind = np.argmax(Vsrs_av)
-    print("Peak at {:2.3f}".format(rs_sort[mind]))
+    uncal_Vsrs_av = np.mean(Vsrs_arr, axis=0)
     
+    mind = np.nanargmax(Vsrs_av)
+    mind_uncal = np.nanargmax(uncal_Vsrs_av)
+    
+    print("Calib Peak at {:2.3f}".format(rs_sort[mind]))
+    print(f"Uncal Peak at {raman_shift[mind_uncal] :2.3f}")
+
     fig, ax = plt.subplots(3, 1, figsize=figsize, gridspec_kw={"wspace":0,"hspace":0.3})
     for spec in range(Vsrs_arr.shape[0]):
         ax[0].plot(raman_shift, Vsrs_arr[spec].to(u.uV))
         ax[1].plot(rs_sort, Vsrs_interp_arr[spec].to(u.uV))
+      
     ax[2].plot(rs_sort, Vsrs_av.to(u.uV))
+    ax[2].plot(rs_sort[mind].m, Vsrs_av[mind].to(u.uV).m, 'x')
+    # ax[2].plot(raman_shift, np.mean(Vsrs_arr, axis=0).to(u.uV), 'k')
     ax[0].set_ylabel("Voltage $(\mu V)$")
     ax[0].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
     ax[1].set_ylabel("Voltage $(\mu V)$")
@@ -2401,9 +2428,8 @@ def plot_daq_sweepSpectra(ds, fname, fpath=False, figsize=(5,6), wavvolt_HVCALIB
     ax[2].set_xlabel("Raman Shift (1/cm)")
     ax[2].set_ylabel("Voltage $(\mu V)$")
     ax[2].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
-    plt.show()
     
-    if fpath:
+    if savefig:
         fname=os.path.normpath(os.path.join(fpath,fname))
         plt.savefig(fname, dpi=None, facecolor=None, edgecolor=None,
             orientation='portrait', transparent=True, bbox_inches=None, pad_inches=0.5)
