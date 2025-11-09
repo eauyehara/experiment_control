@@ -2,6 +2,7 @@ import os
 import time
 import numpy as np
 import sys
+import xarray as xr
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -11,6 +12,7 @@ from scipy.interpolate import griddata
 from scipy.optimize import curve_fit
 from scipy.stats import norm
 from scipy import io
+from copy import deepcopy
 
 from ..util.units import Q_, u
 from ..util.io import *         # hdf5 utilites
@@ -47,6 +49,9 @@ srs_rc_params = {
 # Directory for data save
 data_dir = os.path.join(home_dir,"Dropbox (MIT)","POE","srs_microscope_data","srs_microscope_scans")
 calib_dir = os.path.join(home_dir, "Documents", "Github","experiment_control","calibration_data","VCSEL_calibration")
+wavvolt_file = os.path.join(calib_dir, "wavvolt16_dev1b_15C_OE1076_0.00mW_2025-11-1.mat") #For wavelength set
+wavvolt_HVCALIB = os.path.join(calib_dir, "wavvolt_HVCALIB_GSdev1b_delayvolt16_BOA700mA_2025-11-2.mat") #For post-acquisition wavelength calibration
+delayvolt_file =os.path.join(calib_dir, "delayvolt16.mat")
 
 """ Calibration data """
 
@@ -278,6 +283,99 @@ def scan_volt_to_wf_inds(Vx, Vy, laser_spot_img, dx_dpix=dx_dpix):
     i_ymin = np.nanargmin(np.abs(y_img - y.min()))
     return i_xmax, i_xmin, i_ymax, i_ymin
 
+def scan_vals(nx,ny,ΔVx,ΔVy,Vx0,Vy0):
+    """
+    Create 1d arrays of x scan voltages and y scan voltages
+    :param nx, ny: number of points to scan in x and y
+    :param ΔVx, ΔVy: Range of voltages to scan in x and y [volt] (Scan range  (-ΔVx/2, ΔVx/2) in x and (-ΔVy/2, ΔVy/2) in y)
+    :param Vx0, Vy0: Spot center position [volt]
+    :return Vx, Vy: 1d voltage arrays
+    """
+    Vx0V = Vx0.to(u.volt).m
+    ΔVxV = ΔVx.to(u.volt).m
+    Vy0V = Vy0.to(u.volt).m
+    ΔVyV = ΔVy.to(u.volt).m
+    Vx = np.linspace(Vx0V-(ΔVxV/2.0),Vx0V+(ΔVxV/2.0),nx)*u.volt  # 1d array of x voltages
+    Vy = np.linspace(Vy0V-(ΔVyV/2.0),Vy0V+(ΔVyV/2.0),ny)*u.volt  # 1d array of y voltages
+    return Vx, Vy
+
+def get_Nyquist_vals(N, d_spot, scale=2):
+    """
+    Calculate Nyquist-limite galvo scan length and corresponding galvo voltages given the number of sampling points and laser spot diamter
+    """
+    Nyq_samp = d_spot/scale
+    dV = (Nyq_samp / max(dx_dVx, dy_dVy)).to(u.V)
+    V_scan = (dV*N).to(u.V)
+    L_scan = Nyq_samp*N
+    print(f"scan volt: {V_scan}")
+    print(f"scan length: {L_scan}")
+    print(f"step size: {Nyq_samp}")
+    return V_scan, L_scan
+
+def HVA_to_daq(HVA_volt, atten=0.09125, volt_limit=88.6*u.V, offset=0.15*u.V):
+    # Convert the output HVA voltage (to VCSEL MEMS) to the daq input to the HVA
+    # atten - from voltage divider between daq and HVA
+    # V_gain = 98.3 # For Trek 2210 (measured)
+    V_gain = 98.16
+    if HVA_volt > volt_limit:
+        print(f"Vset= {HVA_volt:3.2f} exceeds Vlim= {volt_limit:3.2f}. Setting to {volt_limit} V.")
+        HVA_volt = volt_limit #0*u.V
+    daq_volt = (HVA_volt - offset) / V_gain / atten 
+    return daq_volt
+
+def Vmon_to_HVA(daq_volt, calib_offset=0.0023*u.V, scale=100.2): 
+    #Convert daq read of Vmon to HVA output (calib_factor corrects for daq analog input negative offset (not constant, but set to 0V offset))
+    V_HV = (daq_volt+calib_offset)*scale
+    # V_HV = daq_volt*scale*calib_factor
+    return V_HV
+
+def HVA_to_wavelength(HVA_set, wavvolt_file=wavvolt_file):
+    # Given a HVA set (array or single voltage), find the VCSEL wavelength
+    a = io.loadmat(wavvolt_file) # Load wavvolt_file
+    wav_calib =  (a['peak_interp'][0] * u.m).to(u.nm)
+    volt_calib = a['volt_interp'][0]*u.V
+    tol = 0.5*u.V
+
+"""Processing Scan"""
+def hs_xarray(
+    data: np.ndarray,
+    x, y, raman_shift, #wavelength
+    x_units='um', y_units='um', rs_units='1/cm', data_units='V', #  wav_units='nm', 
+) -> xr.DataArray:
+    """
+    Convert a 3D numpy array into an xarray.DataArray with dimensions (x, y, raman_shift (wavelength))
+        data : (np.ndarray) of shape (nx, ny, nwavelength).
+        x, y, raman_shift (wavelength) : (array) Coordinates for each dimension.
+        x_units, y_units, rs_units (wavelength_units), data_units : (str) Units 
+    :returns: xr.DataArray
+    """
+    if data.ndim != 3:
+        raise ValueError("Input data must be a 3D numpy array (x, y, wavelength).")
+
+    da = xr.DataArray(
+        data,
+        dims=("x", "y", "raman_shift"),
+        coords={
+            "x": ("x", x, {"units": x_units}),
+            "y": ("y", y, {"units": y_units}),
+            # "wavelength": ("wavelength", wavelength, {"units": wav_units}),
+            "raman_shift": ("raman_shift", raman_shift, {"units": rs_units})
+        },
+        name="Vsrs",
+        attrs={"units": data_units} 
+    )
+    return da
+    
+def unwrap_scan(Vsrs_1d, nx, ny):
+    """
+    Unwrap 1d array of raster values into (2d (nx,ny) array) without interpolation
+    """
+    Vsrs_2d = np.reshape(deepcopy(Vsrs_1d), (nx, ny))
+    for row in range(Vsrs_2d.shape[0]):
+        if row %2 != 0: #odd
+            Vsrs_2d[row,:] = Vsrs_2d[row,::-1]
+    return Vsrs_2d
+
 
 """ Plotting """
 def transparent_cmap(cmap):
@@ -291,15 +389,15 @@ def transparent_cmap(cmap):
     return cmap_tr
 
 
-def plot_scan_data(ds, wf_cmap=cm.binary, laser_cmap=cm.Reds, srs_cmap=cm.inferno):
+def plot_scan_data(ds,wf_cmap=cm.gray,laser_cmap=cm.Reds, srs_cmap=cm.inferno, vmin=None, vmax=None):
     """
     Plot 2x1 subplots with [0] laser spot superimposed on cropped widefield image, and [1] SRS image
     :param ds: from collect_scan()
     :return: fig with (2) subplots
     """
     laser_cmap = transparent_cmap(laser_cmap)
-    fig, ax = plt.subplots(2, 1, figsize=(10, 10))
-
+    fig, ax = plt.subplots(2,1, figsize = (10,10))
+    
     # Find wf image indices corresponding to scan area, add manual offset to match scan area
     i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
     x_off = 0#10
@@ -308,17 +406,17 @@ def plot_scan_data(ds, wf_cmap=cm.binary, laser_cmap=cm.Reds, srs_cmap=cm.infern
     i_xmin += x_off
     i_ymin += y_off
     i_ymax += y_off
-
+ 
     # [0] Laser spot + cropped widefield image
     im0 = ax[0].pcolormesh(ds["y_img"][i_ymin:i_ymax], ds["x_img"][i_xmin:i_xmax],
-                           ds["wf_img"][i_xmax:i_xmin:-1, i_ymin:i_ymax], cmap=wf_cmap)
+                              ds["wf_img"][i_xmax:i_xmin:-1, i_ymin:i_ymax], cmap=wf_cmap)
     im1 = ax[0].pcolormesh(ds["y_img"][i_ymin:i_ymax], ds["x_img"][i_xmin:i_xmax],
-                           ds["laser_spot_img"][i_xmax:i_xmin:-1, i_ymin:i_ymax], cmap=laser_cmap)
+                              ds["laser_spot_img"][i_xmax:i_xmin:-1, i_ymin:i_ymax], cmap=laser_cmap)
     cb0 = plt.colorbar(im1, ax=ax[0])
     ax[0].set_aspect("equal")
 
     # [1] SRS (galvo) image
-    p0 = ax[1].pcolormesh(ds["y"].m, ds["x"].m, np.flipud(np.transpose(ds["Vsrs_g"].m)), cmap=srs_cmap)
+    p0 = ax[1].pcolormesh(ds["y"].m, ds["x"].m, np.flipud(np.transpose(ds["Vsrs_g"].m)), cmap=srs_cmap, vmin=vmin, vmax=vmax)
     cb1 = plt.colorbar(p0, ax=ax[1])
     ax[1].set_aspect("equal")
 
@@ -377,6 +475,251 @@ def plot_laser_widefield_img_zoom(wf_img, laser_spot_img, Vx, Vy, wf_cmap=cm.bin
     ax.set_aspect("equal")
     plt.show()
     return fig
+
+"""Plot hyperspectral scan"""
+def plot_hyperspectral_scan(ds, Vsrs_hs: xr.DataArray, wavnum, wf_cmap=cm.gray, laser_cmap=cm.Reds, srs_cmap=cm.inferno, vmin=None, vmax=None, wf_offsets: dict=None, plot_wf=True):
+    """
+    Plot 2x1 subplots with [0] laser spot superimposed on cropped widefield image, and [1] SRS image
+    :param ds: from collect_hyperspectral_scan()
+    :param wavnum (unitful Quantity): wavenumber where to plot hyperspectral image
+    :return: fig with (2) subplots
+    """
+    laser_cmap = transparent_cmap(laser_cmap)
+    
+    offset = 0*u.V
+    
+    # Find wf image indices corresponding to scan area, add manual offset to match scan area
+    if wf_offsets is not None:
+        x_off = wf_offsets["x_off"]
+        y_off = wf_offsets["y_off"]
+    else:
+        x_off = 0 #10
+        y_off = 0 #40
+        
+    i_xmax, i_xmin, i_ymax, i_ymin = wf_img_inds(ds)
+    i_xmax += x_off
+    i_xmin += x_off
+    i_ymin += y_off
+    i_ymax += y_off
+    
+    # 2d slice in xarray
+    # if spec_ind.u == 1/u.cm:
+    #     Vsrs_2d = Vsrs_hs.sel(wavelength=(Vsrs_hs["raman shift"]==spec_ind), method="nearest").squeeze()
+    # elif spec_ind.u == u.V:
+    #     Vsrs_2d = Vsrs_hs.sel(wavelength=(Vsrs_hs["HV"]==spec_ind), method="nearest").squeeze()
+    # elif spec_ind.u == u.nm:
+    #     Vsrs_2d = Vsrs_hs.sel(wavelength=spec_ind, method="nearest")
+    # else:
+    #     raise ValueError("Invalid spec_ind - must have units (1/u.cm, u.V, or u.nm)")
+    Vsrs_2d = np.asarray(Vsrs_hs.sel(raman_shift=wavnum, method="nearest")) 
+    # Vsrs_2d = (Vsrs_2d / 10 + offset).to(u.V).m * ds["sens_lia"].to(u.V).m
+    
+    if plot_wf:
+        fig, ax = plt.subplots(2, 1, figsize=(10,10))
+        # [0] Laser spot + cropped widefield image
+        im0 = ax[0].pcolormesh(ds["y_img"][i_ymin:i_ymax], ds["x_img"][i_xmin:i_xmax],
+                                ds["wf_img"][i_xmax:i_xmin:-1, i_ymin:i_ymax], cmap=wf_cmap)
+        im1 = ax[0].pcolormesh(ds["y_img"][i_ymin:i_ymax], ds["x_img"][i_xmin:i_xmax],
+                                ds["laser_spot_img"][i_xmax:i_xmin:-1, i_ymin:i_ymax], cmap=laser_cmap)
+        cb0 = plt.colorbar(im1, ax=ax[0])
+        ax[0].set_aspect("equal")
+
+        # [1] SRS (galvo) image
+        p0 = ax[1].pcolormesh(Vsrs_hs["y"], Vsrs_hs["x"], np.flipud(np.transpose(Vsrs_2d)), cmap=srs_cmap, vmin=vmin, vmax=vmax)
+        cb1 = plt.colorbar(p0, ax=ax[1])
+        ax[1].set_aspect("equal")
+    else:
+        fig, ax = plt.subplots(1,1,figsize=(4,4))
+        p0 = ax.pcolormesh(Vsrs_hs["y"], Vsrs_hs["x"], np.flipud(np.transpose(Vsrs_2d)), cmap=srs_cmap, vmin=vmin, vmax=vmax)
+        cb1 = plt.colorbar(p0, ax=ax)
+        ax.set_aspect("equal")
+    
+    plt.show()
+    return fig
+
+def plot_pixel_spec(Vsrs_hs, x, y, ax=None, fig=None):
+    """
+    Plot the spectra at the specified x,y cooridnate
+    """
+    spec = Vsrs_hs.sel(x=x, y=-y, method="nearest")
+    pk_shift = spec.idxmax(dim="raman_shift")
+    print(f"Peak at {pk_shift.values} 1/cm")
+
+    if ax is None:
+        fig, ax = plt.subplots(1,1, figsize=(6,4), tight_layout=True)
+    ax.plot(Vsrs_hs["raman_shift"], spec)
+    ax.set_xlabel("Raman Shift ($cm^{-1}$)")
+    ax.set_ylabel("Voltage (V)")
+    return fig, ax
+
+
+def plot_daqsweep_wavmon(ds, ds_type='sweep', id_sweep_dir=False, colors=['b','g'], ax=None, fig=None, figsize=(6,4)):
+    """
+    ds_type: 'sweep': single point daq sweeps, 'hs_im': hyperspectral image
+    """
+    #Load FFP peaks from calibration file
+    fpath = os.path.join(calib_dir,'FFP-I_peaks')
+    FFP_cal_pks = load_hdf5(fpath=fpath)
+    cal_pks = FFP_cal_pks["peaks"]
+    
+    
+    #restrict FFP_cal_pks to tuning range
+    FFP_cal = cal_pks[(cal_pks >= np.nanmin(ds['wavelength_set'])) & (cal_pks <= np.nanmax(ds['wavelength_set']))] 
+    FFP_cal = FFP_cal[~((FFP_cal > ds['wavelength_set'][0]) & (FFP_cal < ds['wavelength_set'][-1]))]
+
+    if ds_type == 'sweep':
+        wavset_sort, s_ind = np.unique(ds["wavelength_set"].to(u.nm).m, return_index=True)
+        wavset_sort = wavset_sort * u.nm
+        wavmon_arr = ds["VCSEL_wavmon_arr"][:, s_ind]
+    elif ds_type == 'hs_image':
+        wavset_sort = ds["wavset_sort"]
+        wavmon_arr = ds["VCSEL_wavmon_pix"]
+    else:
+        raise ValueError("Specify ds_type='hs_image' or 'sweep'")
+    #Plotting
+    even_color = colors[0]
+    odd_color = even_color
+    if id_sweep_dir:
+        odd_color=colors[1]
+    
+    if ax is None:
+        fig, ax = plt.subplots(1,1, figsize=figsize, tight_layout=True)
+        
+    # for row in range(4):
+    #     if row %2 != 0:
+    #         ax.plot(wavset_sort, ds["VCSEL_wavmon_arr"][row][s_ind], '.-', color=odd_color)
+    #     else:
+    #         ax.plot(wavset_sort, ds["VCSEL_wavmon_arr"][row][s_ind], '.-', color=even_color)
+    for row in range(4):
+        if row %2 != 0:
+            ax.plot(wavset_sort, wavmon_arr[row], '.-', color=odd_color)
+        else:
+            ax.plot(wavset_sort, wavmon_arr[row], '.-', color=even_color)
+    #ax.set_xlim((0,1))
+
+    for wn in FFP_cal.m:
+        plt.axvline(wn, color='k', linestyle='--')
+    return fig, ax
+
+
+def plot_daq_sweepSpectra(ds0, savefig=False, fname=None, fpath=None, figsize=(5,6), wavvolt_HVCALIB=wavvolt_HVCALIB, verbose=True, fig=None, ax=None):
+    #First point in sweep already removed in unwrap_sweep()
+    HVA_Vset = ds0["HVA_Vset"]
+    wavelength_set = ds0["wavelength_set"]
+    HV_arr = ds0["HV_arr"]
+    raman_shift = ds0["raman_shift"] #sorted in order of increasing voltage
+
+    rs_sort = np.sort(raman_shift) #sorted by ascending wavelength (ascending raman_shift for tuning Stokes wavelength)
+
+    offset = 0*u.V
+    Vsrs_arr = (ds0["Vsrs_arr"] / 10 + offset).to(u.V).m * ds0["sens_lia"].to(u.V)
+
+    Vsrs_interp_arr = calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_HVCALIB=wavvolt_HVCALIB)
+    VCSEL_wavmon_arr = ds0["VCSEL_wavmon_arr"]
+
+    Vsrs_av = np.mean(Vsrs_interp_arr, axis=0)
+    uncal_Vsrs_av = np.mean(Vsrs_arr, axis=0)
+    
+    mind = np.nanargmax(Vsrs_av)
+    mind_uncal = np.nanargmax(uncal_Vsrs_av)
+    
+    print("Calib Peak at {:2.3f}".format(rs_sort[mind]))
+    print(f"Uncal Peak at {raman_shift[mind_uncal] :2.3f}")
+
+    if ax is None:
+        if verbose:
+            fig, ax = plt.subplots(3, 1, figsize=figsize, tight_layout=True)
+        else:
+            fig, ax = plt.subplots(1, 1, figsize=figsize, tight_layout=True)
+    
+    if verbose:
+        for spec in range(Vsrs_arr.shape[0]):
+            ax[0].plot(raman_shift, Vsrs_arr[spec].to(u.uV))
+            ax[1].plot(rs_sort, Vsrs_interp_arr[spec].to(u.uV))
+        
+        ax[2].plot(rs_sort, Vsrs_av.to(u.uV))
+        ax[2].plot(rs_sort[mind].m, Vsrs_av[mind].to(u.uV).m, 'x')
+        # ax[2].plot(raman_shift, np.mean(Vsrs_arr, axis=0).to(u.uV), 'k')
+        ax[0].set_ylabel("Voltage $(\mu V)$")
+        ax[0].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
+        ax[1].set_ylabel("Voltage $(\mu V)$")
+        ax[1].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
+        ax[2].set_xlabel("Raman Shift (1/cm)")
+        ax[2].set_ylabel("Voltage $(\mu V)$")
+        ax[2].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
+    else:
+        ax.plot(rs_sort, Vsrs_av.to(u.uV))
+        ax.set_xlabel("Raman Shift (1/cm)")
+        ax.set_ylabel("Voltage $(\mu V)$")
+        ax.set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
+    
+    if savefig:
+        fname=os.path.normpath(os.path.join(fpath,fname))
+        plt.savefig(fname, dpi=None, facecolor=None, edgecolor=None,
+            orientation='portrait', transparent=True, bbox_inches=None, pad_inches=0.5)
+    return fig, ax
+
+def calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_HVCALIB=wavvolt_HVCALIB):
+    """
+    Calibrate daq VCSEL sweep using HVA monitor.  Return calibrated Vsrs_interp_arr (wavelength interpolated to original wavelength set for consistent
+    Raman shifts between iterations)
+    wavelength_set: sorted by increasing voltage (same as HV_set) - see parse_wav_delay()
+    """
+    def line(x,a,b):
+        return a*x + b
+    
+    # Calibrate voltage to wavelength
+    a = io.loadmat(wavvolt_HVCALIB)
+    wav_calib =  (a['peak_interp'][0] * u.m).to(u.nm)
+    volt_calib = a['volt_interp'][0]*u.V
+
+    # Initialize arrays
+    HV_filt = np.array(np.zeros(HV_arr.shape))
+    wav_calib_arr = np.array(np.zeros(HV_arr.shape))
+    wav_calib_sort = np.array(np.zeros(HV_arr.shape))
+    Vsrs_interp_arr = np.array(np.zeros(HV_arr.shape))
+    Vsrs_arr_sort = np.array(np.zeros(HV_arr.shape))
+
+    
+    #sort set wavelength by increasing wavelength ------------------
+    wavset_sort = np.sort(wavelength_set)
+    dwav = np.mean(np.diff(wavset_sort))
+    #-----------------
+        
+    for spec in range(HV_arr.shape[0]):
+        popt,_ = curve_fit(line,HVA_Vset.to(u.V).m,HV_arr[spec].to(u.V).m)
+        HV_filt[spec] = line(HVA_Vset.m, popt[0], popt[1])
+    HV_filt = HV_filt*u.V 
+    
+    # Find wavelengths corresponding to measured voltage 
+    # fig, ax = plt.subplots(2,1)
+    for sweep_iter in range(HV_filt.shape[0]):
+        for wl in range(HV_filt.shape[1]):
+            ind = np.nanargmin(np.abs(HV_filt[sweep_iter, wl].m - volt_calib.m))
+            wav_calib_arr[sweep_iter, wl] = wav_calib[ind].m
+            
+        #sort extracted wavelength from HV mon by increasing wavelength
+        wlsort_ind = np.argsort(wav_calib_arr[sweep_iter])
+        wav_calib_sort[sweep_iter] = wav_calib_arr[sweep_iter, wlsort_ind]
+        Vsrs_arr_sort[sweep_iter] = Vsrs_arr[sweep_iter, wlsort_ind]
+        
+        # Interpolate wavelength vs spectra to uniformly sample in wavelength
+        Vsrs_interp_arr[sweep_iter,:] = np.interp(wavset_sort.to(u.nm).m, wav_calib_sort[sweep_iter,:], Vsrs_arr_sort[sweep_iter,:])
+
+        # Remove discontinuity
+        if np.max(np.diff(wav_calib_sort[sweep_iter,:])) > dwav.to(u.nm).m*2:
+            bad_ind = np.where(np.diff(wav_calib_sort[sweep_iter,:]) > dwav.to(u.nm).m*2)# | np.diff(wav_calib_sort[sweep_iter,:]) == 0)
+            bad_ind2 = np.where(np.diff(wav_calib_sort[sweep_iter,:]) == 0)
+            Vsrs_interp_arr[sweep_iter, bad_ind] = np.nan
+            Vsrs_interp_arr[sweep_iter, bad_ind2] = np.nan
+        # ax[0].plot(range(wavset_sort.shape[0]), wav_calib_arr[sweep_iter], color='blue')
+        # ax[0].plot(range(wavset_sort.shape[0]), wav_calib_sort[sweep_iter], color='red')
+        # ax[0].set_xlabel("Index")
+        # ax[0].set_ylabel("Wav calib")
+        # ax[1].plot(rs_set,  Vsrs_interp_arr[sweep_iter,:])
+        # ax[1].set_xlabel("Raman Shift")
+        # ax[1].set_ylabel("Vsrs interp")
+    return Vsrs_interp_arr*u.V
 
 
 """Calibration Curves"""
