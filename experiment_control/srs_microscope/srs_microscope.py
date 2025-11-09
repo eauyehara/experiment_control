@@ -479,12 +479,12 @@ def configure_scan(nx,ny,ΔVx,ΔVy,Vx0,Vy0,fsamp,ch_clock_str=None):
         ch_Vx_meas,
         ch_Vy_meas, 
         ch_range={
-            ch_Vx_p_str :   (0*u.V, np.max(Vx_scan / Vmeas_Vwrite)),
-            ch_Vx_n_str :   (np.min(-Vx_scan / Vmeas_Vwrite), 0*u.V),
-            ch_Vy_p_str :   (0*u.V, np.max(Vy_scan / Vmeas_Vwrite)),
-            ch_Vy_n_str :   (np.min(-Vy_scan / Vmeas_Vwrite), 0*u.V),
-            ch_Vx_meas  :   (0*u.V, np.max(Vx_scan)*1.5),
-            ch_Vy_meas  :   (0*u.V, np.max(Vy_scan)*1.5)
+            ch_Vx_p_str :   (np.min(Vx_scan / Vmeas_Vwrite), np.max(Vx_scan / Vmeas_Vwrite)),
+            ch_Vx_n_str :   (np.min(-Vx_scan / Vmeas_Vwrite), np.max(-Vx_scan / Vmeas_Vwrite)),
+            ch_Vy_p_str :   (np.min(Vy_scan / Vmeas_Vwrite), np.max(Vy_scan / Vmeas_Vwrite)),
+            ch_Vy_n_str :   (np.min(-Vy_scan / Vmeas_Vwrite), np.max(-Vy_scan / Vmeas_Vwrite)),
+            ch_Vx_meas  :   (-np.max(Vx_scan), np.max(Vx_scan)*1.5),
+            ch_Vy_meas  :   (-np.max(Vy_scan), np.max(Vy_scan)*1.5)
         }
     )
    
@@ -1299,12 +1299,16 @@ def plot_hyperspectral_scan(ds, Vsrs_hs: xr.DataArray, wavnum, wf_cmap=cm.gray, 
     plt.show()
     return fig
 
-def plot_pixel_spec(Vsrs_hs, x, y):
+def plot_pixel_spec(Vsrs_hs, x, y, ax=None, fig=None):
     """
     Plot the spectra at the specified x,y cooridnate
     """
     spec = Vsrs_hs.sel(x=x, y=-y, method="nearest")
-    fig, ax = plt.subplots(1,1, figsize=(6,4), tight_layout=True)
+    pk_shift = spec.idxmax(dim="raman_shift")
+    print(f"Peak at {pk_shift.values} 1/cm")
+    
+    if ax is None:
+        fig, ax = plt.subplots(1,1, figsize=(6,4), tight_layout=True)
     ax.plot(Vsrs_hs["raman_shift"], spec)
     ax.set_xlabel("Raman Shift ($cm^{-1}$)")
     ax.set_ylabel("Voltage (V)")
@@ -1730,7 +1734,7 @@ def generate_valid_sweep(wav_start, wav_stop, Δwav, wavvolt_file=wavvolt_file):
     return valid_wl_arr * u.nm
     
     
-def HVA_to_daq(HVA_volt, atten=0.09125, volt_limit=88.6*u.V, offset=0.15*u.V):
+def HVA_to_daq(HVA_volt, atten=0.09125, volt_limit=88.6*u.V, offset=0.14*u.V):
     # Convert the output HVA voltage (to VCSEL MEMS) to the daq input to the HVA
     # atten - from voltage divider between daq and HVA
     # V_gain = 98.3 # For Trek 2210 (measured)
@@ -1777,7 +1781,7 @@ def parse_wav_delay(wavelength_set, wavvolt_file=wavvolt_file, delayvolt_file=de
     a = io.loadmat(wavvolt_file) # Load wavvolt_file
     wav_calib =  (a['peak_interp'][0] * u.m).to(u.nm)
     volt_calib = a['volt_interp'][0]*u.V
-
+        
     if delayvolt_file is None:
         # No delayvolt_file (CW sweep), set VOA to 5V
         VOA_volt = np.ones(wav_calib.shape) * 5*u.V
@@ -1812,6 +1816,13 @@ def parse_wav_delay(wavelength_set, wavvolt_file=wavvolt_file, delayvolt_file=de
     HVA_Vsort = HVA_Vunsort[Vsort_ind] * u.V
     # wav_sort = wavelength_set[Vsort_ind]
     
+    #If wavelength_set crosses discontinuity, pad to minimize discontinuity
+    wav_disc = wav_calib[-1]
+    if (wav_disc > wavelength_set[0]) and (wav_disc < wavelength_set[-1]):
+        if HVA_Vsort[-1].m < volt_calib[-1].m:
+            print(f'Filling wavelength discontinuity')
+            HVA_Vsort = np.append(HVA_Vsort.m, volt_calib[-1].m) * u.V
+    
     #If step between voltages exceeds max_Vstep, fill increments with max Vstep
     if HVA_Vsort.shape[0] > 1:
         for i in range(HVA_Vsort.shape[0] - 1):
@@ -1823,6 +1834,7 @@ def parse_wav_delay(wavelength_set, wavvolt_file=wavvolt_file, delayvolt_file=de
                 HVA_Vset.extend(Vfill)
             else:
                 HVA_Vset.append(HVA_Vsort[i].to(u.V).m)
+        HVA_Vset.append(HVA_Vsort[-1].to(u.V).m)
     else:
         HVA_Vset.append(HVA_Vsort.m)
     HVA_Vset = HVA_Vset*u.V
@@ -1843,7 +1855,7 @@ def parse_wav_delay(wavelength_set, wavvolt_file=wavvolt_file, delayvolt_file=de
     VOA_Vset = VOA_Vset * u.V
         
     return daq_HVset, VOA_Vset, HVA_Vset, wavelength_set
-    
+   
 
 def set_VCSEL_wavelength(wavelength_set, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file):
     # Set VCSEL wavelength with VOA delay compensation - Use ramp_VCSEL instead (safer)
@@ -2017,7 +2029,7 @@ def find_raman(raman_pk, sweep_bw, t_lia, sens_lia, fixed_wav, Δwav=0.1*u.nm, n
     ax.set_ylabel("V_{srs} $(\mu V)$")
 
 
-def configure_VCSEL_sweep(wav_start, wav_stop, Δwav, fixed_wav, num_sweep, t_lia, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, ch_sync=None, trig_params=None, num_pix=1, pad_galvo_endpts=1):
+def configure_VCSEL_sweep(wav_start, wav_stop, Δwav, fixed_wav, num_sweep, t_lia, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, ch_sync=None, trig_params=None, num_pix=1, pad_galvo_endpts=1, τ_settle=5):
     #Create and return a task for VCSEL wavelength sweep (with VOA delay compensation)
     # - num_pix - if taking a hyperspectral image, tile each waveform sweep for num_pix pixels
     # - pad_galvo_endpts = 1 - pads sweep endpoints where galvos move with specified # of samples
@@ -2146,7 +2158,7 @@ def configure_VCSEL_sweep(wav_start, wav_stop, Δwav, fixed_wav, num_sweep, t_li
     return sweep_task, write_data, record_data
     
     
-def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia, fixed_wav,sample_dir=None, name=None, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, ch_sync=None, trig_params=None):
+def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia, fixed_wav,sample_dir=None, name=None, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, ch_sync=None, trig_params=None, τ_settle=5):
     """
     Acquire spectrum by continuously sweeping VCSEL wavelength and VOA voltage over specified range (faster acquisition)
         -VCSEL wavlength tuning with DAQ + HVA
@@ -2167,7 +2179,7 @@ def VCSEL_sweep_spectrum(wav_start, wav_stop, Δwav, num_sweep, t_lia, sens_lia,
     print("saving data to: ")
     print(spath)
     
-    sweep_task, write_data, record_data = configure_VCSEL_sweep(wav_start, wav_stop, Δwav, fixed_wav, num_sweep, t_lia, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, ch_sync=ch_sync, trig_params=trig_params)
+    sweep_task, write_data, record_data = configure_VCSEL_sweep(wav_start, wav_stop, Δwav, fixed_wav, num_sweep, t_lia, wavvolt_file=wavvolt_file, delayvolt_file=delayvolt_file, ch_sync=ch_sync, trig_params=trig_params, τ_settle=τ_settle)
 
     # Assign pump and Stokes wavelengths
     stokes_wav = record_data["wavelength_set"]
