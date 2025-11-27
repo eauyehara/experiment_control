@@ -602,7 +602,7 @@ def plot_daqsweep_wavmon(ds, ds_type='sweep', id_sweep_dir=False, colors=['b','g
     return fig, ax
 
 
-def plot_daq_sweepSpectra(ds0, savefig=False, fname=None, fpath=None, figsize=(5,6), wavvolt_HVCALIB=wavvolt_HVCALIB, verbose=True, fig=None, ax=None):
+def plot_daq_sweepSpectra(ds0, savefig=False, fname=None, fpath=None, figsize=(5,6), wavvolt_HVCALIB=wavvolt_HVCALIB, verbose=True, fig=None, ax=None, disc_tol=5, label=None):
     #First point in sweep already removed in unwrap_sweep()
     HVA_Vset = ds0["HVA_Vset"]
     wavelength_set = ds0["wavelength_set"]
@@ -638,7 +638,7 @@ def plot_daq_sweepSpectra(ds0, savefig=False, fname=None, fpath=None, figsize=(5
             ax[1].plot(rs_sort, Vsrs_interp_arr[spec].to(u.uV))
         
         ax[2].plot(rs_sort, Vsrs_av.to(u.uV))
-        ax[2].plot(rs_sort[mind].m, Vsrs_av[mind].to(u.uV).m, 'x')
+        ax[2].plot(rs_sort[mind].m, Vsrs_av[mind].to(u.uV).m, 'x', label=label)
         # ax[2].plot(raman_shift, np.mean(Vsrs_arr, axis=0).to(u.uV), 'k')
         ax[0].set_ylabel("Voltage $(\mu V)$")
         ax[0].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
@@ -648,7 +648,7 @@ def plot_daq_sweepSpectra(ds0, savefig=False, fname=None, fpath=None, figsize=(5
         ax[2].set_ylabel("Voltage $(\mu V)$")
         ax[2].set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
     else:
-        ax.plot(rs_sort, Vsrs_av.to(u.uV))
+        ax.plot(rs_sort, Vsrs_av.to(u.uV), label=label)
         ax.set_xlabel("Raman Shift (1/cm)")
         ax.set_ylabel("Voltage $(\mu V)$")
         ax.set_xlim((np.min(raman_shift.m), np.max(raman_shift.m)))
@@ -659,7 +659,8 @@ def plot_daq_sweepSpectra(ds0, savefig=False, fname=None, fpath=None, figsize=(5
             orientation='portrait', transparent=True, bbox_inches=None, pad_inches=0.5)
     return fig, ax
 
-def calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_HVCALIB=wavvolt_HVCALIB):
+
+def calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_HVCALIB=wavvolt_HVCALIB, disc_tol=5):
     """
     Calibrate daq VCSEL sweep using HVA monitor.  Return calibrated Vsrs_interp_arr (wavelength interpolated to original wavelength set for consistent
     Raman shifts between iterations)
@@ -707,8 +708,8 @@ def calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_H
         Vsrs_interp_arr[sweep_iter,:] = np.interp(wavset_sort.to(u.nm).m, wav_calib_sort[sweep_iter,:], Vsrs_arr_sort[sweep_iter,:])
 
         # Remove discontinuity
-        if np.max(np.diff(wav_calib_sort[sweep_iter,:])) > dwav.to(u.nm).m*2:
-            bad_ind = np.where(np.diff(wav_calib_sort[sweep_iter,:]) > dwav.to(u.nm).m*2)# | np.diff(wav_calib_sort[sweep_iter,:]) == 0)
+        if np.max(np.diff(wav_calib_sort[sweep_iter,:])) > dwav.to(u.nm).m*disc_tol:
+            bad_ind = np.where(np.diff(wav_calib_sort[sweep_iter,:]) > dwav.to(u.nm).m*disc_tol)# | np.diff(wav_calib_sort[sweep_iter,:]) == 0)
             bad_ind2 = np.where(np.diff(wav_calib_sort[sweep_iter,:]) == 0)
             Vsrs_interp_arr[sweep_iter, bad_ind] = np.nan
             Vsrs_interp_arr[sweep_iter, bad_ind2] = np.nan
