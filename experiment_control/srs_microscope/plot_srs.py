@@ -51,7 +51,9 @@ data_dir = os.path.join(home_dir,"Dropbox (MIT)","POE","srs_microscope_data","sr
 calib_dir = os.path.join(home_dir, "Documents", "Github","experiment_control","calibration_data","VCSEL_calibration")
 wavvolt_file = os.path.join(calib_dir, "wavvolt16_dev1b_15C_OE1076_0.00mW_2025-11-1.mat") #For wavelength set
 wavvolt_HVCALIB = os.path.join(calib_dir, "wavvolt_HVCALIB_GSdev1b_delayvolt16_BOA700mA_2025-11-2.mat") #For post-acquisition wavelength calibration
+wavvolt_sweepcal = os.path.join(calib_dir, "wavvolt16_sweepcal.mat") #For post-acquisition wavelength calibration
 delayvolt_file =os.path.join(calib_dir, "delayvolt16.mat")
+wavamp_file = os.path.join(calib_dir, 'wavamp_dev1b_delayvolt16P3_2025-12-10-22.h5' )
 
 """ Calibration data """
 
