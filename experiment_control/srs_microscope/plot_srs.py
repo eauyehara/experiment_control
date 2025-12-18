@@ -49,11 +49,23 @@ srs_rc_params = {
 # Directory for data save
 data_dir = os.path.join(home_dir,"Dropbox (MIT)","POE","srs_microscope_data","srs_microscope_scans")
 calib_dir = os.path.join(home_dir, "Documents", "Github","experiment_control","calibration_data","VCSEL_calibration")
-wavvolt_file = os.path.join(calib_dir, "wavvolt16_dev1b_15C_OE1076_0.00mW_2025-11-1.mat") #For wavelength set
-wavvolt_HVCALIB = os.path.join(calib_dir, "wavvolt_HVCALIB_GSdev1b_delayvolt16_BOA700mA_2025-11-2.mat") #For post-acquisition wavelength calibration
-wavvolt_sweepcal = os.path.join(calib_dir, "wavvolt16_sweepcal.mat") #For post-acquisition wavelength calibration
-delayvolt_file =os.path.join(calib_dir, "delayvolt16.mat")
+
+# wavvolt_file = os.path.join(calib_dir, "wavvolt16_dev1b_15C_OE1076_0.00mW_2025-11-1.mat") #For wavelength set
+# wavvolt_HVCALIB = os.path.join(calib_dir, "wavvolt_HVCALIB_GSdev1b_delayvolt16_BOA700mA_2025-11-2.mat") #For post-acquisition wavelength calibration
+# wavvolt_sweepcal = os.path.join(calib_dir, "wavvolt16_sweepcal.mat") #For post-acquisition wavelength calibration
+# delayvolt_file =os.path.join(calib_dir, "delayvolt16.mat")
+# wavamp_file = os.path.join(calib_dir, 'wavamp_dev1b_delayvolt16P3_2025-12-10-22.h5' )
+# wavamp_file2 = os.path.join(calib_dir, 'wavamp_dev1b_delayvolt16P3_2025-12-09-22-34-51.h5' )
+
+wavvolt_HVCALIB = os.path.join(calib_dir, "wavvolt_HVCALIB_dev1b_15C_OE1076_2025-12-13_delayvolt17.mat") #For post-acquisition wavelength calibration
+wavvolt_file = wavvolt_HVCALIB #For wavelength set
+wavvolt_sweepcal = wavvolt_file
+# wavvolt_sweepcal = os.path.join(calib_dir, "wavvolt17_sweepcal.mat") #For post-acquisition wavelength calibration
+delayvolt_file =os.path.join(calib_dir, "delayvolt17D.mat")
 wavamp_file = os.path.join(calib_dir, 'wavamp_dev1b_delayvolt16P3_2025-12-10-22.h5' )
+
+# wavamp_file = os.path.join(calib_dir, 'wavamp_dev1b_delayvolt17D_2025-12-.h5' )
+
 
 """ Calibration data """
 
@@ -726,6 +738,34 @@ def calibrate_sweepSpectra(wavelength_set, Vsrs_arr, HV_arr, HVA_Vset, wavvolt_H
 
 
 """Calibration Curves"""
+
+def find_peak_delay(ds0, sgolay_winlen, sgolay_polyord):
+    """
+    For generating wavamp_file
+    """
+    smoothed = np.zeros(ds0['trace_aray'].shape)
+    pks_val = []
+    pks_loc = []
+
+    #shift to center at first peak
+    pk0_i = np.argmax(ds0['trace_aray'][0,:])
+    time = ds0['x_axis'] - ds0['x_axis'][pk0_i]
+    for ind in range(ds0['trace_aray'].shape[0]):
+        smoothed[ind, :] = savgol_filter(ds0['trace_aray'][ind,:], window_length=sgolay_winlen, polyorder=sgolay_polyord)
+        Mind = np.argmax(smoothed[ind,:])
+        pks_val.append(smoothed[ind, Mind])
+        pks_loc.append(time[Mind].m) 
+    pks_loc = np.array(pks_loc)*u.s
+    pks_norm = pks_val/ np.max(pks_val)
+    fig,ax0 = plt.subplots(1,1, figsize=(6,4), tight_layout=True)
+    ax0.plot(time.to(u.ps), smoothed.T)
+    ax0.scatter(pks_loc.to(u.ps), pks_val, marker='x', color='r')
+    ax0.set_xlabel("Time [ps]")
+    ax0.set_ylabel("Voltage [V]")
+    
+    return pks_val, pks_loc, pks_norm
+
+
 def save_wavvolt(ds, volt_stop=None, f_interp=5000, name=None,sample_dir=None, cmap=cm.magma, smooth_param=None):
     """
     Interpolates voltage vs peak wavelength curve, saves wavvolt file with variables:
